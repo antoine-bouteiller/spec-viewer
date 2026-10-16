@@ -1,0 +1,15 @@
+[package]
+name = "plan-viewer"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[[bin]]
+name = "plan-viewer"
+path = "src/main.rs"
+
+[dependencies]
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
