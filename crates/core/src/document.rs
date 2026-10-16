@@ -3,30 +3,23 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::cache::Cache;
-use crate::{DocError, Meta, Parsed, body_below_header, meta_of, parse};
+use crate::{DocError, Document, parse};
 use plan_viewer_source::{read, resolve};
 
-/// One parse per document version.
-#[derive(Debug)]
-pub struct Body {
-    pub parsed: Parsed,
-}
-
 #[derive(Debug, Clone)]
-pub struct Document {
+pub struct Opened {
     pub path: PathBuf,
     pub root_path: String,
-    pub meta: Meta,
-    pub body: Arc<Body>,
+    pub document: Arc<Document>,
 }
 
 #[derive(Debug, Default)]
 pub struct Documents {
-    cache: Mutex<Cache<Arc<Body>>>,
+    cache: Mutex<Cache<Arc<Document>>>,
 }
 
 impl Documents {
-    pub fn open(&self, worktree: &Path, rel: &str) -> Result<Document, DocError> {
+    pub fn open(&self, worktree: &Path, rel: &str) -> Result<Opened, DocError> {
         let resolved = resolve(worktree, rel)?;
         let (source, stamp) = read(&resolved)?;
         let real_root = std::fs::canonicalize(worktree).map_err(|_| DocError::NotFound)?;
@@ -36,16 +29,15 @@ impl Documents {
             .unwrap_or(&resolved.real)
             .to_string_lossy()
             .into_owned();
-        let body = self.cache.lock().expect("document cache").cached(&resolved.real, stamp, || {
-            Arc::new(Body {
-                parsed: parse(&body_below_header(&source), &render_path),
-            })
+        let document = self.cache.lock().expect("document cache").cached(&resolved.real, stamp, || {
+            let mut document = parse(&source, &render_path);
+            document.meta = crate::parse_meta(&source, &resolved.file);
+            Arc::new(document)
         });
-        Ok(Document {
-            meta: meta_of(&source, &resolved.file),
+        Ok(Opened {
             path: resolved.file,
             root_path: resolved.root_path,
-            body,
+            document,
         })
     }
 }
@@ -70,14 +62,12 @@ mod tests {
         let directory = worktree();
         let documents = Documents::default();
         let document = documents.open(directory.path(), ".plan/a.md").unwrap();
-        assert_eq!(document.meta.title, "Alpha");
+        assert_eq!(document.document.meta.title, "Alpha");
         assert_eq!(document.root_path, ".plan/a.md");
-        let parsed = &document.body.parsed;
-        assert!(matches!(parsed.children.first(), Some(crate::Node::Element(element))
-            if element.tag == "h2" && element.attr("id") == Some("why")));
-        assert!(matches!(parsed.children.last(), Some(crate::Node::Element(element))
-            if element.children.iter().any(|node| matches!(node, crate::Node::Element(chip)
-                if chip.attr("data-ref") == Some("VC-1")))));
+        let parsed = &document.document;
+        assert!(matches!(parsed.blocks.first(), Some(crate::Block::Heading { depth: 2, id, .. }) if id == "why"));
+        assert!(matches!(parsed.blocks.last(), Some(crate::Block::Paragraph(content))
+            if content.iter().any(|node| matches!(node, crate::Inline::Xref { id, .. } if id == "VC-1"))));
     }
 
     #[test]
@@ -86,10 +76,11 @@ mod tests {
         let documents = Documents::default();
         let first = documents.open(directory.path(), ".plan/a.md").unwrap();
         let second = documents.open(directory.path(), ".plan/a.md").unwrap();
-        assert!(Arc::ptr_eq(&first.body, &second.body));
+        assert!(Arc::ptr_eq(&first.document, &second.document));
         std::fs::write(directory.path().join(".plan/a.md"), "# Alpha\n\n## Changed section\n").unwrap();
         let third = documents.open(directory.path(), ".plan/a.md").unwrap();
-        assert_eq!(third.body.parsed.toc[0].id, "changed-section");
+        assert_eq!(third.document.toc[0].id, "changed-section");
+        assert!(!Arc::ptr_eq(&first.document, &third.document));
     }
 
     #[test]

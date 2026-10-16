@@ -1,23 +1,16 @@
-//! Pure metadata and markdown/MDX parsing into an owned tree.
+//! Pure metadata and markdown/MDX parsing into a semantic document.
+mod ast;
 mod components;
 mod js;
 mod mdast;
 mod metadata;
 mod plugins;
-pub mod tree;
 mod types;
 
-pub use metadata::{body_below_header, meta_of};
-use tree::Node;
+pub use ast::*;
+pub use metadata::{body_below_header, meta_of, meta_of as parse_meta};
 pub use types::{Counts, Meta};
 
-#[derive(Clone, Debug, Default)]
-pub struct Parsed {
-    pub children: Vec<Node>,
-    pub toc: Vec<TocEntry>,
-    pub has_mermaid: bool,
-    pub degraded: Option<Degraded>,
-}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TocEntry {
     pub id: String,
@@ -30,12 +23,15 @@ pub struct Degraded {
     pub message: String,
     pub line: usize,
 }
-const BANNER_TEXT: &str = "MDX parsing failed; this document is shown as plain markdown.";
 
-pub fn parse(source: &str, path: &str) -> Parsed {
-    parse_with(source, path, pipeline)
+/// Parse the body below the document header; metadata describes the complete source.
+/// JavaScript in MDX is never executed, and parser failures never escape as panics.
+pub fn parse(source: &str, path: &str) -> Document {
+    let mut document = parse_with(&body_below_header(source), path, pipeline);
+    document.meta = parse_meta(source, std::path::Path::new(path));
+    document
 }
-fn pipeline(source: &str, path: &str) -> Result<Parsed, Degraded> {
+fn pipeline(source: &str, path: &str) -> Result<Document, Degraded> {
     let mut options = markdown::ParseOptions::gfm();
     if path.ends_with(".mdx") {
         options.constructs.html_flow = false;
@@ -47,23 +43,22 @@ fn pipeline(source: &str, path: &str) -> Result<Parsed, Degraded> {
         options.constructs.mdx_expression_flow = true;
         options.constructs.mdx_expression_text = true;
         options.constructs.mdx_esm = true;
-        // No JavaScript is executed. The available parser can recognize lexical boundaries;
-        // full Acorn expression/module validation is intentionally not simulated here.
+        // Only lexical boundaries are recognized, not full JavaScript validation.
         options.mdx_esm_parse = Some(Box::new(lexical_boundary));
         options.mdx_expression_parse = Some(Box::new(|value, _| lexical_boundary(value)));
     }
-    let mut root = markdown::to_mdast(source, &options).map_err(|error| failure_details(error, source))?;
+    let mut root = markdown::to_mdast(source, &options).map_err(failure_details)?;
     if path.ends_with(".mdx") {
         validate_trailing_jsx_marker(&root, source)?;
     }
     repair_line_endings(&mut root, source);
     let mut state = plugins::State::default();
-    let children = mdast::render_children(root.children().map(Vec::as_slice).unwrap_or(&[]), &mut state, path);
-    let toc = ordered_toc(&state.toc, &children);
-    Ok(Parsed {
-        children,
+    let blocks = mdast::convert_children(root.children().map(Vec::as_slice).unwrap_or(&[]), &mut state, path);
+    let toc = plugins::ordered_toc(&state.toc, &blocks);
+    Ok(Document {
+        meta: parse_meta(source, std::path::Path::new(path)),
+        blocks,
         toc,
-        has_mermaid: state.has_mermaid,
         degraded: None,
     })
 }
@@ -126,7 +121,7 @@ fn lexical_boundary(value: &str) -> markdown::MdxSignal {
         markdown::MdxSignal::Ok
     }
 }
-fn parse_with(source: &str, path: &str, run: impl Fn(&str, &str) -> Result<Parsed, Degraded>) -> Parsed {
+fn parse_with(source: &str, path: &str, run: impl Fn(&str, &str) -> Result<Document, Degraded>) -> Document {
     let safe_run = |path: &str| {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(source, path))).unwrap_or_else(|panic| {
             let message = panic
@@ -142,44 +137,25 @@ fn parse_with(source: &str, path: &str, run: impl Fn(&str, &str) -> Result<Parse
         })
     };
     match safe_run(path) {
-        Ok(parsed) => parsed,
+        Ok(document) => document,
         Err(degraded) => {
             let markdown_path = if path.ends_with(".mdx") { &path[..path.len() - 1] } else { path };
-            let mut parsed = safe_run(markdown_path).unwrap_or_else(|_| Parsed {
-                children: vec![tree::el("pre", &[], vec![Node::SourceText(source.into())])],
-                ..Parsed::default()
+            let mut document = safe_run(markdown_path).unwrap_or_else(|_| Document {
+                meta: parse_meta(source, std::path::Path::new(path)),
+                blocks: vec![Block::Code {
+                    lang: None,
+                    source: source.into(),
+                }],
+                toc: vec![],
+                degraded: None,
             });
-            parsed
-                .children
-                .insert(0, tree::el("div", &[("class", "md-degraded")], vec![tree::text(BANNER_TEXT)]));
-            parsed.degraded = Some(degraded);
-            parsed
+            document.blocks.insert(0, Block::Degraded);
+            document.degraded = Some(degraded);
+            document
         }
     }
 }
 
-fn ordered_toc(entries: &[TocEntry], nodes: &[Node]) -> Vec<TocEntry> {
-    fn visit(nodes: &[Node], entries: &[TocEntry], seen: &mut std::collections::HashSet<String>, toc: &mut Vec<TocEntry>) {
-        for node in nodes {
-            match node {
-                Node::Element(element) => {
-                    if let Some(id) = element.attr("id")
-                        && let Some(entry) = entries.iter().find(|entry| entry.id == id)
-                        && seen.insert(id.to_owned())
-                    {
-                        toc.push(entry.clone());
-                    }
-                    visit(&element.children, entries, seen, toc);
-                }
-                Node::Bridge(children) => visit(children, entries, seen, toc),
-                _ => {}
-            }
-        }
-    }
-    let mut toc = Vec::new();
-    visit(nodes, entries, &mut std::collections::HashSet::new(), &mut toc);
-    toc
-}
 #[cfg(test)]
 mod tests;
 
@@ -240,63 +216,15 @@ fn repair_line_endings(node: &mut markdown::mdast::Node, source: &str) {
     }
 }
 
-fn failure_details(error: markdown::message::Message, source: &str) -> Degraded {
-    let mut line = match error.place.as_deref() {
+fn failure_details(error: markdown::message::Message) -> Degraded {
+    let line = match error.place.as_deref() {
         Some(markdown::message::Place::Point(point)) => point.line,
         Some(markdown::message::Place::Position(position)) => position.start.line,
         None => 0,
     };
-    let mut message = error.reason;
-    if error.source.as_str() == "markdown-rs"
-        && (message.starts_with("Expected a closing tag") || message.starts_with("Unexpected closing tag"))
-    {
-        // mdast-util-mdx-jsx reports the full opening-tag range, not just its start.
-        if let Some(start) = message.find('(')
-            && let Some(end) = message[start..].find(')')
-        {
-            let location = &message[start + 1..start + end];
-            if let Some((row, column)) = location.split_once(':')
-                && let (Ok(row), Ok(column)) = (row.parse::<usize>(), column.parse::<usize>())
-            {
-                let line_start = source
-                    .split_inclusive('\n')
-                    .take(row.saturating_sub(1))
-                    .map(str::len)
-                    .sum::<usize>();
-                let offset = source
-                    .get(line_start..)
-                    .and_then(|rest| rest.char_indices().nth(column.saturating_sub(1)))
-                    .map(|(offset, _)| line_start + offset);
-                if let Some(offset) = offset
-                    && let Some(length) = opening_tag_length(&source[offset..])
-                {
-                    let tag = &source[offset..offset + length];
-                    let final_row = row + tag.bytes().filter(|byte| *byte == b'\n').count();
-                    let final_column = if let Some(index) = tag.rfind('\n') {
-                        tag[index + 1..].encode_utf16().count() + 1
-                    } else {
-                        column + tag.encode_utf16().count()
-                    };
-                    message.replace_range(start..start + end + 1, &format!("({row}:{column}-{final_row}:{final_column})"));
-                }
-            }
-        }
-        if message.starts_with("Expected a closing tag") && !message.contains(" before the end of ") {
-            line = 0;
-        }
-        for (rust, bun) in [
-            ("`Paragraph`", "`paragraph`"),
-            ("`Heading`", "`heading`"),
-            ("`Emphasis`", "`emphasis`"),
-            ("`Strong`", "`strong`"),
-            ("`Delete`", "`delete`"),
-        ] {
-            message = message.replace(rust, bun);
-        }
-    }
     Degraded {
         reason: "mdx-parse".into(),
-        message,
+        message: error.reason,
         line,
     }
 }

@@ -16,7 +16,7 @@ use ratatui::{
 
 use super::navigation::{self, Row};
 use crate::terminal::{Target, TargetSpan, TermDoc, Theme, status_color, to_terminal};
-use plan_viewer_core::{self as core, Counts, Docs, Document, Library, Project};
+use plan_viewer_core::{self as core, Counts, Docs, Library, Opened, Project};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
@@ -49,7 +49,7 @@ pub struct App {
     pub worktree: usize,
     pub tab: Tab,
     pub docs: Docs,
-    pub doc: Option<Document>,
+    pub doc: Option<Opened>,
     pub filter: String,
     pub diff: bool,
     pub expanded: HashSet<String>,
@@ -199,7 +199,7 @@ impl App {
             Ok(doc) => {
                 let all: Vec<_> = self.docs.plans.iter().chain(&self.docs.specs).cloned().collect();
                 self.expanded.extend(navigation::ancestors(&all, &doc.root_path, ""));
-                self.rendered = to_terminal(&doc.body.parsed, self.viewport.width.max(1), self.theme);
+                self.rendered = to_terminal(&doc.document, self.viewport.width.max(1), &self.theme);
                 self.doc = Some(doc);
                 self.scroll = 0;
                 self.rail_selection = self.rail_entries().iter().position(|entry| matches!(entry, RailEntry::File { path, .. } if self.doc.as_ref().is_some_and(|doc| doc.root_path == *path))).unwrap_or(0);
@@ -724,14 +724,19 @@ impl App {
             return;
         };
         let mut header = vec![Line::from(vec![
-            Span::styled(doc.meta.title.clone(), Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled(doc.document.meta.title.clone(), Style::default().add_modifier(Modifier::BOLD)),
             Span::styled(
-                doc.meta.status.as_ref().map(|status| format!(" [{status}]")).unwrap_or_default(),
-                Style::default().fg(status_color(doc.meta.status.as_deref().unwrap_or("unknown"))),
+                doc.document
+                    .meta
+                    .status
+                    .as_ref()
+                    .map(|status| format!(" [{status}]"))
+                    .unwrap_or_default(),
+                Style::default().fg(status_color(doc.document.meta.status.as_deref().unwrap_or("unknown"))),
             ),
         ])];
         let mut metrics = Vec::new();
-        for (label, counts) in [("AC", doc.meta.acceptance), ("T", doc.meta.tasks)] {
+        for (label, counts) in [("AC", doc.document.meta.acceptance), ("T", doc.document.meta.tasks)] {
             if counts.total > 0 {
                 metrics.push(Span::styled(
                     meter(label, counts),
@@ -739,12 +744,12 @@ impl App {
                 ));
             }
         }
-        metrics.push(Span::raw(format!("{} lines", doc.meta.lines)));
+        metrics.push(Span::raw(format!("{} lines", doc.document.meta.lines)));
         header.push(Line::from(metrics));
         let kind = navigation::find(&self.docs.plans, &doc.root_path)
             .or_else(|| navigation::find(&self.docs.specs, &doc.root_path))
             .map(|node| node.kind.as_str())
-            .or(doc.meta.kind.as_deref())
+            .or(doc.document.meta.kind.as_deref())
             .unwrap_or(if doc.root_path.starts_with(".plan/") { "plan" } else { "spec" });
         let mut details = vec![kind.to_string()];
         if doc.root_path.starts_with(".plan/")
@@ -753,21 +758,21 @@ impl App {
         {
             details.push(owner.name.clone());
         }
-        if !doc.meta.phases.is_empty() {
-            details.push(format!("{} phases", doc.meta.phases.len()));
+        if !doc.document.meta.phases.is_empty() {
+            details.push(format!("{} phases", doc.document.meta.phases.len()));
         }
-        if doc.meta.legacy {
+        if doc.document.meta.legacy {
             details.push("legacy format".into());
         }
-        if let Some(author) = &doc.meta.author {
+        if let Some(author) = &doc.document.meta.author {
             details.push(author.clone());
         }
-        if let Some(date) = &doc.meta.date {
+        if let Some(date) = &doc.document.meta.date {
             details.push(date.clone());
         }
         let mut metadata = vec![details.join(" · ")];
-        if !doc.meta.related.is_empty() {
-            metadata.push(format!("related: {}", doc.meta.related.join(", ")));
+        if !doc.document.meta.related.is_empty() {
+            metadata.push(format!("related: {}", doc.document.meta.related.join(", ")));
         }
         metadata.push(format!("{}  y path · Y name", doc.root_path));
         for value in metadata {
@@ -780,7 +785,7 @@ impl App {
         let regions = Layout::vertical([Constraint::Length(header.len() as u16), Constraint::Min(0)]).split(inner);
         frame.render_widget(Paragraph::new(header), regions[0]);
         if self.viewport.width != regions[1].width {
-            self.rendered = to_terminal(&doc.body.parsed, regions[1].width.max(1), self.theme);
+            self.rendered = to_terminal(&doc.document, regions[1].width.max(1), &self.theme);
             self.cancel_hints();
         }
         self.viewport = regions[1];

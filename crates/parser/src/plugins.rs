@@ -1,16 +1,12 @@
-use super::{
-    TocEntry,
-    tree::{Node, el, plain_text, text},
-};
+use crate::{Block, Component, Inline, TocEntry};
 use std::collections::HashSet;
 
 #[derive(Default)]
 pub(crate) struct State {
     pub used: HashSet<String>,
     pub toc: Vec<TocEntry>,
-    pub has_mermaid: bool,
 }
-pub(crate) fn strip_tags(value: &str) -> String {
+fn strip_tags(value: &str) -> String {
     let mut out = String::new();
     let mut rest = value;
     while let Some(start) = rest.find('<') {
@@ -25,12 +21,70 @@ pub(crate) fn strip_tags(value: &str) -> String {
     out.push_str(rest);
     out
 }
-fn heading_text(node: &Node) -> String {
-    match node {
-        Node::Text(value) | Node::ComponentText(value) | Node::SourceText(value) => value.clone(),
-        Node::Raw(value) => strip_tags(value),
-        Node::Element(element) => element.children.iter().map(heading_text).collect(),
-        Node::Bridge(nodes) => nodes.iter().map(heading_text).collect(),
+pub(crate) fn inline_text(nodes: &[Inline]) -> String {
+    nodes
+        .iter()
+        .map(|node| match node {
+            Inline::Text(value) | Inline::Code(value) => value.clone(),
+            Inline::Strong(content) | Inline::Emphasis(content) | Inline::Delete(content) | Inline::Link { content, .. } => {
+                inline_text(content)
+            }
+            Inline::Xref { id, .. } => id.clone(),
+            Inline::Raw(value) => strip_tags(value),
+            Inline::Break => "\n".into(),
+            Inline::Image { .. } => String::new(),
+            Inline::Component(component) => component_text(component),
+        })
+        .collect()
+}
+fn block_text(blocks: &[Block]) -> String {
+    blocks
+        .iter()
+        .map(|block| match block {
+            Block::Heading { content, .. } | Block::Paragraph(content) => inline_text(content),
+            Block::List { items, .. } => items.iter().map(|item| block_text(&item.blocks)).collect(),
+            Block::Quote(blocks) => block_text(blocks),
+            Block::Table { head, rows, .. } => head.iter().chain(rows.iter().flatten()).map(|cell| inline_text(cell)).collect(),
+            Block::Code { source, .. } | Block::Mermaid { source } => source.clone(),
+            Block::Raw(value) => strip_tags(value),
+            Block::Component(component) => component_text(component),
+            Block::Rule | Block::Degraded => String::new(),
+        })
+        .collect()
+}
+fn component_text(component: &Component) -> String {
+    match component {
+        Component::CodeTabs { tabs, blocks } => {
+            tabs.iter()
+                .map(|tab| format!("{}{}", tab.label, block_text(&tab.body.blocks)))
+                .collect::<String>()
+                + &block_text(blocks)
+        }
+        Component::Comparison { options, blocks } => {
+            options
+                .iter()
+                .map(|option| format!("{}{}", option.name, block_text(&option.body.blocks)))
+                .collect::<String>()
+                + &block_text(blocks)
+        }
+        Component::DecisionMatrix { blocks, .. } | Component::Unknown { blocks, .. } => block_text(blocks),
+        Component::AnnotatedDiff { blocks, notes } => {
+            block_text(blocks) + &notes.iter().map(|note| block_text(&note.body.blocks)).collect::<String>()
+        }
+        Component::Flowchart { source, details } => {
+            source.clone()
+                + &details
+                    .iter()
+                    .map(|detail| format!("{}{}", detail.name, block_text(&detail.body.blocks)))
+                    .collect::<String>()
+        }
+        Component::StepRail { steps, blocks } => {
+            steps
+                .iter()
+                .map(|step| format!("{}{}", step.title, block_text(&step.body.blocks)))
+                .collect::<String>()
+                + &block_text(blocks)
+        }
     }
 }
 fn slug(value: &str) -> String {
@@ -42,109 +96,78 @@ fn slug(value: &str) -> String {
     let slug = value.split_whitespace().collect::<Vec<_>>().join("-");
     if slug.is_empty() { "section".into() } else { slug }
 }
-pub(crate) fn resolve(nodes: &mut Vec<Node>, state: &mut State, path: &str) {
-    headings(nodes, state);
-    doc_links(nodes, path);
-    mermaid(nodes, state);
-    xrefs(nodes, false);
-}
-fn headings(nodes: &mut [Node], state: &mut State) {
-    for node in nodes {
-        if let Node::Element(element) = node {
-            if element.tag.len() == 2
-                && element.tag.starts_with('h')
-                && let Ok(depth @ 1..=6) = element.tag[1..].parse::<u8>()
-            {
-                let text = element.children.iter().map(heading_text).collect::<String>();
+pub(crate) fn resolve(blocks: &mut [Block], state: &mut State) {
+    // Component bodies were resolved independently while converting them.
+    for block in blocks {
+        match block {
+            Block::Heading { depth, id, content } => {
+                let text = inline_text(content);
                 let base = slug(&text);
-                let mut id = base.clone();
+                *id = base.clone();
                 let mut number = 2;
-                while state.used.contains(&id) {
-                    id = format!("{base}-{number}");
+                while state.used.contains(id) {
+                    *id = format!("{base}-{number}");
                     number += 1;
                 }
                 state.used.insert(id.clone());
-                element.set("id", id.clone());
-                if depth <= 3 {
-                    state.toc.push(TocEntry { id, text, depth });
+                if *depth <= 3 {
+                    state.toc.push(TocEntry {
+                        id: id.clone(),
+                        text,
+                        depth: *depth,
+                    });
+                }
+                xrefs(content);
+            }
+            Block::Paragraph(content) => xrefs(content),
+            Block::List { items, .. } => {
+                for item in items {
+                    resolve(&mut item.blocks, state);
                 }
             }
-            headings(&mut element.children, state);
+            Block::Quote(blocks) => resolve(blocks, state),
+            Block::Table { head, rows, .. } => {
+                for cell in head.iter_mut().chain(rows.iter_mut().flatten()) {
+                    xrefs(cell);
+                }
+            }
+            _ => {}
         }
     }
 }
-fn doc_links(nodes: &mut [Node], path: &str) {
-    for node in nodes {
-        if let Node::Element(element) = node {
-            if element.tag == "a"
-                && let Some(href) = element.attr("href")
-                && !href.starts_with('/')
-            {
-                let target = href.split('#').next().unwrap_or("");
-                if !target.contains(['?', ':']) && (target.ends_with(".md") || target.ends_with(".mdx")) {
-                    let mut segments = path.split('/').collect::<Vec<_>>();
-                    segments.pop();
-                    let mut escapes = false;
-                    for part in target.split('/').filter(|value| !value.is_empty() && *value != ".") {
-                        if part == ".." {
-                            if segments.pop().is_none() {
-                                escapes = true;
-                            }
-                        } else {
-                            segments.push(part);
-                        }
-                    }
-                    let resolved = segments.join("/");
-                    if !escapes && !resolved.is_empty() {
-                        element.set("data-doc", resolved);
-                    }
-                }
+pub(crate) fn doc_link(href: &str, path: &str) -> Option<String> {
+    if href.starts_with('/') {
+        return None;
+    }
+    let target = href.split('#').next().unwrap_or("");
+    if target.contains(['?', ':']) || !(target.ends_with(".md") || target.ends_with(".mdx")) {
+        return None;
+    }
+    let mut segments = path.split('/').collect::<Vec<_>>();
+    segments.pop();
+    let mut escapes = false;
+    for part in target.split('/').filter(|value| !value.is_empty() && *value != ".") {
+        if part == ".." {
+            if segments.pop().is_none() {
+                escapes = true;
             }
-            doc_links(&mut element.children, path);
+        } else {
+            segments.push(part);
         }
     }
-}
-fn mermaid(nodes: &mut [Node], state: &mut State) {
-    for node in nodes {
-        if let Node::Element(element) = node {
-            if element.tag == "pre"
-                && let Some(Node::Element(code)) = element
-                    .children
-                    .iter()
-                    .find(|character| matches!(character,Node::Element(element) if element.tag=="code"))
-                && code.attr("class").is_some_and(|character| {
-                    character
-                        .split_whitespace()
-                        .any(|character| character == "language-mermaid" || character == "language-mmd")
-                })
-            {
-                let value = code.children.iter().map(plain_text).collect::<String>();
-                element.attrs = vec![("class".into(), Some("mermaid".into()))];
-                element.children = vec![text(value)];
-                state.has_mermaid = true;
-            }
-            mermaid(&mut element.children, state);
-        }
-    }
+    let resolved = segments.join("/");
+    if escapes || resolved.is_empty() { None } else { Some(resolved) }
 }
 const KINDS: &[&str] = &["G", "NG", "PI", "KD", "SO", "CT", "VC", "C", "OQ", "EX"];
-fn chip(id: &str, prefix: &str) -> Node {
-    let kind = if KINDS.contains(&prefix) {
-        prefix.to_ascii_lowercase()
-    } else {
-        "other".into()
-    };
-    el(
-        "button",
-        &[
-            ("class", "xref-chip"),
-            ("data-kind", &kind),
-            ("data-ref", id),
-            ("title", &format!("Copy {id}")),
-            ("type", "button"),
-        ],
-        vec![text(id)],
-    )
+fn chip(id: &str, prefix: &str) -> Inline {
+    Inline::Xref {
+        id: id.into(),
+        family: if KINDS.contains(&prefix) {
+            prefix.to_ascii_lowercase()
+        } else {
+            "other".into()
+        },
+    }
 }
 fn bracketed(value: &str) -> Option<(&str, &str)> {
     let id = value.strip_prefix('[')?.strip_suffix(']')?;
@@ -170,7 +193,7 @@ fn bracketed(value: &str) -> Option<(&str, &str)> {
 fn word(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
-fn chipify(value: &str) -> Vec<Node> {
+fn chipify(value: &str) -> Vec<Inline> {
     let bytes = value.as_bytes();
     let mut out = Vec::new();
     let mut offset = 0;
@@ -190,7 +213,7 @@ fn chipify(value: &str) -> Vec<Node> {
             });
             if let Some((end, prefix)) = found {
                 if offset < index {
-                    out.push(text(&value[offset..index]));
+                    out.push(Inline::Text(value[offset..index].into()));
                 }
                 out.push(chip(&value[index..end], prefix));
                 offset = end;
@@ -201,34 +224,109 @@ fn chipify(value: &str) -> Vec<Node> {
         index += 1;
     }
     if offset < value.len() {
-        out.push(text(&value[offset..]));
+        out.push(Inline::Text(value[offset..].into()));
     }
     if out.is_empty() {
-        out.push(text(value));
+        out.push(Inline::Text(value.into()));
     }
     out
 }
-fn xrefs(nodes: &mut Vec<Node>, protected: bool) {
+fn xrefs(nodes: &mut Vec<Inline>) {
     let mut out = Vec::new();
     for mut node in std::mem::take(nodes) {
         match &mut node {
-            Node::Text(value) if !protected => {
+            Inline::Text(value) => {
                 out.extend(chipify(value));
                 continue;
             }
-            Node::Element(element) => {
-                if !protected
-                    && element.tag == "code"
-                    && let Some((id, prefix)) = bracketed(&element.children.iter().map(plain_text).collect::<String>())
-                {
+            Inline::Code(value) => {
+                if let Some((id, prefix)) = bracketed(value) {
                     out.push(chip(id, prefix));
                     continue;
                 }
-                xrefs(&mut element.children, protected || element.tag == "pre" || element.tag == "code");
             }
+            Inline::Strong(content) | Inline::Emphasis(content) | Inline::Delete(content) | Inline::Link { content, .. } => xrefs(content),
             _ => {}
         }
         out.push(node);
     }
     *nodes = out;
+}
+pub(crate) fn ordered_toc(entries: &[TocEntry], blocks: &[Block]) -> Vec<TocEntry> {
+    fn inlines(nodes: &[Inline], entries: &[TocEntry], seen: &mut HashSet<String>, toc: &mut Vec<TocEntry>) {
+        for node in nodes {
+            match node {
+                Inline::Strong(content) | Inline::Emphasis(content) | Inline::Delete(content) | Inline::Link { content, .. } => {
+                    inlines(content, entries, seen, toc)
+                }
+                Inline::Component(value) => component(value, entries, seen, toc),
+                _ => {}
+            }
+        }
+    }
+    fn component(value: &Component, entries: &[TocEntry], seen: &mut HashSet<String>, toc: &mut Vec<TocEntry>) {
+        match value {
+            Component::CodeTabs { tabs, blocks } => {
+                for tab in tabs {
+                    visit(&tab.body.blocks, entries, seen, toc);
+                }
+                visit(blocks, entries, seen, toc);
+            }
+            Component::Comparison { options, blocks } => {
+                for option in options {
+                    visit(&option.body.blocks, entries, seen, toc);
+                }
+                visit(blocks, entries, seen, toc);
+            }
+            Component::DecisionMatrix { blocks, .. } | Component::Unknown { blocks, .. } => visit(blocks, entries, seen, toc),
+            Component::AnnotatedDiff { blocks, notes } => {
+                visit(blocks, entries, seen, toc);
+                for note in notes {
+                    visit(&note.body.blocks, entries, seen, toc);
+                }
+            }
+            Component::Flowchart { details, .. } => {
+                for detail in details {
+                    visit(&detail.body.blocks, entries, seen, toc);
+                }
+            }
+            Component::StepRail { steps, blocks } => {
+                for step in steps {
+                    visit(&step.body.blocks, entries, seen, toc);
+                }
+                visit(blocks, entries, seen, toc);
+            }
+        }
+    }
+    fn visit(blocks: &[Block], entries: &[TocEntry], seen: &mut HashSet<String>, toc: &mut Vec<TocEntry>) {
+        for block in blocks {
+            match block {
+                Block::Heading { id, content, .. } => {
+                    if let Some(entry) = entries.iter().find(|entry| entry.id == *id)
+                        && seen.insert(id.clone())
+                    {
+                        toc.push(entry.clone());
+                    }
+                    inlines(content, entries, seen, toc);
+                }
+                Block::Paragraph(content) => inlines(content, entries, seen, toc),
+                Block::List { items, .. } => {
+                    for item in items {
+                        visit(&item.blocks, entries, seen, toc);
+                    }
+                }
+                Block::Quote(blocks) => visit(blocks, entries, seen, toc),
+                Block::Table { head, rows, .. } => {
+                    for cell in head.iter().chain(rows.iter().flatten()) {
+                        inlines(cell, entries, seen, toc);
+                    }
+                }
+                Block::Component(value) => component(value, entries, seen, toc),
+                _ => {}
+            }
+        }
+    }
+    let mut toc = Vec::new();
+    visit(blocks, entries, &mut HashSet::new(), &mut toc);
+    toc
 }

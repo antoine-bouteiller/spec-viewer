@@ -1,28 +1,14 @@
-use super::{
-    mdast::render_children,
-    plugins::State,
-    tree::{Node, el},
-};
+use super::{mdast::convert_children, plugins::State};
+use crate::{CodeTab, ComparisonOption, Component, ComponentBody, MarginNote, NodeDetail, Step};
 use markdown::mdast::{AttributeContent, AttributeValue, Node as Md};
 
-fn element(tag: &str, attrs: &[(&str, &str)], children: Vec<Node>) -> Node {
-    let mut node = el(tag, attrs, children);
-    if let Node::Element(element_node) = &mut node {
-        element_node.component = true;
+pub(crate) fn placeholder(name: &str, value: &str) -> Component {
+    Component::Unknown {
+        name: name.into(),
+        blocks: vec![crate::Block::Paragraph(vec![crate::Inline::Text(value.into())])],
     }
-    node
 }
-fn ct(value: &str) -> Node {
-    Node::ComponentText(value.into())
-}
-pub(crate) fn placeholder(name: &str, value: &str) -> Node {
-    Node::Bridge(vec![element(
-        "span",
-        &[("class", "md-unknown"), ("data-component", name)],
-        vec![ct(value)],
-    )])
-}
-fn literal_attributes(attrs: &[AttributeContent]) -> Vec<(&str, &str)> {
+pub(crate) fn literal_attributes(attrs: &[AttributeContent]) -> Vec<(&str, &str)> {
     attrs
         .iter()
         .filter_map(|attributes| {
@@ -36,7 +22,7 @@ fn literal_attributes(attrs: &[AttributeContent]) -> Vec<(&str, &str)> {
         })
         .collect()
 }
-fn value<'a>(attrs: &'a [(&str, &str)], name: &str) -> Option<&'a str> {
+pub(crate) fn value<'a>(attrs: &'a [(&str, &str)], name: &str) -> Option<&'a str> {
     attrs.iter().rev().find(|(key, _)| *key == name).map(|(_, value)| *value)
 }
 fn parts(node: &Md) -> Option<(&str, &[AttributeContent], &[Md])> {
@@ -59,7 +45,7 @@ fn groups<'a>(children: &'a [Md], name: &str) -> (Vec<&'a Md>, Vec<Md>) {
                 .any(|node| parts(node).is_some_and(|(value, _, _)| value == name))
             && property.children.iter().all(|node| {
                 parts(node).is_some_and(|(value, _, _)| value == name)
-                    || matches!(node,Md::Text(text_node) if text_node.value.chars().all(char::is_whitespace))
+                    || matches!(node, Md::Text(text) if text.value.chars().all(char::is_whitespace))
             })
         {
             accepted.extend(
@@ -74,127 +60,125 @@ fn groups<'a>(children: &'a [Md], name: &str) -> (Vec<&'a Md>, Vec<Md>) {
     }
     (accepted, remaining)
 }
-pub(crate) fn component(
-    name: Option<&str>,
-    attrs: &[AttributeContent],
-    children: &[Md],
-    inline: bool,
-    state: &mut State,
-    path: &str,
-) -> Node {
-    let name = name.unwrap_or("unknown");
+fn body(children: &[Md], state: &mut State, path: &str) -> ComponentBody {
+    ComponentBody {
+        inline: children.iter().all(|node| !super::mdast::is_block(node)),
+        blocks: convert_children(children, state, path),
+    }
+}
+pub(crate) fn component(name: &str, attrs: &[AttributeContent], children: &[Md], state: &mut State, path: &str) -> Component {
     let attrs = literal_attributes(attrs);
     match name {
-        "CodeTabs" | "Comparison" | "Flowchart" | "StepRail" => {
-            let (child_name, attr_name, fallback, tag, class, data) = match name {
-                "CodeTabs" => ("CodeTab", "label", "Tab", "section", "md-codetab-panel", "data-label"),
-                "Comparison" => ("Option", "name", "Option", "article", "md-comparison-option", "data-name"),
-                "Flowchart" => ("NodeDetail", "name", "Node", "section", "md-node-detail", "data-name"),
-                _ => ("Step", "title", "Step", "li", "md-step", "data-title"),
-            };
-            let (accepted, remaining) = groups(children, child_name);
-            let mut panels = Vec::new();
-            for (index, node) in accepted.into_iter().enumerate() {
-                let (_, attributes, children) = parts(node).unwrap();
-                let attributes = literal_attributes(attributes);
-                let default = format!("{fallback} {}", index + 1);
-                let label = value(&attributes, attr_name).unwrap_or(&default);
-                let mut body = vec![element("h3", &[], vec![ct(label)])];
-                body.extend(render_children(children, state, path));
-                panels.push(element(tag, &[("class", class), (data, label)], body));
-            }
-            match name {
-                "CodeTabs" => {
-                    panels.extend(render_children(&remaining, state, path));
-                    element("div", &[("class", "md-codetabs-wrapper")], panels)
-                }
-                "Comparison" => {
-                    panels.extend(render_children(&remaining, state, path));
-                    element(
-                        "section",
-                        &[("class", "md-comparison")],
-                        vec![element("div", &[("class", "md-comparison-grid")], panels)],
-                    )
-                }
-                "StepRail" => {
-                    panels.extend(render_children(&remaining, state, path));
-                    element("ol", &[("class", "md-steprail")], panels)
-                }
-                _ => {
-                    state.has_mermaid = true;
-                    let diagram = remaining.iter().map(ToString::to_string).collect::<String>();
-                    element(
-                        "div",
-                        &[("class", "md-flowchart")],
-                        vec![
-                            element("pre", &[("class", "mermaid")], vec![ct(&diagram)]),
-                            element("div", &[("class", "md-node-details")], panels),
-                        ],
-                    )
-                }
-            }
-        }
-        "DecisionMatrix" => element(
-            "table",
-            &[("class", "md-matrix")],
-            vec![element(
-                "tbody",
-                &[],
-                vec![element(
-                    "tr",
-                    &[],
-                    vec![element(
-                        "td",
-                        &[("data-score", value(&attrs, "score").unwrap_or(""))],
-                        render_children(children, state, path),
-                    )],
-                )],
-            )],
-        ),
-        "AnnotatedDiff" => {
-            let (notes, remaining) = groups(children, "MarginNote");
-            let mut markup = Vec::new();
-            for (index, node) in notes.into_iter().enumerate() {
-                let (_, attributes, children) = parts(node).unwrap();
-                let attributes = literal_attributes(attributes);
-                let default = (index + 1).to_string();
-                let line = value(&attributes, "line").unwrap_or(&default);
-                markup.push(element(
-                    "li",
-                    &[("class", "md-margin-note"), ("data-line", line)],
-                    render_children(children, state, path),
-                ));
-            }
-            element(
-                "figure",
-                &[("class", "md-annotated-diff")],
-                vec![
-                    element(
-                        "div",
-                        &[("class", "md-annotated-diff-content")],
-                        render_children(&remaining, state, path),
-                    ),
-                    element("ol", &[("class", "md-margin-notes")], markup),
-                ],
-            )
-        }
-        _ if name.as_bytes().first().is_some_and(u8::is_ascii_uppercase) => element(
-            if inline { "span" } else { "div" },
-            &[("class", "md-unknown"), ("data-component", name)],
-            render_children(children, state, path),
-        ),
-        _ => {
-            let attrs = attrs
-                .into_iter()
-                .filter(|(name, _)| {
-                    let mut chars = name.chars();
-                    chars
-                        .next()
-                        .is_some_and(|children| children.is_ascii_alphabetic() || children == '_' || children == ':')
-                        && chars.all(|children| children.is_ascii_alphanumeric() || matches!(children, ':' | '_' | '.' | '-'))
+        "CodeTabs" => {
+            let (accepted, remaining) = groups(children, "CodeTab");
+            let tabs = accepted
+                .iter()
+                .enumerate()
+                .map(|(index, node)| {
+                    let (_, attrs, children) = parts(node).unwrap();
+                    let attrs = literal_attributes(attrs);
+                    CodeTab {
+                        label: value(&attrs, "label")
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| format!("Tab {}", index + 1)),
+                        body: body(children, state, path),
+                    }
                 })
-                .collect::<Vec<_>>();
-            element(name, &attrs, render_children(children, state, path))
+                .collect();
+            Component::CodeTabs {
+                tabs,
+                blocks: convert_children(&remaining, state, path),
+            }
         }
+        "Comparison" => {
+            let (accepted, remaining) = groups(children, "Option");
+            let options = accepted
+                .iter()
+                .enumerate()
+                .map(|(index, node)| {
+                    let (_, attrs, children) = parts(node).unwrap();
+                    let attrs = literal_attributes(attrs);
+                    ComparisonOption {
+                        name: value(&attrs, "name")
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| format!("Option {}", index + 1)),
+                        body: body(children, state, path),
+                    }
+                })
+                .collect();
+            Component::Comparison {
+                options,
+                blocks: convert_children(&remaining, state, path),
+            }
+        }
+        "DecisionMatrix" => Component::DecisionMatrix {
+            score: value(&attrs, "score").unwrap_or("").into(),
+            blocks: convert_children(children, state, path),
+        },
+        "AnnotatedDiff" => {
+            let (accepted, remaining) = groups(children, "MarginNote");
+            let notes = accepted
+                .iter()
+                .enumerate()
+                .map(|(index, node)| {
+                    let (_, attrs, children) = parts(node).unwrap();
+                    let attrs = literal_attributes(attrs);
+                    MarginNote {
+                        line: value(&attrs, "line").map(str::to_owned).unwrap_or_else(|| (index + 1).to_string()),
+                        body: body(children, state, path),
+                    }
+                })
+                .collect();
+            Component::AnnotatedDiff {
+                blocks: convert_children(&remaining, state, path),
+                notes,
+            }
+        }
+        "Flowchart" => {
+            let (accepted, remaining) = groups(children, "NodeDetail");
+            let details = accepted
+                .iter()
+                .enumerate()
+                .map(|(index, node)| {
+                    let (_, attrs, children) = parts(node).unwrap();
+                    let attrs = literal_attributes(attrs);
+                    NodeDetail {
+                        name: value(&attrs, "name")
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| format!("Node {}", index + 1)),
+                        body: body(children, state, path),
+                    }
+                })
+                .collect();
+            Component::Flowchart {
+                source: remaining.iter().map(ToString::to_string).collect(),
+                details,
+            }
+        }
+        "StepRail" => {
+            let (accepted, remaining) = groups(children, "Step");
+            let steps = accepted
+                .iter()
+                .enumerate()
+                .map(|(index, node)| {
+                    let (_, attrs, children) = parts(node).unwrap();
+                    let attrs = literal_attributes(attrs);
+                    Step {
+                        title: value(&attrs, "title")
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| format!("Step {}", index + 1)),
+                        body: body(children, state, path),
+                    }
+                })
+                .collect();
+            Component::StepRail {
+                steps,
+                blocks: convert_children(&remaining, state, path),
+            }
+        }
+        _ => Component::Unknown {
+            name: name.into(),
+            blocks: convert_children(children, state, path),
+        },
     }
 }

@@ -10,10 +10,12 @@ mod tree;
 mod types;
 
 pub use corpus::docs;
-pub use document::{Body, Document, Document as Opened};
+pub use document::Opened;
 pub use library::Library;
-pub use plan_viewer_parser::tree::{Element, Node, plain_text};
-pub use plan_viewer_parser::{Counts, Degraded, Meta, Parsed, TocEntry, body_below_header, meta_of, parse};
+pub use plan_viewer_parser::{
+    Align, Block, CodeTab, ComparisonOption, Component, ComponentBody, Counts, Degraded, Document, Inline, ListItem, MarginNote, Meta,
+    NodeDetail, Step, TocEntry, body_below_header, meta_of, parse, parse_meta,
+};
 pub use plan_viewer_source::{DocError, Project, ResolvedDoc, Stamp, Watch, WatchResult, Worktree, watch};
 pub use tree::build_tree;
 pub use types::Docs as Corpus;

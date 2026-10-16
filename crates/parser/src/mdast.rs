@@ -1,13 +1,13 @@
-//! The mdast-util-to-hast handlers, with a structured component bridge.
+//! Convert markdown's syntax tree to renderer-independent blocks and inlines.
 use super::{
     components,
     plugins::{self, State},
-    tree::{Node, el, text, wrap},
 };
+use crate::{Align, Block, Inline, ListItem};
 use markdown::mdast::{self as markdown_ast, Node as Md};
 use std::collections::HashMap;
 
-pub(crate) fn render_children(children: &[Md], state: &mut State, path: &str) -> Vec<Node> {
+pub(crate) fn convert_children(children: &[Md], state: &mut State, path: &str) -> Vec<Block> {
     let mut converter = Converter {
         state,
         path,
@@ -17,14 +17,25 @@ pub(crate) fn render_children(children: &[Md], state: &mut State, path: &str) ->
         foot_counts: HashMap::new(),
     };
     converter.collect(children);
-    let all = converter.all(children);
-    let mut nodes = wrap(all, false);
-    if let Some(footer) = converter.footer() {
-        nodes.push(text("\n"));
-        nodes.push(footer);
-    }
-    plugins::resolve(&mut nodes, state, path);
-    nodes
+    let mut blocks = converter.blocks(children);
+    blocks.extend(converter.footer());
+    plugins::resolve(&mut blocks, converter.state);
+    blocks
+}
+pub(crate) fn is_block(node: &Md) -> bool {
+    matches!(
+        node,
+        Md::Paragraph(_)
+            | Md::Heading(_)
+            | Md::Blockquote(_)
+            | Md::Code(_)
+            | Md::List(_)
+            | Md::Table(_)
+            | Md::ThematicBreak(_)
+            | Md::MdxJsxFlowElement(_)
+            | Md::MdxFlowExpression(_)
+            | Md::MdxjsEsm(_)
+    )
 }
 struct Converter<'a> {
     state: &'a mut State,
@@ -37,7 +48,7 @@ struct Converter<'a> {
 impl Converter<'_> {
     fn collect(&mut self, nodes: &[Md]) {
         for node in nodes {
-            // Bun has already replaced component subtrees with raw HTML before collecting definitions.
+            // Each component has its own reference-definition scope.
             if matches!(node, Md::MdxJsxFlowElement(_) | Md::MdxJsxTextElement(_)) {
                 continue;
             }
@@ -59,15 +70,135 @@ impl Converter<'_> {
             }
         }
     }
-    fn all(&mut self, children: &[Md]) -> Vec<Node> {
+    fn blocks(&mut self, nodes: &[Md]) -> Vec<Block> {
+        let mut blocks = Vec::new();
+        let mut pending = Vec::new();
+        for node in nodes {
+            if matches!(node, Md::Definition(_) | Md::FootnoteDefinition(_)) {
+                continue;
+            }
+            if is_block(node) || matches!(node, Md::Html(_)) {
+                if !pending.is_empty() {
+                    blocks.push(Block::Paragraph(std::mem::take(&mut pending)));
+                }
+                blocks.extend(self.block(node));
+            } else {
+                pending.extend(self.inlines(std::slice::from_ref(node)));
+            }
+        }
+        if !pending.is_empty() {
+            blocks.push(Block::Paragraph(pending));
+        }
+        blocks
+    }
+    fn block(&mut self, node: &Md) -> Vec<Block> {
+        let block = match node {
+            Md::Root(node) => return self.blocks(&node.children),
+            Md::Paragraph(node) => Block::Paragraph(self.inlines(&node.children)),
+            Md::Heading(node) => Block::Heading {
+                depth: node.depth,
+                id: String::new(),
+                content: self.inlines(&node.children),
+            },
+            Md::Blockquote(node) => Block::Quote(self.blocks(&node.children)),
+            Md::Html(node) => Block::Raw(node.value.clone()),
+            Md::Code(node) => {
+                let source = if node.value.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}\n", node.value)
+                };
+                let lang = node
+                    .lang
+                    .as_deref()
+                    .and_then(|value| value.split_whitespace().next())
+                    .map(str::to_owned);
+                if matches!(lang.as_deref(), Some("mermaid" | "mmd")) {
+                    Block::Mermaid { source }
+                } else {
+                    Block::Code { lang, source }
+                }
+            }
+            Md::ThematicBreak(_) => Block::Rule,
+            Md::List(node) => {
+                let loose = node.spread || node.children.iter().any(|node| matches!(node, Md::ListItem(item) if item.spread));
+                let items = node
+                    .children
+                    .iter()
+                    .filter_map(|node| {
+                        if let Md::ListItem(item) = node {
+                            Some(ListItem {
+                                checked: item.checked,
+                                blocks: self.blocks(&item.children),
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                Block::List {
+                    ordered: node.ordered,
+                    start: node.start,
+                    loose,
+                    items,
+                }
+            }
+            Md::Table(node) => {
+                let mut rows = node
+                    .children
+                    .iter()
+                    .map(|row| {
+                        let cells = row.children().map(Vec::as_slice).unwrap_or(&[]);
+                        (0..node.align.len())
+                            .map(|index| {
+                                cells
+                                    .get(index)
+                                    .and_then(Md::children)
+                                    .map(|children| self.inlines(children))
+                                    .unwrap_or_default()
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect::<Vec<_>>();
+                let head = if rows.is_empty() { vec![] } else { rows.remove(0) };
+                let align = node
+                    .align
+                    .iter()
+                    .map(|align| match align {
+                        markdown_ast::AlignKind::None => Align::None,
+                        markdown_ast::AlignKind::Left => Align::Left,
+                        markdown_ast::AlignKind::Center => Align::Center,
+                        markdown_ast::AlignKind::Right => Align::Right,
+                    })
+                    .collect();
+                Block::Table { align, head, rows }
+            }
+            Md::MdxJsxFlowElement(node) => {
+                let name = node.name.as_deref().unwrap_or("unknown");
+                if name.as_bytes().first().is_some_and(u8::is_ascii_uppercase) {
+                    Block::Component(components::component(name, &node.attributes, &node.children, self.state, self.path))
+                } else {
+                    return self.literal_blocks(name, &node.attributes, &node.children);
+                }
+            }
+            Md::MdxFlowExpression(node) => Block::Component(components::placeholder("expression", &node.value)),
+            Md::MdxjsEsm(node) => Block::Component(components::placeholder("module", &node.value)),
+            _ => Block::Paragraph(self.inlines(std::slice::from_ref(node))),
+        };
+        vec![block]
+    }
+    fn inlines(&mut self, nodes: &[Md]) -> Vec<Inline> {
         let mut out = Vec::new();
-        for (index, node) in children.iter().enumerate() {
-            let mut nodes = self.one(node);
-            if index > 0 && matches!(children[index - 1], Md::Break(_)) && nodes.len() == 1 {
-                let first = match &mut nodes[0] {
-                    Node::Text(value) => Some(value),
-                    Node::Element(element) => match element.children.first_mut() {
-                        Some(Node::Text(value)) => Some(value),
+        for (index, node) in nodes.iter().enumerate() {
+            let mut converted = self.inline(node);
+            if index > 0 && matches!(nodes[index - 1], Md::Break(_)) && converted.len() == 1 {
+                let first = match &mut converted[0] {
+                    Inline::Text(value) | Inline::Code(value) => Some(value),
+                    Inline::Strong(children)
+                    | Inline::Emphasis(children)
+                    | Inline::Delete(children)
+                    | Inline::Link { content: children, .. } => match children.first_mut() {
+                        Some(Inline::Text(value)) => Some(value),
                         _ => None,
                     },
                     _ => None,
@@ -76,343 +207,181 @@ impl Converter<'_> {
                     *first = first.trim_start_matches([' ', '\t']).into();
                 }
             }
-            out.extend(nodes);
+            out.extend(converted);
         }
         out
     }
-    fn one(&mut self, node: &Md) -> Vec<Node> {
+    fn inline(&mut self, node: &Md) -> Vec<Inline> {
         let node = match node {
-            Md::Root(markdown_node) => return wrap(self.all(&markdown_node.children), false),
-            Md::Paragraph(markdown_node) => el("p", &[], self.all(&markdown_node.children)),
-            Md::Heading(markdown_node) => el(&format!("h{}", markdown_node.depth), &[], self.all(&markdown_node.children)),
-            Md::Blockquote(markdown_node) => el("blockquote", &[], wrap(self.all(&markdown_node.children), true)),
-            Md::Emphasis(markdown_node) => el("em", &[], self.all(&markdown_node.children)),
-            Md::Strong(markdown_node) => el("strong", &[], self.all(&markdown_node.children)),
-            Md::Delete(markdown_node) => el("del", &[], self.all(&markdown_node.children)),
-            Md::Text(markdown_node) => text(trim_lines(&markdown_node.value)),
-            Md::Html(markdown_node) => Node::Raw(markdown_node.value.clone()),
-            Md::InlineCode(markdown_node) => el(
-                "code",
-                &[],
-                vec![text(markdown_node.value.replace("\r\n", " ").replace(['\r', '\n'], " "))],
-            ),
-            Md::Code(markdown_node) => {
-                let value = if markdown_node.value.is_empty() {
-                    String::new()
-                } else {
-                    format!("{}\n", markdown_node.value)
-                };
-                let lang = markdown_node.lang.as_deref().and_then(|value| value.split_whitespace().next());
-                let attrs = lang.map(|value| format!("language-{value}"));
-                el(
-                    "pre",
-                    &[],
-                    vec![el(
-                        "code",
-                        &attrs.as_ref().map(|value| vec![("class", value.as_str())]).unwrap_or_default(),
-                        vec![text(value)],
-                    )],
-                )
-            }
-            Md::Break(_) => return vec![el("br", &[], vec![]), text("\n")],
-            Md::ThematicBreak(_) => el("hr", &[], vec![]),
-            Md::Link(markdown_node) => {
-                let mut attrs = vec![("href".into(), Some(uri(&markdown_node.url)))];
-                if let Some(title) = &markdown_node.title {
-                    attrs.push(("title".into(), Some(title.clone())));
-                }
-                let mut link = el("a", &[], self.all(&markdown_node.children));
-                if let Node::Element(element) = &mut link {
-                    element.attrs = attrs;
-                }
-                link
-            }
-            Md::Image(markdown_node) => image(&markdown_node.url, &markdown_node.alt, markdown_node.title.as_deref()),
-            Md::LinkReference(markdown_node) => {
-                if let Some(definition) = self.definitions.get(&markdown_node.identifier.to_uppercase()).cloned() {
-                    let mut link = el("a", &[("href", &uri(&definition.url))], self.all(&markdown_node.children));
-                    if let Some(title) = definition.title
-                        && let Node::Element(element) = &mut link
-                    {
-                        element.set("title", title);
+            Md::Text(node) => Inline::Text(trim_lines(&node.value)),
+            Md::Html(node) => Inline::Raw(node.value.clone()),
+            Md::Emphasis(node) => Inline::Emphasis(self.inlines(&node.children)),
+            Md::Strong(node) => Inline::Strong(self.inlines(&node.children)),
+            Md::Delete(node) => Inline::Delete(self.inlines(&node.children)),
+            Md::InlineCode(node) => Inline::Code(node.value.replace("\r\n", " ").replace(['\r', '\n'], " ")),
+            Md::Break(_) => Inline::Break,
+            Md::Link(node) => Inline::Link {
+                href: uri(&node.url),
+                doc: plugins::doc_link(&uri(&node.url), self.path),
+                content: self.inlines(&node.children),
+            },
+            Md::Image(node) => Inline::Image {
+                src: uri(&node.url),
+                alt: node.alt.clone(),
+            },
+            Md::LinkReference(node) => {
+                if let Some(definition) = self.definitions.get(&node.identifier.to_uppercase()).cloned() {
+                    Inline::Link {
+                        href: uri(&definition.url),
+                        doc: plugins::doc_link(&uri(&definition.url), self.path),
+                        content: self.inlines(&node.children),
                     }
-                    link
                 } else {
-                    return self.revert(
-                        node,
-                        &markdown_node.children,
-                        &markdown_node.reference_kind,
-                        markdown_node.label.as_deref(),
-                    );
+                    return self.revert(&node.children, &node.reference_kind, node.label.as_deref(), None);
                 }
             }
-            Md::ImageReference(markdown_node) => {
-                if let Some(definition) = self.definitions.get(&markdown_node.identifier.to_uppercase()).cloned() {
-                    image(&definition.url, &markdown_node.alt, definition.title.as_deref())
+            Md::ImageReference(node) => {
+                if let Some(definition) = self.definitions.get(&node.identifier.to_uppercase()) {
+                    Inline::Image {
+                        src: uri(&definition.url),
+                        alt: node.alt.clone(),
+                    }
                 } else {
-                    return self.revert(node, &[], &markdown_node.reference_kind, markdown_node.label.as_deref());
+                    return self.revert(&[], &node.reference_kind, node.label.as_deref(), Some(&node.alt));
                 }
             }
-            Md::List(markdown_node) => {
-                let loose = markdown_node.spread
-                    || markdown_node
-                        .children
-                        .iter()
-                        .any(|markdown_node| matches!(markdown_node,Md::ListItem(index) if index.spread));
-                let items = markdown_node
-                    .children
-                    .iter()
-                    .flat_map(|markdown_node| {
-                        if let Md::ListItem(index) = markdown_node {
-                            vec![self.list_item(index, loose)]
-                        } else {
-                            self.one(markdown_node)
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                let task = items
-                    .iter()
-                    .any(|markdown_node| matches!(markdown_node,Node::Element(element) if element.attr("class")==Some("task-list-item")));
-                let mut list = el(if markdown_node.ordered { "ol" } else { "ul" }, &[], wrap(items, true));
-                if let Node::Element(element) = &mut list {
-                    if let Some(start) = markdown_node.start
-                        && start != 1
-                    {
-                        element.set("start", start.to_string());
-                    }
-                    if task {
-                        element.set("class", "contains-task-list");
-                    }
-                }
-                list
-            }
-            Md::ListItem(markdown_node) => self.list_item(markdown_node, markdown_node.spread),
-            Md::Table(markdown_node) => {
-                let rows = markdown_node
-                    .children
-                    .iter()
-                    .enumerate()
-                    .map(|(index, row)| {
-                        let cells = row.children().map(Vec::as_slice).unwrap_or(&[]);
-                        let cells = markdown_node
-                            .align
-                            .iter()
-                            .enumerate()
-                            .map(|(cell_index, align)| {
-                                let align = match align {
-                                    markdown_ast::AlignKind::Left => Some("left"),
-                                    markdown_ast::AlignKind::Right => Some("right"),
-                                    markdown_ast::AlignKind::Center => Some("center"),
-                                    markdown_ast::AlignKind::None => None,
-                                };
-                                el(
-                                    if index == 0 { "th" } else { "td" },
-                                    &align.map(|value| vec![("align", value)]).unwrap_or_default(),
-                                    cells
-                                        .get(cell_index)
-                                        .and_then(Md::children)
-                                        .map(|children| self.all(children))
-                                        .unwrap_or_default(),
-                                )
-                            })
-                            .collect();
-                        el("tr", &[], wrap(cells, true))
-                    })
-                    .collect::<Vec<_>>();
-                let mut groups = Vec::new();
-                let mut iter = rows.into_iter();
-                if let Some(head) = iter.next() {
-                    groups.push(el("thead", &[], wrap(vec![head], true)));
-                }
-                let body = iter.collect::<Vec<_>>();
-                if !body.is_empty() {
-                    groups.push(el("tbody", &[], wrap(body, true)));
-                }
-                el("table", &[], wrap(groups, true))
-            }
-            Md::TableRow(markdown_node) => el("tr", &[], wrap(self.all(&markdown_node.children), true)),
-            Md::TableCell(markdown_node) => el("td", &[], self.all(&markdown_node.children)),
-            Md::FootnoteReference(markdown_node) => {
-                let id = markdown_node.identifier.to_uppercase();
-                let safe = uri(&id.to_lowercase());
+            Md::FootnoteReference(node) => {
+                let id = node.identifier.to_uppercase();
                 if !self.foot_counts.contains_key(&id) {
                     self.foot_order.push(id.clone());
                 }
                 let index = self.foot_order.iter().position(|value| value == &id).unwrap() + 1;
-                let count = self.foot_counts.entry(id).or_insert(0);
-                *count += 1;
-                let suffix = if *count > 1 { format!("-{count}") } else { String::new() };
-                let mut anchor = el(
-                    "a",
-                    &[
-                        ("href", &format!("#user-content-fn-{safe}")),
-                        ("id", &format!("user-content-fnref-{safe}{suffix}")),
-                    ],
-                    vec![text(index.to_string())],
-                );
-                if let Node::Element(element) = &mut anchor {
-                    element.attrs.push(("data-footnote-ref".into(), None));
-                    element.set("aria-describedby", "footnote-label");
+                *self.foot_counts.entry(id).or_insert(0) += 1;
+                Inline::Link {
+                    href: String::new(),
+                    doc: None,
+                    content: vec![Inline::Text(index.to_string())],
                 }
-                el("sup", &[], vec![anchor])
             }
-            Md::MdxJsxFlowElement(markdown_node) => Node::Bridge(vec![components::component(
-                markdown_node.name.as_deref(),
-                &markdown_node.attributes,
-                &markdown_node.children,
-                false,
-                self.state,
-                self.path,
-            )]),
-            Md::MdxJsxTextElement(markdown_node) => Node::Bridge(vec![components::component(
-                markdown_node.name.as_deref(),
-                &markdown_node.attributes,
-                &markdown_node.children,
-                true,
-                self.state,
-                self.path,
-            )]),
-            Md::MdxFlowExpression(markdown_node) => components::placeholder("expression", &markdown_node.value),
-            Md::MdxTextExpression(markdown_node) => components::placeholder("expression", &markdown_node.value),
-            Md::MdxjsEsm(markdown_node) => components::placeholder("module", &markdown_node.value),
+            Md::MdxJsxTextElement(node) => {
+                let name = node.name.as_deref().unwrap_or("unknown");
+                if name.as_bytes().first().is_some_and(u8::is_ascii_uppercase) {
+                    Inline::Component(Box::new(components::component(
+                        name,
+                        &node.attributes,
+                        &node.children,
+                        self.state,
+                        self.path,
+                    )))
+                } else {
+                    let content = self.literal_inlines(name, &node.attributes, &node.children);
+                    let mut blocks = vec![Block::Paragraph(content)];
+                    plugins::resolve(&mut blocks, self.state);
+                    Inline::Component(Box::new(crate::Component::Unknown { name: name.into(), blocks }))
+                }
+            }
+            Md::MdxTextExpression(node) => Inline::Component(Box::new(components::placeholder("expression", &node.value))),
             Md::Definition(_) | Md::FootnoteDefinition(_) => return vec![],
-            _ => text(node.to_string()),
+            _ => Inline::Text(node.to_string()),
         };
         vec![node]
     }
-    fn revert(&mut self, node: &Md, children: &[Md], kind: &markdown_ast::ReferenceKind, label: Option<&str>) -> Vec<Node> {
-        let image = matches!(node, Md::ImageReference(_));
-        let mut result = vec![text(if image { "![" } else { "[" })];
-        if let Md::ImageReference(markdown_node) = node {
-            result.push(text(&markdown_node.alt));
+    fn literal_inlines(&mut self, name: &str, attrs: &[markdown_ast::AttributeContent], children: &[Md]) -> Vec<Inline> {
+        let attrs = components::literal_attributes(attrs);
+        let content = self.inlines(children);
+        let node = match name {
+            "strong" | "b" => Inline::Strong(content),
+            "em" | "i" => Inline::Emphasis(content),
+            "del" => Inline::Delete(content),
+            "code" => Inline::Code(plugins::inline_text(&content)),
+            // Literal JSX links aren't document links; only markdown links are resolved.
+            "a" => Inline::Link {
+                href: components::value(&attrs, "href").unwrap_or("").into(),
+                doc: None,
+                content,
+            },
+            "br" => Inline::Break,
+            "img" => Inline::Image {
+                alt: components::value(&attrs, "alt").unwrap_or("").into(),
+                src: components::value(&attrs, "src").unwrap_or("").into(),
+            },
+            "input" => Inline::Text("[ ] ".into()),
+            _ => return content,
+        };
+        vec![node]
+    }
+    fn literal_blocks(&mut self, name: &str, attrs: &[markdown_ast::AttributeContent], children: &[Md]) -> Vec<Block> {
+        let blocks = convert_children(children, self.state, self.path);
+        match name {
+            "blockquote" => vec![Block::Quote(blocks)],
+            "hr" => vec![Block::Rule],
+            _ => {
+                let _ = attrs;
+                blocks
+            }
+        }
+    }
+    fn revert(&mut self, children: &[Md], kind: &markdown_ast::ReferenceKind, label: Option<&str>, image: Option<&str>) -> Vec<Inline> {
+        let mut result = vec![Inline::Text(if image.is_some() { "![" } else { "[" }.into())];
+        if let Some(alt) = image {
+            result.push(Inline::Text(alt.into()));
         } else {
-            result.extend(self.all(children));
+            result.extend(self.inlines(children));
         }
         let suffix = match kind {
             markdown_ast::ReferenceKind::Full => format!("][{}]", label.unwrap_or("")),
             markdown_ast::ReferenceKind::Collapsed => "][]".into(),
             markdown_ast::ReferenceKind::Shortcut => "]".into(),
         };
-        result.push(text(suffix));
+        result.push(Inline::Text(suffix));
         result
     }
-    fn list_item(&mut self, markdown_node: &markdown_ast::ListItem, loose: bool) -> Node {
-        let mut results = self.all(&markdown_node.children);
-        let mut attrs = Vec::new();
-        if let Some(checked) = markdown_node.checked {
-            if !matches!(results.first(),Some(Node::Element(element)) if element.tag=="p") {
-                results.insert(0, el("p", &[], vec![]));
-            }
-            if let Node::Element(paragraph) = &mut results[0] {
-                if !paragraph.children.is_empty() {
-                    paragraph.children.insert(0, text(" "));
-                }
-                let mut input = el("input", &[("type", "checkbox")], vec![]);
-                if let Node::Element(element) = &mut input {
-                    if checked {
-                        element.attrs.push(("checked".into(), None));
-                    }
-                    element.attrs.push(("disabled".into(), None));
-                }
-                paragraph.children.insert(0, input);
-            }
-            attrs.push(("class", "task-list-item"));
-        }
-        let tail_p = matches!(results.last(),Some(Node::Element(element)) if element.tag=="p");
-        let nonempty = !results.is_empty();
-        let mut children = Vec::new();
-        for (index, child) in results.into_iter().enumerate() {
-            let paragraph = matches!(&child,Node::Element(element) if element.tag=="p");
-            if loose || index != 0 || !paragraph {
-                children.push(text("\n"));
-            }
-            if !loose
-                && paragraph
-                && let Node::Element(element) = child
-            {
-                children.extend(element.children);
-            } else {
-                children.push(child);
-            }
-        }
-        if nonempty && (loose || !tail_p) {
-            children.push(text("\n"));
-        }
-        el("li", &attrs, children)
-    }
-    fn footer(&mut self) -> Option<Node> {
+    fn footer(&mut self) -> Vec<Block> {
         let mut items = Vec::new();
         let mut index = 0;
         while index < self.foot_order.len() {
             let id = self.foot_order[index].clone();
             if let Some(definition) = self.footnotes.get(&id).cloned() {
-                let mut content = self.all(&definition.children);
-                let safe = uri(&id.to_lowercase());
+                let mut blocks = self.blocks(&definition.children);
                 let mut back = Vec::new();
                 for count in 1..=*self.foot_counts.get(&id).unwrap_or(&0) {
                     if !back.is_empty() {
-                        back.push(text(" "));
+                        back.push(Inline::Text(" ".into()));
                     }
-                    let suffix = if count > 1 { format!("-{count}") } else { String::new() };
-                    let mut children = vec![text("↩")];
-                    if count > 1 {
-                        children.push(el("sup", &[], vec![text(count.to_string())]));
-                    }
-                    back.push(el(
-                        "a",
-                        &[
-                            ("href", &format!("#user-content-fnref-{safe}{suffix}")),
-                            ("data-footnote-backref", ""),
-                            ("aria-label", &format!("Back to reference {}{suffix}", index + 1)),
-                            ("class", "data-footnote-backref"),
-                        ],
-                        children,
-                    ));
+                    back.push(Inline::Link {
+                        href: String::new(),
+                        doc: None,
+                        content: vec![Inline::Text(if count > 1 { format!("↩{count}") } else { "↩".into() })],
+                    });
                 }
-                if let Some(Node::Element(paragraph)) = content.last_mut()
-                    && paragraph.tag == "p"
-                {
-                    if let Some(Node::Text(value)) = paragraph.children.last_mut() {
-                        value.push(' ');
-                    } else {
-                        paragraph.children.push(text(" "));
-                    }
-                    paragraph.children.extend(back);
-                } else {
+                if let Some(Block::Paragraph(content)) = blocks.last_mut() {
+                    content.push(Inline::Text(" ".into()));
                     content.extend(back);
+                } else {
+                    blocks.push(Block::Paragraph(back));
                 }
-                items.push(el("li", &[("id", &format!("user-content-fn-{safe}"))], wrap(content, true)));
+                items.push(ListItem { checked: None, blocks });
             }
             index += 1;
         }
         if items.is_empty() {
-            None
+            vec![]
         } else {
-            let mut section = el(
-                "section",
-                &[],
-                vec![
-                    el("h2", &[("class", "sr-only"), ("id", "footnote-label")], vec![text("Footnotes")]),
-                    text("\n"),
-                    el("ol", &[], wrap(items, true)),
-                    text("\n"),
-                ],
-            );
-            if let Node::Element(element) = &mut section {
-                element.attrs = vec![("data-footnotes".into(), None), ("class".into(), Some("footnotes".into()))];
-            }
-            Some(section)
+            vec![
+                Block::Heading {
+                    depth: 2,
+                    id: String::new(),
+                    content: vec![Inline::Text("Footnotes".into())],
+                },
+                Block::List {
+                    ordered: true,
+                    start: None,
+                    loose: true,
+                    items,
+                },
+            ]
         }
     }
-}
-fn image(url: &str, alt: &str, title: Option<&str>) -> Node {
-    let mut image = el("img", &[("src", &uri(url)), ("alt", alt)], vec![]);
-    if let Some(title) = title
-        && let Node::Element(element) = &mut image
-    {
-        element.set("title", title);
-    }
-    image
 }
 pub(crate) fn uri(value: &str) -> String {
     let bytes = value.as_bytes();
