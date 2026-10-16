@@ -6,6 +6,7 @@ pub mod highlight;
 mod html;
 mod mdast;
 mod plugins;
+pub mod terminal;
 pub mod tree;
 
 use serde::{Deserialize, Serialize};

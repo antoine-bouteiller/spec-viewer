@@ -1,0 +1,52 @@
+---
+source: tests/tui.rs
+expression: draw(&mut app)
+---
+┌corpus · Plans────────────────────────┐┌Sections────────────────┐┌Document────────────────────────────────────────────────────────────────────────────────────┐
+│feature (main) ▾                      ││§ Overview              ││Standalone spec [done]                                                                      │
+│plans [specs] Diff                    ││  § Details             ││7 lines                                                                                     │
+│/                                     ││                        ││leaf · Fixture Author · 2026-01-02                                                          │
+│▸ doc/architecture                    ││                        ││related: doc/architecture/viewer.spec.md                                                    │
+│▾ spec                                ││                        ││spec/standalone.spec.md  y path · Y name                                                    │
+│    Broken MDX [draft]                ││                        ││────────────────────────────────────────────────────────────────────────────────────────────│
+│    Raw HTML                          ││                        ││Overview                                                                                    │
+│    Spec Dialect Fixture [accepted]   ││                        ││                                                                                            │
+│    Standalone spec [done]            ││                        ││Changed body on the current branch.                                                         │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││Details                                                                                     │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││A section outline.                                                                          │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+└──────────────────────────────────────┘└────────────────────────┘└────────────────────────────────────────────────────────────────────────────────────────────┘
+Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · r rail · q quit

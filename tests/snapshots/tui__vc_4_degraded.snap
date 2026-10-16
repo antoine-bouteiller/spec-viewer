@@ -1,0 +1,52 @@
+---
+source: tests/tui.rs
+expression: draw(&mut app)
+---
+┌corpus · Plans────────────────────────┐┌Sections────────────────┐┌Document────────────────────────────────────────────────────────────────────────────────────┐
+│feature (main) ▾                      ││§ Fallback              ││Broken MDX [draft]                                                                          │
+│plans [specs] Diff                    ││                        ││5 lines                                                                                     │
+│/                                     ││                        ││leaf                                                                                        │
+│▾ doc/architecture                    ││                        ││spec/broken.spec.mdx  y path · Y name                                                       │
+│    Unlinked sibling [draft]          ││                        ││────────────────────────────────────────────────────────────────────────────────────────────│
+│    Viewer umbrella [accepted]        ││                        ││⚠ MDX parsing failed; this document is shown as plain markdown.                             │
+│▾ spec                                ││                        ││                                                                                            │
+│    Broken MDX [draft]                ││                        ││Fallback                                                                                    │
+│    Raw HTML                          ││                        ││                                                                                            │
+│    Spec Dialect Fixture [accepted]   ││                        ││<StepRail>                                                                                  │
+│    Standalone spec [done]            ││                        ││                                                                                            │
+│                                      ││                        ││Unclosed source remains visible.                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
+└──────────────────────────────────────┘└────────────────────────┘└────────────────────────────────────────────────────────────────────────────────────────────┘
+Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · r rail · q quit

@@ -1,0 +1,52 @@
+---
+source: tests/tui.rs
+expression: draw(&mut app)
+---
+┌corpus · Plans────────────────────────┐┌Sections────────────────┐┌Document────────────────────────────────────────────────────────────────────────────────────┐
+│feature (main) ▾                      ││§ 1. Overview           ││Spec Dialect Fixture [accepted]                                                             │
+│plans [specs] Diff                    ││  § 1.1 Rendered table  ││140 lines                                                                                   │
+│/                                     ││§ 2. Component dialect  ││leaf                                                                                        │
+│▸ doc/architecture                    ││§ 3. Code and diagrams  ││spec/dialect.spec.mdx  y path · Y name                                                      │
+│▾ spec                                ││  § 3.1 Closing notes   ││────────────────────────────────────────────────────────────────────────────────────────────│
+│    Broken MDX [draft]                ││                        ││                                                                                            │
+│    Raw HTML                          ││                        ││── json ──                                                                                  │
+│    Spec Dialect Fixture [accepted]   ││                        ││{                                                                                           │
+│    Standalone spec [done]            ││                        ││  "title": "Spec Dialect Fixture",                                                          │
+│                                      ││                        ││  "status": "accepted",                                                                     │
+│                                      ││                        ││  "checks": ["components", "mermaid"]                                                       │
+│                                      ││                        ││}                                                                                           │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││Keep source visible                                                                         │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││Readable source gives reviewers a dependable fallback.                                      │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││Enhance in browser                                                                          │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││The browser can replace valid Mermaid only after the document arrives.                      │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││┌──────────────────────────────────────────────────────────────────────────────┐            │
+│                                      ││                        │││ Score: 4                                                                     │            │
+│                                      ││                        │││ The selected path retains source while presenting a compact decision matrix. │            │
+│                                      ││                        ││└──────────────────────────────────────────────────────────────────────────────┘            │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││── diff ──                                                                                  │
+│                                      ││                        ││- const mode = "draft";                                                                     │
+│                                      ││                        ││+ const mode = "accepted";                                                                  │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││1. line 1                                                                                   │
+│                                      ││                        ││   The removed value was only provisional.                                                  │
+│                                      ││                        ││2. line 2                                                                                   │
+│                                      ││                        ││   The replacement matches the fixture status.                                              │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││── mermaid ──                                                                               │
+│                                      ││                        ││flowchart TD                                                                                │
+│                                      ││                        ││Draft[Draft] --> Review[Review]                                                             │
+│                                      ││                        ││Review --> Accepted[Accepted]                                                               │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││Draft                                                                                       │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││An author starts with ordinary prose and examples.                                          │
+│                                      ││                        ││                                                                                            │
+│                                      ││                        ││Accepted                                                                                    │
+└──────────────────────────────────────┘└────────────────────────┘└────────────────────────────────────────────────────────────────────────────────────────────┘
+Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · r rail · q quit
