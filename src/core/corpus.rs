@@ -222,7 +222,7 @@ mod tests {
         );
         assert_eq!(result.specs.len(), 1);
         assert_eq!((&*result.specs[0].name, &*result.specs[0].kind), ("Spec", "unknown"));
-        assert_eq!(serde_json::to_value(result).unwrap()["changedSpecs"], serde_json::Value::Null);
+        assert_eq!(result.changed_specs, None);
         assert_eq!(spec_paths(root.path()), ["tracked.spec.mdx"]);
     }
 }

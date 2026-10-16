@@ -9,36 +9,10 @@ pub enum Theme {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
     Tui { root: PathBuf, theme: Option<Theme> },
-    Serve { root: PathBuf, port: u16 },
 }
 
 /// Parses `argv` without the program name. Errors are the one-line stderr message, without prefix.
 pub fn parse(args: &[String]) -> Result<Command, String> {
-    match args.first().map(String::as_str) {
-        Some("serve") => parse_serve(&args[1..]),
-        _ => parse_tui(args),
-    }
-}
-
-fn parse_serve(args: &[String]) -> Result<Command, String> {
-    let Some(root) = args.first().filter(|arg| !arg.starts_with("--")) else {
-        return Err("root directory is required".into());
-    };
-    let rest = &args[1..];
-    let port = match rest.iter().position(|arg| arg == "--port") {
-        None => 0,
-        Some(index) => {
-            let value = rest.get(index + 1).ok_or("--port requires a value")?;
-            value.parse::<u16>().map_err(|_| format!("invalid port: {value}"))?
-        }
-    };
-    Ok(Command::Serve {
-        root: resolve_root(root)?,
-        port,
-    })
-}
-
-fn parse_tui(args: &[String]) -> Result<Command, String> {
     let mut root = None;
     let mut theme = None;
     let mut iter = args.iter();
@@ -79,9 +53,7 @@ mod tests {
 
     #[test]
     fn tui_defaults_root_to_current_directory() {
-        let Command::Tui { root, theme } = parse(&[]).unwrap() else {
-            panic!()
-        };
+        let Command::Tui { root, theme } = parse(&[]).unwrap();
         assert_eq!(root, std::fs::canonicalize(".").unwrap());
         assert_eq!(theme, None);
     }
@@ -100,35 +72,18 @@ mod tests {
     }
 
     #[test]
-    fn serve_requires_root() {
-        assert_eq!(parse(&args(&["serve"])).unwrap_err(), "root directory is required");
+    fn serve_is_a_root_argument() {
+        assert_eq!(parse(&args(&["serve"])).unwrap_err(), "cannot resolve root: serve");
     }
 
     #[test]
-    fn serve_rejects_missing_and_file_roots() {
+    fn tui_rejects_missing_and_file_roots() {
         assert_eq!(
-            parse(&args(&["serve", "/nonexistent/x"])).unwrap_err(),
+            parse(&args(&["/nonexistent/x"])).unwrap_err(),
             "cannot resolve root: /nonexistent/x"
         );
         let file = std::env::current_exe().unwrap();
         let file = file.to_str().unwrap();
-        assert_eq!(
-            parse(&args(&["serve", file])).unwrap_err(),
-            format!("root is not a directory: {file}")
-        );
-    }
-
-    #[test]
-    fn serve_parses_port() {
-        assert_eq!(
-            parse(&args(&["serve", ".", "--port", "8080"])).unwrap(),
-            Command::Serve {
-                root: std::fs::canonicalize(".").unwrap(),
-                port: 8080
-            }
-        );
-        assert_eq!(parse(&args(&["serve", ".", "--port"])).unwrap_err(), "--port requires a value");
-        assert_eq!(parse(&args(&["serve", ".", "--port", "70000"])).unwrap_err(), "invalid port: 70000");
-        assert_eq!(parse(&args(&["serve", ".", "--port", "-1"])).unwrap_err(), "invalid port: -1");
+        assert_eq!(parse(&args(&[file])).unwrap_err(), format!("root is not a directory: {file}"));
     }
 }

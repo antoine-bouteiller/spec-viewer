@@ -1,22 +1,15 @@
-//! Confined, mtime-cached document reads shared by the HTTP and terminal shells.
+//! Confined, mtime-cached document reads for the terminal shell.
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 use crate::core::{DocError, Meta, body_below_header, meta_of, resolve_doc};
 use crate::render::cache::{Cache, Stamp};
-use crate::render::{Parsed, RenderResult, parse, to_html};
+use crate::render::{Parsed, parse};
 
-/// One parse per document version; the HTML emission is computed on first use.
+/// One parse per document version.
 #[derive(Debug)]
 pub struct Body {
     pub parsed: Parsed,
-    html: OnceLock<RenderResult>,
-}
-
-impl Body {
-    pub fn html(&self) -> &RenderResult {
-        self.html.get_or_init(|| to_html(&self.parsed))
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -50,7 +43,6 @@ impl Documents {
         let body = self.cache.lock().expect("document cache").cached(&resolved.real, stamp, || {
             Arc::new(Body {
                 parsed: parse(&body_below_header(&source), &render_path),
-                html: OnceLock::new(),
             })
         });
         Ok(Document {
@@ -84,9 +76,12 @@ mod tests {
         let document = documents.open(directory.path(), ".plan/a.md").unwrap();
         assert_eq!(document.meta.title, "Alpha");
         assert_eq!(document.root_path, ".plan/a.md");
-        let html = &document.body.html().html;
-        assert!(html.starts_with("<h2 id=\"why\">Why</h2>"), "{html}");
-        assert!(html.contains("data-ref=\"VC-1\""));
+        let parsed = &document.body.parsed;
+        assert!(matches!(parsed.children.first(), Some(crate::render::tree::Node::Element(element))
+            if element.tag == "h2" && element.attr("id") == Some("why")));
+        assert!(matches!(parsed.children.last(), Some(crate::render::tree::Node::Element(element))
+            if element.children.iter().any(|node| matches!(node, crate::render::tree::Node::Element(chip)
+                if chip.attr("data-ref") == Some("VC-1")))));
     }
 
     #[test]
@@ -98,7 +93,7 @@ mod tests {
         assert!(Arc::ptr_eq(&first.body, &second.body));
         std::fs::write(directory.path().join(".plan/a.md"), "# Alpha\n\n## Changed section\n").unwrap();
         let third = documents.open(directory.path(), ".plan/a.md").unwrap();
-        assert!(third.body.html().html.contains("changed-section"));
+        assert_eq!(third.body.parsed.toc[0].id, "changed-section");
     }
 
     #[test]

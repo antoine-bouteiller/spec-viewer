@@ -9,7 +9,7 @@ use std::{
 /// differs from that baseline. Plans exercise phases, examples and legacy metadata; specs exercise
 /// an umbrella family, companions, an unlinked sibling, the checked-in dialect, malformed MDX and
 /// an escaping symlink. All paths are canonical, contents/dates are fixed, and the owning TempDir
-/// keeps both worktrees, the bare origin and the symlink's external target alive for HTTP/TUI tests.
+/// keeps both worktrees, the bare origin and the symlink's external target alive for TUI tests.
 pub struct Fixture {
     _directory: tempfile::TempDir,
     pub root: PathBuf,
@@ -110,11 +110,7 @@ impl Fixture {
             "spec/raw.spec.md",
             "---\ntitle: Raw HTML\n---\n## Raw\n\n<div>Raw HTML source</div>\n",
         );
-        write(
-            &root,
-            "spec/dialect.spec.mdx",
-            include_str!("../../../../fixtures/dialect.spec.mdx"),
-        );
+        write(&root, "spec/dialect.spec.mdx", include_str!("../../fixtures/dialect.spec.mdx"));
         fs::write(&outside, "# Outside the worktree\n").unwrap();
         #[cfg(unix)]
         std::os::unix::fs::symlink(&outside, root.join("spec/escape.spec.md")).unwrap();

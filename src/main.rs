@@ -10,6 +10,5 @@ fn main() -> ExitCode {
             ExitCode::from(1)
         }
         Ok(Command::Tui { root, theme }) => plan_viewer::tui::run(&root, theme),
-        Ok(Command::Serve { root, port }) => plan_viewer::serve::run(&root, port),
     }
 }

@@ -1,15 +1,12 @@
-//! Pure document rendering: markdown/MDX → owned resolved tree → HTML.
-//! The tree retains code source and component structure for the terminal emitter.
+//! Pure markdown/MDX parsing into an owned resolved tree for the terminal emitter.
 pub mod cache;
 mod components;
 pub mod highlight;
-mod html;
 mod mdast;
 mod plugins;
 pub mod terminal;
 pub mod tree;
 
-use serde::{Deserialize, Serialize};
 use tree::Node;
 
 #[derive(Clone, Debug, Default)]
@@ -19,21 +16,13 @@ pub struct Parsed {
     pub has_mermaid: bool,
     pub degraded: Option<Degraded>,
 }
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RenderResult {
-    pub html: String,
-    pub toc: Vec<TocEntry>,
-    pub has_mermaid: bool,
-    pub degraded: Option<Degraded>,
-}
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TocEntry {
     pub id: String,
     pub text: String,
     pub depth: u8,
 }
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Degraded {
     pub reason: String,
     pub message: String,
@@ -68,7 +57,7 @@ fn pipeline(source: &str, path: &str) -> Result<Parsed, Degraded> {
     repair_line_endings(&mut root, source);
     let mut state = plugins::State::default();
     let children = mdast::render_children(root.children().map(Vec::as_slice).unwrap_or(&[]), &mut state, path);
-    let toc = ordered_toc(&state.toc, &html::serialize(&children, false));
+    let toc = ordered_toc(&state.toc, &children);
     Ok(Parsed {
         children,
         toc,
@@ -167,30 +156,27 @@ fn parse_with(source: &str, path: &str, run: impl Fn(&str, &str) -> Result<Parse
     }
 }
 
-pub fn to_html(parsed: &Parsed) -> RenderResult {
-    let html = html::serialize(&parsed.children, true);
-    let toc = ordered_toc(&parsed.toc, &html);
-    RenderResult {
-        html,
-        toc,
-        has_mermaid: parsed.has_mermaid,
-        degraded: parsed.degraded.clone(),
-    }
-}
-fn ordered_toc(entries: &[TocEntry], html: &str) -> Vec<TocEntry> {
-    let mut seen = std::collections::HashSet::new();
-    let mut toc = entries
-        .iter()
-        .filter_map(|entry| {
-            let position = html.find(&format!("id=\"{}\"", entry.id))?;
-            if !seen.insert(&entry.id) {
-                return None;
+fn ordered_toc(entries: &[TocEntry], nodes: &[Node]) -> Vec<TocEntry> {
+    fn visit(nodes: &[Node], entries: &[TocEntry], seen: &mut std::collections::HashSet<String>, toc: &mut Vec<TocEntry>) {
+        for node in nodes {
+            match node {
+                Node::Element(element) => {
+                    if let Some(id) = element.attr("id")
+                        && let Some(entry) = entries.iter().find(|entry| entry.id == id)
+                        && seen.insert(id.to_owned())
+                    {
+                        toc.push(entry.clone());
+                    }
+                    visit(&element.children, entries, seen, toc);
+                }
+                Node::Bridge(children) => visit(children, entries, seen, toc),
+                _ => {}
             }
-            Some((position, entry.clone()))
-        })
-        .collect::<Vec<_>>();
-    toc.sort_by_key(|(position, _)| *position);
-    toc.into_iter().map(|(_, entry)| entry).collect()
+        }
+    }
+    let mut toc = Vec::new();
+    visit(nodes, entries, &mut std::collections::HashSet::new(), &mut toc);
+    toc
 }
 #[cfg(test)]
 mod tests;

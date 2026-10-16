@@ -752,7 +752,7 @@ mod tests {
 
     #[test]
     fn dialect_components_retain_labels_scores_notes_and_step_numbers() {
-        let parsed = parse(include_str!("../../../../fixtures/dialect.spec.mdx"), "spec/dialect.spec.mdx");
+        let parsed = parse(include_str!("../../fixtures/dialect.spec.mdx"), "spec/dialect.spec.mdx");
         let document = to_terminal(&parsed, 78, Theme::Dark);
         let body = document.lines.iter().map(Line::to_string).collect::<Vec<_>>().join("\n");
         for required in [

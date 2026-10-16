@@ -649,6 +649,5 @@ mod tests {
             children(&tree[1]).iter().map(|node| &*node.name).collect::<Vec<_>>(),
             ["Zulu", "Alpha"]
         );
-        assert_eq!(serde_json::to_value(&tree[0]).unwrap()["kind"], "unexpected");
     }
 }

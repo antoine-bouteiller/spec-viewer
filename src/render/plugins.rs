@@ -1,5 +1,5 @@
 use super::{
-    TocEntry, html,
+    TocEntry,
     tree::{Node, el, plain_text, text},
 };
 use std::collections::HashSet;
@@ -30,7 +30,7 @@ fn heading_text(node: &Node) -> String {
         Node::Text(value) | Node::ComponentText(value) | Node::SourceText(value) => value.clone(),
         Node::Raw(value) => strip_tags(value),
         Node::Element(element) => element.children.iter().map(heading_text).collect(),
-        Node::Bridge(nodes) => strip_tags(&html::serialize(nodes, false)),
+        Node::Bridge(nodes) => nodes.iter().map(heading_text).collect(),
     }
 }
 fn slug(value: &str) -> String {

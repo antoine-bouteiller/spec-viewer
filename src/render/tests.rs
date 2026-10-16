@@ -1,26 +1,55 @@
 use super::*;
+use tree::Element;
 
-fn render(source: &str) -> RenderResult {
-    to_html(&parse(source, "fixture.md"))
+fn render(source: &str) -> Parsed {
+    parse(source, "fixture.md")
 }
-fn mdx(source: &str) -> RenderResult {
-    to_html(&parse(source, "fixture.mdx"))
+fn mdx(source: &str) -> Parsed {
+    parse(source, "fixture.mdx")
+}
+fn elements(nodes: &[Node]) -> Vec<&Element> {
+    let mut found = Vec::new();
+    for node in nodes {
+        match node {
+            Node::Element(element) => {
+                found.push(element);
+                found.extend(elements(&element.children));
+            }
+            Node::Bridge(children) => found.extend(elements(children)),
+            _ => {}
+        }
+    }
+    found
+}
+fn attrs<'a>(parsed: &'a Parsed, name: &str) -> Vec<&'a str> {
+    elements(&parsed.children)
+        .into_iter()
+        .filter_map(|element| element.attr(name))
+        .collect()
+}
+fn class<'a>(parsed: &'a Parsed, name: &str) -> &'a Element {
+    elements(&parsed.children)
+        .into_iter()
+        .find(|element| element.attr("class") == Some(name))
+        .unwrap()
+}
+fn text(nodes: &[Node]) -> String {
+    nodes.iter().map(tree::plain_text).collect()
 }
 
 #[test]
 fn headings() {
     let result = render("## Repeated heading\n\n## Repeated heading");
-    assert!(result.html.contains("id=\"repeated-heading\""));
-    assert!(result.html.contains("id=\"repeated-heading-2\""));
+    assert_eq!(attrs(&result, "id"), ["repeated-heading", "repeated-heading-2"]);
+    let result = mdx("## A <FeatureViewer>nested &amp;</FeatureViewer> end");
+    assert_eq!(result.toc[0].text, "A nested & end");
+    assert_eq!(result.toc[0].id, "a-nested-end");
 }
 
 #[test]
 fn gfm_table() {
-    assert!(
-        render("| Name | Status |\n| --- | --- |\n| T-003 | Done |")
-            .html
-            .contains("<table>")
-    );
+    let result = render("| Name | Status |\n| --- | --- |\n| T-003 | Done |");
+    assert!(elements(&result.children).iter().any(|element| element.tag == "table"));
 }
 #[test]
 fn toc_depth_and_order() {
@@ -46,74 +75,85 @@ fn toc_depth_and_order() {
     );
 }
 #[test]
+fn toc_deduplicates_by_first_document_position() {
+    let entries = ["after", "inside", "before", "before", "missing"].map(|id| TocEntry {
+        id: id.into(),
+        text: id.into(),
+        depth: 2,
+    });
+    let nodes = vec![
+        tree::el(
+            "section",
+            &[("id", "before")],
+            vec![Node::Bridge(vec![tree::el("h2", &[("id", "inside")], vec![])])],
+        ),
+        tree::el("h2", &[("id", "before")], vec![]),
+        tree::el("h2", &[("id", "after")], vec![]),
+    ];
+    let toc = ordered_toc(&entries, &nodes);
+    assert_eq!(
+        toc.iter().map(|entry| entry.id.as_str()).collect::<Vec<_>>(),
+        ["before", "inside", "after"]
+    );
+}
+#[test]
 fn h4_id_without_toc() {
     let result = render("#### Deep section");
-    assert!(result.html.contains("id=\"deep-section\""));
+    assert_eq!(attrs(&result, "id"), ["deep-section"]);
     assert!(result.toc.is_empty());
 }
 #[test]
 fn bare_xref_chip() {
-    assert!(render("See VC-001 for acceptance criteria.").html.contains(
-        "<button class=\"xref-chip\" data-kind=\"vc\" data-ref=\"VC-001\" title=\"Copy VC-001\" type=\"button\">VC-001</button>"
-    ));
+    let result = render("See VC-001 for acceptance criteria.");
+    let chip = class(&result, "xref-chip");
+    assert_eq!(chip.attr("data-kind"), Some("vc"));
+    assert_eq!(chip.attr("data-ref"), Some("VC-001"));
+    assert_eq!(chip.children, vec![tree::text("VC-001")]);
 }
 #[test]
 fn xref_families() {
-    let html = render("`[G-1]` `[NG-1]` `[PI-1]` `[KD-1]` `[SO-1]` `[CT-1]` `[VC-1]` `[C-1]` `[OQ-1]` `[EX-1]`").html;
-    let kinds = html
-        .split("data-kind=\"")
-        .skip(1)
-        .map(|fragment| fragment.split('"').next().unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(kinds, vec!["g", "ng", "pi", "kd", "so", "ct", "vc", "c", "oq", "ex"]);
+    let result = render("`[G-1]` `[NG-1]` `[PI-1]` `[KD-1]` `[SO-1]` `[CT-1]` `[VC-1]` `[C-1]` `[OQ-1]` `[EX-1]`");
+    assert_eq!(
+        attrs(&result, "data-kind"),
+        ["g", "ng", "pi", "kd", "so", "ct", "vc", "c", "oq", "ex"]
+    );
 }
 #[test]
 fn bracketed_xref() {
-    let html = render("See `[KD-3.1]` for details.").html;
-    for fragment in ["class=\"xref-chip\"", "data-kind=\"kd\"", "data-ref=\"KD-3.1\""] {
-        assert!(html.contains(fragment));
-    }
+    let result = render("See `[KD-3.1]` for details.");
+    let chip = class(&result, "xref-chip");
+    assert_eq!(chip.attr("data-kind"), Some("kd"));
+    assert_eq!(chip.attr("data-ref"), Some("KD-3.1"));
 }
 #[test]
 fn xrefs_protect_code() {
-    let html = render("```text\nAC-001\n```\n\n`VC-1` `before [KD-1] after`").html;
-    assert!(html.contains("AC-001"));
-    assert!(!html.contains("xref-chip"));
+    let result = render("```text\nAC-001\n```\n\n`VC-1` `before [KD-1] after`");
+    assert_eq!(attrs(&result, "data-ref"), Vec::<&str>::new());
+    assert_eq!(class(&result, "language-text").children, vec![tree::text("AC-001\n")]);
 }
-#[test]
-fn highlight_shape_and_colors() {
-    let html = render("```ts\n// Answer\nconst answer: number = 42\n```").html;
-    for fragment in [
-        "class=\"shiki shiki-themes catppuccin-latte catppuccin-mocha\"",
-        "background-color:var(--code-bg)",
-        "--shiki-dark-bg:var(--code-bg)",
-        "color:var(--accent)",
-        "--shiki-dark:var(--accent)",
-        "color:var(--muted)",
-        "--shiki-dark:var(--muted)",
-        "tabindex=\"0\"",
-        "<span class=\"line\">",
-    ] {
-        assert!(html.contains(fragment), "missing {fragment} in {html}");
-    }
-}
+
 #[test]
 fn mermaid_fence() {
     let result = render("```mermaid\ngraph TD\n  A --> B\n```");
     assert!(result.has_mermaid);
-    assert!(result.html.contains("<pre class=\"mermaid\">graph TD\n  A --> B\n</pre>"));
+    let diagram = class(&result, "mermaid");
+    assert_eq!(diagram.tag, "pre");
+    assert_eq!(diagram.children, vec![tree::text("graph TD\n  A --> B\n")]);
 }
 #[test]
 fn mmd_fence() {
     let result = render("```mmd\ngraph LR\n  A --> B\n```");
     assert!(result.has_mermaid);
-    assert!(result.html.contains("<pre class=\"mermaid\">graph LR\n  A --> B\n</pre>"));
+    assert_eq!(class(&result, "mermaid").children, vec![tree::text("graph LR\n  A --> B\n")]);
 }
 #[test]
 fn typescript_has_no_mermaid() {
     let result = render("```ts\nconst answer: number = 42\n```");
     assert!(!result.has_mermaid);
-    assert!(result.html.contains("class=\"shiki"));
+    assert_eq!(
+        class(&result, "language-ts").children,
+        vec![tree::text("const answer: number = 42\n")]
+    );
 }
 #[test]
 fn mermaid_state_is_local() {
@@ -122,92 +162,71 @@ fn mermaid_state_is_local() {
 }
 #[test]
 fn unknown_language() {
-    let html = render("```brainfuck\n+++.\n```").html;
-    assert_eq!(html, "<pre><code class=\"language-brainfuck\">+++.\n</code></pre>");
+    let result = render("```brainfuck\n+++.\n```");
+    assert_eq!(class(&result, "language-brainfuck").children, vec![tree::text("+++.\n")]);
 }
-#[test]
-fn escape_fence_script() {
-    let html = render("```brainfuck\n<script>alert(1)</script>\n```").html;
-    assert!(html.contains("&#x3C;script>alert(1)&#x3C;/script>"));
-    assert!(!html.contains("<script>"));
-}
+
 #[test]
 fn code_tabs() {
-    let html = mdx("<CodeTabs><CodeTab label=\"TypeScript\">Tab content</CodeTab></CodeTabs>").html;
-    for fragment in [
-        "<div class=\"md-codetabs-wrapper\">",
-        "<section class=\"md-codetab-panel\" data-label=\"TypeScript\">",
-        "Tab content",
-    ] {
-        assert!(html.contains(fragment));
-    }
+    let result = mdx("<CodeTabs><CodeTab label=\"TypeScript\">Tab content</CodeTab></CodeTabs>");
+    let panel = class(&result, "md-codetab-panel");
+    assert_eq!(panel.attr("data-label"), Some("TypeScript"));
+    assert_eq!(text(&panel.children), "TypeScriptTab content");
 }
 #[test]
 fn comparison() {
-    let html = mdx("<Comparison><Option name=\"First\">Option content</Option></Comparison>").html;
-    for fragment in [
-        "<section class=\"md-comparison\">",
-        "<div class=\"md-comparison-grid\">",
-        "Option content",
-    ] {
-        assert!(html.contains(fragment));
-    }
+    let result = mdx("<Comparison><Option name=\"First\">Option content</Option></Comparison>");
+    let option = class(&result, "md-comparison-option");
+    assert_eq!(option.attr("data-name"), Some("First"));
+    assert_eq!(text(&option.children), "FirstOption content");
 }
 #[test]
 fn decision_matrix() {
-    let html = mdx("<DecisionMatrix score=\"5\">Matrix content</DecisionMatrix>").html;
-    for fragment in ["<table class=\"md-matrix\">", "<td data-score=\"5\">", "Matrix content"] {
-        assert!(html.contains(fragment));
-    }
+    let result = mdx("<DecisionMatrix score=\"5\">Matrix content</DecisionMatrix>");
+    assert_eq!(class(&result, "md-matrix").tag, "table");
+    assert_eq!(attrs(&result, "data-score"), ["5"]);
+    assert_eq!(text(&result.children), "Matrix content");
 }
 #[test]
 fn annotated_diff() {
-    let html = mdx("<AnnotatedDiff>Diff content<MarginNote line=\"3\">Note content</MarginNote></AnnotatedDiff>").html;
-    for fragment in [
-        "<figure class=\"md-annotated-diff\">",
-        "<ol class=\"md-margin-notes\">",
-        "Diff content",
-        "Note content",
-    ] {
-        assert!(html.contains(fragment));
-    }
+    let result = mdx("<AnnotatedDiff>Diff content<MarginNote line=\"3\">Note content</MarginNote></AnnotatedDiff>");
+    assert_eq!(text(&class(&result, "md-annotated-diff-content").children), "Diff content");
+    let note = class(&result, "md-margin-note");
+    assert_eq!(note.attr("data-line"), Some("3"));
+    assert_eq!(text(&note.children), "Note content");
 }
 #[test]
 fn flowchart() {
     let result = mdx("<Flowchart>graph TD\nA --> B<NodeDetail name=\"A\">Node content</NodeDetail></Flowchart>");
     assert!(result.has_mermaid);
-    for fragment in [
-        "<div class=\"md-flowchart\">",
-        "<pre class=\"mermaid\">graph TD\nA --&gt; B</pre>",
-        "<div class=\"md-node-details\">",
-        "Node content",
-    ] {
-        assert!(result.html.contains(fragment), "{}", result.html);
-    }
+    assert_eq!(text(&class(&result, "mermaid").children), "graph TD\nA --> B");
+    let detail = class(&result, "md-node-detail");
+    assert_eq!(detail.attr("data-name"), Some("A"));
+    assert_eq!(text(&detail.children), "ANode content");
 }
 #[test]
 fn step_rail() {
-    let html = mdx("<StepRail><Step title=\"First\">Step content</Step></StepRail>").html;
-    for fragment in [
-        "<ol class=\"md-steprail\">",
-        "<li class=\"md-step\" data-title=\"First\">",
-        "Step content",
-    ] {
-        assert!(html.contains(fragment));
-    }
+    let result = mdx("<StepRail><Step title=\"First\">Step content</Step></StepRail>");
+    assert_eq!(class(&result, "md-steprail").tag, "ol");
+    let step = class(&result, "md-step");
+    assert_eq!(step.attr("data-title"), Some("First"));
+    assert_eq!(text(&step.children), "FirstStep content");
 }
 #[test]
 fn unknown_component() {
-    let html = mdx("<FeatureViewer>\n\nFeature content\n\n</FeatureViewer>").html;
-    assert!(html.contains("<div class=\"md-unknown\" data-component=\"FeatureViewer\">"));
-    assert!(html.contains("Feature content"));
+    let result = mdx("<FeatureViewer>\n\nFeature content\n\n</FeatureViewer>");
+    let component = class(&result, "md-unknown");
+    assert_eq!(component.tag, "div");
+    assert_eq!(component.attr("data-component"), Some("FeatureViewer"));
+    assert_eq!(text(&component.children), "Feature content");
 }
 #[test]
 fn unknown_inline_component() {
-    assert_eq!(
-        mdx("before <FeatureViewer>child</FeatureViewer> after").html,
-        "<p>before <span class=\"md-unknown\" data-component=\"FeatureViewer\">child</span> after</p>"
-    );
+    let result = mdx("before <FeatureViewer>child</FeatureViewer> after");
+    let component = class(&result, "md-unknown");
+    assert_eq!(component.tag, "span");
+    assert_eq!(component.attr("data-component"), Some("FeatureViewer"));
+    assert_eq!(text(&result.children), "before child after");
 }
 #[test]
 fn component_heading_order() {
@@ -232,114 +251,117 @@ fn component_heading_order() {
             }
         ]
     );
-    let ids = result
-        .html
-        .split("id=\"")
-        .skip(1)
-        .map(|fragment| fragment.split('"').next().unwrap())
-        .collect::<Vec<_>>();
-    assert_eq!(ids, vec!["before", "repeated", "repeated-2"]);
+    assert_eq!(attrs(&result, "id"), ["before", "repeated", "repeated-2"]);
 }
 #[test]
 fn expression_placeholder() {
-    assert!(
-        mdx("{someExpression}")
-            .html
-            .contains("<span class=\"md-unknown\" data-component=\"expression\">someExpression</span>")
-    );
+    let result = mdx("{someExpression}");
+    assert_eq!(class(&result, "md-unknown").attr("data-component"), Some("expression"));
+    assert_eq!(text(&result.children), "someExpression");
 }
 #[test]
 fn mdx_inline_code_angles() {
-    let html = mdx("`List<String>`").html;
-    assert!(html.contains("<code>List&#x3C;String></code>"));
-    assert!(!html.contains("md-unknown"));
+    let result = mdx("`List<String>`");
+    let code = elements(&result.children)
+        .into_iter()
+        .find(|element| element.tag == "code")
+        .unwrap();
+    assert_eq!(code.children, vec![tree::text("List<String>")]);
+    assert!(attrs(&result, "data-component").is_empty());
 }
 #[test]
 fn markdown_jsx_stays_raw() {
-    let html = render("<StepRail>x</StepRail>").html;
-    assert!(html.contains("<StepRail>x</StepRail>"));
-    assert!(!html.contains("md-steprail"));
-    assert!(!html.contains("md-unknown"));
+    let result = render("<StepRail>x</StepRail>");
+    assert_eq!(
+        result.children,
+        vec![tree::el(
+            "p",
+            &[],
+            vec![Node::Raw("<StepRail>".into()), tree::text("x"), Node::Raw("</StepRail>".into())],
+        )]
+    );
 }
 #[test]
 fn degraded_mdx_keeps_prose() {
     let result = mdx("The prose before the component remains readable.\n\n<StepRail>");
     assert_eq!(result.degraded.as_ref().unwrap().reason, "mdx-parse");
-    assert!(result.html.contains("The prose before the component remains readable."));
-    assert!(result.html.contains("class=\"md-degraded\""));
+    assert!(matches!(result.children.first(), Some(Node::Element(element))
+        if element.attr("class") == Some("md-degraded")));
+    assert!(text(&result.children).contains("The prose before the component remains readable."));
 }
 #[test]
 fn mdx_failure_does_not_panic() {
     assert!(std::panic::catch_unwind(|| mdx("Prose\n\n<StepRail>")).is_ok());
 }
 #[test]
-fn final_fallback_escaped_source() {
-    let parsed = parse_with("<script>alert(\"failure\")</script>", "fixture.md", |_, _| {
+fn panic_fallback_retains_source() {
+    let result = parse_with("<script>alert(\"failure\")</script>", "fixture.md", |_, _| {
         panic!("pipeline unavailable")
     });
-    let result = to_html(&parsed);
-    assert!(result.html.contains("class=\"md-degraded\""));
-    assert!(result.html.contains("&lt;script&gt;alert(&quot;failure&quot;)&lt;/script&gt;"));
+    assert!(matches!(result.children.first(), Some(Node::Element(element))
+        if element.attr("class") == Some("md-degraded")));
+    assert!(matches!(result.children.last(), Some(Node::Element(element))
+        if element.tag == "pre"
+            && element.children == vec![Node::SourceText("<script>alert(\"failure\")</script>".into())]));
     assert_eq!(result.degraded.unwrap().reason, "mdx-parse");
     assert!(!result.has_mermaid);
     assert!(result.toc.is_empty());
 }
 #[test]
 fn relative_doc_links() {
-    let html = to_html(&parse(
+    let result = parse(
         "[leaf](document-render.spec.md) [up](../../other/x.spec.mdx#s) [web](https://example.com/a.md)",
         "plan-viewer/spec/viewer.spec.md",
-    ))
-    .html;
-    assert!(html.contains("data-doc=\"plan-viewer/spec/document-render.spec.md\""));
-    assert!(html.contains("data-doc=\"other/x.spec.mdx\""));
-    assert!(!html.contains("data-doc=\"https"));
+    );
+    assert_eq!(
+        attrs(&result, "data-doc"),
+        ["plan-viewer/spec/document-render.spec.md", "other/x.spec.mdx"]
+    );
 }
 #[test]
 fn unknown_bare_prefix() {
-    let html = render("ZZ-001").html;
-    assert!(html.contains("ZZ-001"));
-    assert!(!html.contains("xref-chip"));
+    let result = render("ZZ-001");
+    assert_eq!(text(&result.children), "ZZ-001");
+    assert!(attrs(&result, "data-ref").is_empty());
 }
 #[test]
 fn bracketed_other_prefix() {
-    let html = render("`[FR-2]`").html;
-    assert!(html.contains("class=\"xref-chip\""));
-    assert!(html.contains("data-kind=\"other\""));
-    assert!(html.contains("data-ref=\"FR-2\""));
+    let result = render("`[FR-2]`");
+    let chip = class(&result, "xref-chip");
+    assert_eq!(chip.attr("data-kind"), Some("other"));
+    assert_eq!(chip.attr("data-ref"), Some("FR-2"));
 }
 
 #[test]
 fn footnote_boolean_attributes() {
     let result = render("Text[^a] again[^a].\n\n[^a]: Foot *note*");
-    assert!(result.html.contains("data-footnote-ref aria-describedby=\"footnote-label\""));
-    assert!(
-        result
-            .html
-            .contains("<section data-footnotes class=\"footnotes\"><h2 class=\"sr-only\" id=\"footnotes\">Footnotes</h2>")
+    let found = elements(&result.children);
+    assert_eq!(
+        found
+            .iter()
+            .filter(|element| element
+                .attrs
+                .iter()
+                .any(|(key, value)| key == "data-footnote-ref" && value.is_none()))
+            .count(),
+        2
     );
-    assert!(
-        result
-            .html
-            .contains("data-footnote-backref=\"\" aria-label=\"Back to reference 1-2\"")
-    );
-    assert!(result.html.contains("↩<sup>2</sup>"));
+    assert_eq!(class(&result, "footnotes").tag, "section");
+    assert!(attrs(&result, "id").contains(&"footnotes"));
+    let back = found
+        .iter()
+        .find(|element| element.attr("aria-label") == Some("Back to reference 1-2"))
+        .unwrap();
+    assert_eq!(back.attr("data-footnote-backref"), Some(""));
+    assert_eq!(text(&back.children), "↩2");
 }
 #[test]
 fn crlf_text_preserved() {
-    assert_eq!(
-        render("First\r\n second\r\n\r\n`one\r\ntwo` and [one\r\ntwo](x.md)").html,
-        "<p>First\r\nsecond</p>\n<p><code>one two</code> and <a href=\"x.md\" data-doc=\"x.md\">one\r\ntwo</a></p>"
-    );
+    let result = render("First\r\n second\r\n\r\n`one\r\ntwo` and [one\r\ntwo](x.md)");
+    assert_eq!(text(&result.children), "First\r\nsecond\none two and one\r\ntwo");
+    assert_eq!(attrs(&result, "data-doc"), ["x.md"]);
 }
-#[test]
-fn shiki_plaintext_names() {
-    for lang in ["text", "txt", "plain", "plaintext"] {
-        let result = render(&format!("```{lang}\nVC-1 < > &\n```"));
-        assert!(result.html.contains("class=\"shiki shiki-themes"));
-        assert!(!result.html.contains("xref-chip"));
-    }
-}
+
 #[test]
 fn mdx_closing_tag_diagnostic() {
     let result = mdx("Prose\n\n<StepRail>");
@@ -373,149 +395,151 @@ fn final_fallback_tree_has_source_block() {
             line: 0,
         })
     });
-    assert!(matches!(parsed.children.last(),Some(tree::Node::Element(element)) if element.tag == "pre"));
-    assert_eq!(
-        to_html(&parsed).html,
-        "<div class=\"md-degraded\">MDX parsing failed; this document is shown as plain markdown.</div><pre>source &#39; &lt; &amp;</pre>"
-    );
+    assert!(matches!(parsed.children.first(), Some(Node::Element(element))
+        if element.attr("class") == Some("md-degraded")));
+    assert!(matches!(parsed.children.last(), Some(Node::Element(element))
+        if element.tag == "pre" && element.children == vec![Node::SourceText("source ' < &".into())]));
 }
 
 #[test]
-fn literal_jsx_attributes_and_escaping() {
+fn literal_jsx_attributes() {
     let result = mdx("before <a href=\"other.spec.md\" title=\"a &amp; &quot; ' b\" empty disabled data-x={ignored}>VC-1</a> <br /> after");
-    assert_eq!(
-        result.html,
-        "<p>before <a href=\"other.spec.md\" title=\"a &amp; &quot; &#x27; b\"><button class=\"xref-chip\" data-kind=\"vc\" data-ref=\"VC-1\" title=\"Copy VC-1\" type=\"button\">VC-1</button></a> <br></br> after</p>"
-    );
-    assert!(!result.html.contains("data-doc"));
-    assert_eq!(result.html.matches("xref-chip").count(), 1);
+    let found = elements(&result.children);
+    let link = found.iter().find(|element| element.tag == "a").unwrap();
+    assert_eq!(link.attr("href"), Some("other.spec.md"));
+    assert_eq!(link.attr("title"), Some("a & \" ' b"));
+    assert_eq!(link.attrs.len(), 2);
+    assert!(attrs(&result, "data-doc").is_empty());
+    assert_eq!(attrs(&result, "data-ref"), ["VC-1"]);
 }
 #[test]
 fn esm_and_quoted_expression_placeholders() {
     let result =
         mdx("import Component from 'x'\nexport const config = {\n  value: 1\n}\n\n{someExpression}\n\ninline {\"quoted } and {\"} end");
     assert!(result.degraded.is_none());
-    assert!(result.html.contains(
-        "<span class=\"md-unknown\" data-component=\"module\">import Component from &#x27;x&#x27;\nexport const config = {\n  value: 1\n}</span>"
-    ));
+    let found = elements(&result.children);
+    let module = found
+        .iter()
+        .find(|element| element.attr("data-component") == Some("module"))
+        .unwrap();
+    assert_eq!(
+        text(&module.children),
+        "import Component from 'x'\nexport const config = {\n  value: 1\n}"
+    );
     assert!(
-        result
-            .html
-            .contains("data-component=\"expression\">&quot;quoted } and {&quot;</span>")
+        found
+            .iter()
+            .any(|element| element.attr("data-component") == Some("expression") && text(&element.children) == "\"quoted } and {\"")
     );
 }
 #[test]
 fn component_defaults_and_paragraph_child_groups() {
-    assert_eq!(
-        mdx("<CodeTabs>\n\n<CodeTab>a</CodeTab> <CodeTab>b</CodeTab>\n\n</CodeTabs>").html,
-        "<div class=\"md-codetabs-wrapper\"><section class=\"md-codetab-panel\" data-label=\"Tab 1\"><h3>Tab 1</h3>a</section><section class=\"md-codetab-panel\" data-label=\"Tab 2\"><h3>Tab 2</h3>b</section></div>"
-    );
-    for (source, expected) in [
-        (
-            "<CodeTabs><CodeTab>a</CodeTab> <CodeTab>b</CodeTab></CodeTabs>",
-            "<p><div class=\"md-codetabs-wrapper\"><section class=\"md-codetab-panel\" data-label=\"Tab 1\"><h3>Tab 1</h3>a</section><section class=\"md-codetab-panel\" data-label=\"Tab 2\"><h3>Tab 2</h3>b</section> </div></p>",
-        ),
-        (
-            "<Comparison><Option>a</Option></Comparison>",
-            "<p><section class=\"md-comparison\"><div class=\"md-comparison-grid\"><article class=\"md-comparison-option\" data-name=\"Option 1\"><h3>Option 1</h3>a</article></div></section></p>",
-        ),
-        (
-            "<StepRail><Step>x</Step></StepRail>",
-            "<p><ol class=\"md-steprail\"><li class=\"md-step\" data-title=\"Step 1\"><h3>Step 1</h3>x</li></ol></p>",
-        ),
-        (
-            "<DecisionMatrix>x</DecisionMatrix>",
-            "<p><table class=\"md-matrix\"><tbody><tr><td data-score=\"\">x</td></tr></tbody></table></p>",
-        ),
-        (
-            "<AnnotatedDiff>x<MarginNote>y</MarginNote></AnnotatedDiff>",
-            "<p><figure class=\"md-annotated-diff\"><div class=\"md-annotated-diff-content\">x</div><ol class=\"md-margin-notes\"><li class=\"md-margin-note\" data-line=\"1\">y</li></ol></figure></p>",
-        ),
-        (
-            "<Flowchart>graph TD<NodeDetail>x</NodeDetail></Flowchart>",
-            "<p><div class=\"md-flowchart\"><pre class=\"mermaid\">graph TD</pre><div class=\"md-node-details\"><section class=\"md-node-detail\" data-name=\"Node 1\"><h3>Node 1</h3>x</section></div></div></p>",
-        ),
+    for source in [
+        "<CodeTabs>\n\n<CodeTab>a</CodeTab> <CodeTab>b</CodeTab>\n\n</CodeTabs>",
+        "<CodeTabs><CodeTab>a</CodeTab> <CodeTab>b</CodeTab></CodeTabs>",
     ] {
-        assert_eq!(mdx(source).html, expected);
+        let result = mdx(source);
+        assert_eq!(attrs(&result, "data-label"), ["Tab 1", "Tab 2"]);
+        let panels = elements(&result.children)
+            .into_iter()
+            .filter(|element| element.attr("class") == Some("md-codetab-panel"))
+            .map(|element| text(&element.children))
+            .collect::<Vec<_>>();
+        assert_eq!(panels, ["Tab 1a", "Tab 2b"]);
+    }
+    for (source, attr, expected) in [
+        ("<Comparison><Option>a</Option></Comparison>", "data-name", "Option 1"),
+        ("<StepRail><Step>x</Step></StepRail>", "data-title", "Step 1"),
+        ("<DecisionMatrix>x</DecisionMatrix>", "data-score", ""),
+        ("<AnnotatedDiff>x<MarginNote>y</MarginNote></AnnotatedDiff>", "data-line", "1"),
+        ("<Flowchart>graph TD<NodeDetail>x</NodeDetail></Flowchart>", "data-name", "Node 1"),
+    ] {
+        assert_eq!(attrs(&mdx(source), attr), [expected]);
     }
 }
 #[test]
 fn gfm_task_and_nested_lists() {
-    assert_eq!(
-        render("- [x] checked\n- [ ] unchecked\n  - nested\n\n3. ordered\n\n   loose\n\n4. next").html,
-        "<ul class=\"contains-task-list\">\n<li class=\"task-list-item\"><input type=\"checkbox\" checked disabled> checked</li>\n<li class=\"task-list-item\"><input type=\"checkbox\" disabled> unchecked\n<ul>\n<li>nested</li>\n</ul>\n</li>\n</ul>\n<ol start=\"3\">\n<li>\n<p>ordered</p>\n<p>loose</p>\n</li>\n<li>\n<p>next</p>\n</li>\n</ol>"
-    );
+    let result = render("- [x] checked\n- [ ] unchecked\n  - nested\n\n3. ordered\n\n   loose\n\n4. next");
+    let found = elements(&result.children);
+    let inputs = found.iter().filter(|element| element.tag == "input").collect::<Vec<_>>();
+    assert_eq!(inputs.len(), 2);
+    assert!(inputs[0].attrs.iter().any(|(key, _)| key == "checked"));
+    assert!(!inputs[1].attrs.iter().any(|(key, _)| key == "checked"));
+    assert!(inputs.iter().all(|element| element.attrs.iter().any(|(key, _)| key == "disabled")));
+    assert_eq!(found.iter().filter(|element| element.tag == "ul").count(), 2);
+    assert_eq!(attrs(&result, "start"), ["3"]);
+    assert!(text(&result.children).contains("loose"));
 }
 #[test]
 fn table_alignment_and_missing_cells() {
-    let html = render("| L | C | R |\n|:--|:-:|--:|\n| a | b | c |\n| d | e |").html;
-    assert!(html.contains("<th align=\"left\">L</th>\n<th align=\"center\">C</th>\n<th align=\"right\">R</th>"));
-    assert!(html.contains("<td align=\"left\">d</td>\n<td align=\"center\">e</td>\n<td align=\"right\"></td>"));
+    let result = render("| L | C | R |\n|:--|:-:|--:|\n| a | b | c |\n| d | e |");
+    let found = elements(&result.children);
+    let headers = found
+        .iter()
+        .filter(|element| element.tag == "th")
+        .map(|element| (element.attr("align").unwrap(), text(&element.children)))
+        .collect::<Vec<_>>();
+    assert_eq!(headers, [("left", "L".into()), ("center", "C".into()), ("right", "R".into())]);
+    let cells = found.iter().filter(|element| element.tag == "td").collect::<Vec<_>>();
+    assert_eq!(cells.len(), 6);
+    assert_eq!(cells[5].attr("align"), Some("right"));
+    assert!(cells[5].children.is_empty());
 }
 #[test]
 fn entities_raw_html_hard_breaks_and_references() {
-    let html = render("~~strike~~ ~one~ https://example.com x@y.com www.example.org\n\n<div>\nRaw VC-1\n</div>\n\nInline <b>VC-2</b> &amp; &copy; &lt;\n\nHard  \nbreak\\\n next\n\n![image & title](<x y.png> \"say 'hi'\") [ref][r]\n\n[r]: ../x.spec.md \"Title & quote\"").html;
-    for fragment in [
-        "<del>strike</del> <del>one</del>",
-        "<a href=\"https://example.com\">https://example.com</a>",
-        "<a href=\"mailto:x@y.com\">x@y.com</a>",
-        "<a href=\"http://www.example.org\">www.example.org</a>",
-        "<div>\nRaw VC-1\n</div>",
-        "<p>Hard<br>\nbreak<br>\nnext</p>",
-        "&#x26; © &#x3C;",
-        "<img src=\"x%20y.png\" alt=\"image &#x26; title\" title=\"say &#x27;hi&#x27;\">",
-        "<a href=\"../x.spec.md\" title=\"Title &#x26; quote\">ref</a>",
-    ] {
-        assert!(html.contains(fragment), "missing {fragment}");
-    }
+    let result = render(
+        "~~strike~~ ~one~ https://example.com x@y.com www.example.org\n\n<div>\nRaw VC-1\n</div>\n\nInline <b>VC-2</b> &amp; &copy; &lt;\n\nHard  \nbreak\\\n next\n\n![image & title](<x y.png> \"say 'hi'\") [ref][r]\n\n[r]: ../x.spec.md \"Title & quote\"",
+    );
+    let found = elements(&result.children);
+    assert_eq!(found.iter().filter(|element| element.tag == "del").count(), 2);
+    assert_eq!(
+        attrs(&result, "href"),
+        ["https://example.com", "mailto:x@y.com", "http://www.example.org", "../x.spec.md"]
+    );
+    assert!(result.children.contains(&Node::Raw("<div>\nRaw VC-1\n</div>".into())));
+    assert_eq!(found.iter().filter(|element| element.tag == "br").count(), 2);
+    assert!(text(&result.children).contains("& © <"));
+    let image = found.iter().find(|element| element.tag == "img").unwrap();
+    assert_eq!(image.attr("src"), Some("x%20y.png"));
+    assert_eq!(image.attr("alt"), Some("image & title"));
+    assert_eq!(image.attr("title"), Some("say 'hi'"));
+    assert!(
+        found
+            .iter()
+            .any(|element| element.tag == "a" && element.attr("title") == Some("Title & quote"))
+    );
 }
 #[test]
 fn xref_word_boundaries_and_limits() {
-    let html = render("VC-1 VC-12345 VC-1.2 xVC-2 _VC-3 éVC-4 VC-9x [VC-6] `[ZZ-99.3]` `[KD-1.2.3]`").html;
-    assert_eq!(html.matches("xref-chip").count(), 5);
-    for fragment in [
-        "VC-12345",
-        "xVC-2",
-        "_VC-3",
-        "VC-9x",
-        "<code>[KD-1.2.3]</code>",
-        "data-kind=\"other\" data-ref=\"ZZ-99.3\"",
-    ] {
-        assert!(html.contains(fragment));
-    }
+    let result = render("VC-1 VC-12345 VC-1.2 xVC-2 _VC-3 éVC-4 VC-9x [VC-6] `[ZZ-99.3]` `[KD-1.2.3]`");
+    assert_eq!(attrs(&result, "data-ref"), ["VC-1", "VC-1", "VC-4", "VC-6", "ZZ-99.3"]);
+    let found = elements(&result.children);
+    assert!(
+        found
+            .iter()
+            .any(|element| element.tag == "code" && text(&element.children) == "[KD-1.2.3]")
+    );
+    assert!(
+        found
+            .iter()
+            .any(|element| element.attr("data-ref") == Some("ZZ-99.3") && element.attr("data-kind") == Some("other"))
+    );
 }
 #[test]
 fn doc_links_reject_nonrelative_and_escaping_targets() {
-    let html = to_html(&parse(
+    let result = parse(
         "[abs](/x.md) [escape](../../x.md) [query](x.md?x=1) [anchor](x.mdx#x) [dot](./a/../b.md) [scheme](ftp://a.md) [encoded](x%20y.md)",
         "spec/fixture.md",
-    ))
-    .html;
-    assert_eq!(html.matches("data-doc").count(), 3);
-    for target in ["spec/x.mdx", "spec/b.md", "spec/x%20y.md"] {
-        assert!(html.contains(&format!("data-doc=\"{target}\"")));
-    }
+    );
+    assert_eq!(attrs(&result, "data-doc"), ["spec/x.mdx", "spec/b.md", "spec/x%20y.md"]);
 }
 #[test]
 fn shared_tree_retains_components_code_and_navigation() {
-    fn elements(nodes: &[tree::Node], output: &mut Vec<tree::Element>) {
-        for node in nodes {
-            match node {
-                tree::Node::Element(element) => {
-                    output.push(element.clone());
-                    elements(&element.children, output);
-                }
-                tree::Node::Bridge(children) => elements(children, output),
-                _ => {}
-            }
-        }
-    }
     let parsed = parse(
         "<CodeTabs>\n<CodeTab label=\"TS\">\n\n```ts\nconst value = 1\n```\n\nVC-1 [doc](x.spec.md)\n\n</CodeTab>\n</CodeTabs>",
         "spec/fixture.mdx",
     );
-    let mut found = Vec::new();
-    elements(&parsed.children, &mut found);
+    let found = elements(&parsed.children);
     assert!(
         found
             .iter()
@@ -584,14 +608,11 @@ fn highlight_aliases_and_terminal_tokens() {
 
 #[test]
 fn mdx_soft_breaks_between_child_nodes() {
-    assert_eq!(
-        mdx("before <FeatureViewer>one\n*two*\nthree\n<ChildViewer>four</ChildViewer>\nfive</FeatureViewer> after").html,
-        "<p>before <span class=\"md-unknown\" data-component=\"FeatureViewer\">one\n\n<em>two</em>\n\nthree\n\n<span class=\"md-unknown\" data-component=\"ChildViewer\">four</span>\n\nfive</span> after</p>"
-    );
-    assert_eq!(
-        mdx("<FeatureViewer>[one\n*two*\nthree](x.md)\nnext</FeatureViewer>").html,
-        "<p><span class=\"md-unknown\" data-component=\"FeatureViewer\"><a href=\"x.md\" data-doc=\"x.md\">one\n<em>two</em>\nthree</a>\n\nnext</span></p>"
-    );
+    let result = mdx("before <FeatureViewer>one\n*two*\nthree\n<ChildViewer>four</ChildViewer>\nfive</FeatureViewer> after");
+    assert_eq!(text(&result.children), "before one\n\ntwo\n\nthree\n\nfour\n\nfive after");
+    let result = mdx("<FeatureViewer>[one\n*two*\nthree](x.md)\nnext</FeatureViewer>");
+    assert_eq!(text(&result.children), "one\ntwo\nthree\n\nnext");
+    assert_eq!(attrs(&result, "data-doc"), ["x.md"]);
 }
 
 #[test]

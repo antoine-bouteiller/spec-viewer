@@ -439,7 +439,7 @@ mod tests {
         assert_eq!(meta.tasks, Counts::default());
     }
     #[test]
-    fn unicode_whitespace_lines_and_omission() {
+    fn unicode_whitespace_and_lines() {
         let meta = meta_of("\u{feff} \n", Path::new("a.md"));
         assert_eq!(meta.lines, 1);
         let meta = meta_of(
@@ -449,10 +449,6 @@ mod tests {
         assert_eq!(meta.title, "Title");
         assert_eq!(meta.tasks, Counts { done: 1, total: 1 });
         assert_eq!(meta.lines, 3);
-        let wire = serde_json::to_value(meta_of("", Path::new("a.md"))).unwrap();
-        for field in ["status", "author", "date", "kind", "parent-spec", "archived"] {
-            assert!(wire.get(field).is_none(), "{field}");
-        }
     }
     #[test]
     fn body_removes_only_first_header_and_legacy_status() {
