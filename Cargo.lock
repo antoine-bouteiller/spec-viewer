@@ -1288,19 +1288,60 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 name = "plan-viewer"
 version = "0.1.0"
 dependencies = [
+ "plan-viewer-config",
+ "plan-viewer-core",
+ "plan-viewer-render-tui",
+ "tempfile",
+]
+
+[[package]]
+name = "plan-viewer-config"
+version = "0.1.0"
+
+[[package]]
+name = "plan-viewer-core"
+version = "0.1.0"
+dependencies = [
+ "icu_collator",
+ "plan-viewer-config",
+ "plan-viewer-parser",
+ "plan-viewer-source",
+ "tempfile",
+]
+
+[[package]]
+name = "plan-viewer-parser"
+version = "0.1.0"
+dependencies = [
+ "markdown",
+ "plan-viewer-config",
+]
+
+[[package]]
+name = "plan-viewer-render-tui"
+version = "0.1.0"
+dependencies = [
  "base64 0.23.1",
  "crossterm",
- "icu_collator",
  "insta",
  "libc",
- "markdown",
- "notify",
+ "plan-viewer-config",
+ "plan-viewer-core",
  "ratatui",
  "syntect",
  "tempfile",
  "textwrap",
  "two-face",
  "unicode-width",
+]
+
+[[package]]
+name = "plan-viewer-source"
+version = "0.1.0"
+dependencies = [
+ "icu_collator",
+ "notify",
+ "tempfile",
 ]
 
 [[package]]
