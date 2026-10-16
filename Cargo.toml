@@ -10,16 +10,29 @@ name = "plan-viewer"
 path = "src/main.rs"
 
 [dependencies]
+axum = "0.8.9"
+axum-server = { version = "0.8.0", features = ["tls-rustls"] }
+base64 = "0.23.1"
+crossterm = "0.29.0"
+futures-util = "0.3.34"
 icu_collator = "2.3.1"
+libc = "0.2.190"
 markdown = "1.0.0"
 notify = "8.2.0"
+ratatui = "0.30.2"
+rust-embed = { version = "8.13.0", features = ["interpolate-folder-path"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy", "default-syntaxes", "default-themes"] }
+textwrap = "0.16.4"
+tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time", "fs", "process"] }
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-default-fancy"] }
+unicode-width = "0.2.2"
 
 [dev-dependencies]
+insta = "1.49.0"
 tempfile = "3"
+ureq = "3.4.2"
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }

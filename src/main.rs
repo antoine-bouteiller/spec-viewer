@@ -9,9 +9,7 @@ fn main() -> ExitCode {
             eprintln!("plan-viewer: {message}");
             ExitCode::from(1)
         }
-        Ok(Command::Tui { .. } | Command::Serve { .. }) => {
-            eprintln!("plan-viewer: not implemented");
-            ExitCode::from(1)
-        }
+        Ok(Command::Tui { root, theme }) => plan_viewer::tui::run(&root, theme),
+        Ok(Command::Serve { root, port }) => plan_viewer::serve::run(&root, port),
     }
 }
