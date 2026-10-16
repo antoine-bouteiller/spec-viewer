@@ -6,13 +6,13 @@ expression: draw(&mut app)
 │feature (main) ▾                      ││§ 1. Overview           ││Spec Dialect Fixture [accepted]                                                             │
 │plans [specs] Diff                    ││  § 1.1 Rendered table  ││140 lines                                                                                   │
 │/                                     ││§ 2. Component dialect  ││leaf                                                                                        │
-│▸ doc/architecture                    ││§ 3. Code and diagrams  ││spec/dialect.spec.mdx  y path · Y name                                                      │
-│▾ spec                                ││  § 3.1 Closing notes   ││────────────────────────────────────────────────────────────────────────────────────────────│
-│    Broken MDX [draft]                ││                        ││                                                                                            │
-│    Raw HTML                          ││                        ││── json ──                                                                                  │
-│    Spec Dialect Fixture [accepted]   ││                        ││{                                                                                           │
-│    Standalone spec [done]            ││                        ││  "title": "Spec Dialect Fixture",                                                          │
-│                                      ││                        ││  "status": "accepted",                                                                     │
+│▸ .plan/rollout                       ││§ 3. Code and diagrams  ││spec/dialect.spec.mdx  y path · Y name                                                      │
+│▸ doc/architecture                    ││  § 3.1 Closing notes   ││────────────────────────────────────────────────────────────────────────────────────────────│
+│▾ spec                                ││                        ││                                                                                            │
+│    Broken MDX [draft]                ││                        ││── json ──                                                                                  │
+│    Raw HTML                          ││                        ││{                                                                                           │
+│    Spec Dialect Fixture [accepted]   ││                        ││  "title": "Spec Dialect Fixture",                                                          │
+│    Standalone spec [done]            ││                        ││  "status": "accepted",                                                                     │
 │                                      ││                        ││  "checks": ["components", "mermaid"]                                                       │
 │                                      ││                        ││}                                                                                           │
 │                                      ││                        ││                                                                                            │

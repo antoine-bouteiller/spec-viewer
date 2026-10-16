@@ -6,15 +6,15 @@ expression: draw(&mut app)
 │feature (main) ▾                      ││§ Fallback              ││Broken MDX [draft]                                                                          │
 │plans [specs] Diff                    ││                        ││5 lines                                                                                     │
 │/                                     ││                        ││leaf                                                                                        │
-│▾ doc/architecture                    ││                        ││spec/broken.spec.mdx  y path · Y name                                                       │
-│    Unlinked sibling [draft]          ││                        ││────────────────────────────────────────────────────────────────────────────────────────────│
-│    Viewer umbrella [accepted]        ││                        ││⚠ MDX parsing failed; this document is shown as plain markdown.                             │
-│▾ spec                                ││                        ││                                                                                            │
-│    Broken MDX [draft]                ││                        ││Fallback                                                                                    │
-│    Raw HTML                          ││                        ││                                                                                            │
-│    Spec Dialect Fixture [accepted]   ││                        ││<StepRail>                                                                                  │
-│    Standalone spec [done]            ││                        ││                                                                                            │
-│                                      ││                        ││Unclosed source remains visible.                                                            │
+│▸ .plan/rollout                       ││                        ││spec/broken.spec.mdx  y path · Y name                                                       │
+│▾ doc/architecture                    ││                        ││────────────────────────────────────────────────────────────────────────────────────────────│
+│    Unlinked sibling [draft]          ││                        ││⚠ MDX parsing failed; this document is shown as plain markdown.                             │
+│    Viewer umbrella [accepted]        ││                        ││                                                                                            │
+│▾ spec                                ││                        ││Fallback                                                                                    │
+│    Broken MDX [draft]                ││                        ││                                                                                            │
+│    Raw HTML                          ││                        ││<StepRail>                                                                                  │
+│    Spec Dialect Fixture [accepted]   ││                        ││                                                                                            │
+│    Standalone spec [done]            ││                        ││Unclosed source remains visible.                                                            │
 │                                      ││                        ││                                                                                            │
 │                                      ││                        ││                                                                                            │
 │                                      ││                        ││                                                                                            │

@@ -6,13 +6,13 @@ expression: draw(&mut app)
 │feature (main) ▾                      ││§ Overview              ││Standalone spec [done]                                                                      │
 │plans [specs] Diff                    ││  § Details             ││7 lines                                                                                     │
 │/                                     ││                        ││leaf · Fixture Author · 2026-01-02                                                          │
-│▸ doc/architecture                    ││                        ││related: doc/architecture/viewer.spec.md                                                    │
-│▾ spec                                ││                        ││spec/standalone.spec.md  y path · Y name                                                    │
-│    Broken MDX [draft]                ││                        ││────────────────────────────────────────────────────────────────────────────────────────────│
-│    Raw HTML                          ││                        ││Overview                                                                                    │
-│    Spec Dialect Fixture [accepted]   ││                        ││                                                                                            │
-│    Standalone spec [done]            ││                        ││Changed body on the current branch.                                                         │
-│                                      ││                        ││                                                                                            │
+│▸ .plan/rollout                       ││                        ││related: doc/architecture/viewer.spec.md                                                    │
+│▸ doc/architecture                    ││                        ││spec/standalone.spec.md  y path · Y name                                                    │
+│▾ spec                                ││                        ││────────────────────────────────────────────────────────────────────────────────────────────│
+│    Broken MDX [draft]                ││                        ││Overview                                                                                    │
+│    Raw HTML                          ││                        ││                                                                                            │
+│    Spec Dialect Fixture [accepted]   ││                        ││Changed body on the current branch.                                                         │
+│    Standalone spec [done]            ││                        ││                                                                                            │
 │                                      ││                        ││Details                                                                                     │
 │                                      ││                        ││                                                                                            │
 │                                      ││                        ││A section outline.                                                                          │

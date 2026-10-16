@@ -311,7 +311,7 @@ fn vc_5_focus_scrolling_expansion_and_quit_state_transitions() {
     key(&mut app, KeyCode::Right);
     key(&mut app, KeyCode::Left);
     key(&mut app, KeyCode::Left);
-    assert_eq!(app.rows().len(), 2);
+    assert_eq!(app.rows().len(), 3);
     app.handle_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL));
     assert!(app.quit);
 }

@@ -29,6 +29,7 @@ impl Fixture {
         git(&root, &["init", "-qb", "main"]);
         git(&root, &["config", "user.name", "Fixture Author"]);
         git(&root, &["config", "user.email", "fixture@example.invalid"]);
+        git(&root, &["config", "core.excludesFile", "/dev/null"]);
         write(
             &root,
             ".plan/rollout/index.md",

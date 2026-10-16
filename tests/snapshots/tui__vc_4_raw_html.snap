@@ -6,15 +6,15 @@ expression: draw(&mut app)
 │feature (main) ▾                      ││§ Raw                   ││Raw HTML                                                                                    │
 │plans [specs] Diff                    ││                        ││3 lines                                                                                     │
 │/                                     ││                        ││leaf                                                                                        │
-│▾ doc/architecture                    ││                        ││spec/raw.spec.md  y path · Y name                                                           │
-│    Unlinked sibling [draft]          ││                        ││────────────────────────────────────────────────────────────────────────────────────────────│
-│    Viewer umbrella [accepted]        ││                        ││Raw                                                                                         │
-│▾ spec                                ││                        ││                                                                                            │
-│    Broken MDX [draft]                ││                        ││<div>Raw HTML source</div>                                                                  │
+│▸ .plan/rollout                       ││                        ││spec/raw.spec.md  y path · Y name                                                           │
+│▾ doc/architecture                    ││                        ││────────────────────────────────────────────────────────────────────────────────────────────│
+│    Unlinked sibling [draft]          ││                        ││Raw                                                                                         │
+│    Viewer umbrella [accepted]        ││                        ││                                                                                            │
+│▾ spec                                ││                        ││<div>Raw HTML source</div>                                                                  │
+│    Broken MDX [draft]                ││                        ││                                                                                            │
 │    Raw HTML                          ││                        ││                                                                                            │
 │    Spec Dialect Fixture [accepted]   ││                        ││                                                                                            │
 │    Standalone spec [done]            ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
 │                                      ││                        ││                                                                                            │
 │                                      ││                        ││                                                                                            │
 │                                      ││                        ││                                                                                            │

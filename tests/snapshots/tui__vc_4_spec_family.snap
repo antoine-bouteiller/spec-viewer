@@ -6,15 +6,15 @@ expression: draw(&mut app)
 │feature (main) ▾                      ││Viewer umbrella [index] ││Tree leaf [amended]                                                                         │
 │plans [specs] Diff                    ││Tree leaf               ││3 lines                                                                                     │
 │/                                     ││  § Tree                ││leaf                                                                                        │
-│▾ doc/architecture                    ││Viewer examples         ││doc/architecture/tree.spec.md  y path · Y name                                              │
-│    Unlinked sibling [draft]          ││[examples]              ││────────────────────────────────────────────────────────────────────────────────────────────│
-│    Viewer umbrella [accepted]        ││Viewer discovery        ││Tree                                                                                        │
-│▾ spec                                ││                        ││                                                                                            │
-│    Broken MDX [draft]                ││                        ││Flat document rows.                                                                         │
+│▸ .plan/rollout                       ││Viewer examples         ││doc/architecture/tree.spec.md  y path · Y name                                              │
+│▾ doc/architecture                    ││[examples]              ││────────────────────────────────────────────────────────────────────────────────────────────│
+│    Unlinked sibling [draft]          ││Viewer discovery        ││Tree                                                                                        │
+│    Viewer umbrella [accepted]        ││                        ││                                                                                            │
+│▾ spec                                ││                        ││Flat document rows.                                                                         │
+│    Broken MDX [draft]                ││                        ││                                                                                            │
 │    Raw HTML                          ││                        ││                                                                                            │
 │    Spec Dialect Fixture [accepted]   ││                        ││                                                                                            │
 │    Standalone spec [done]            ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
 │                                      ││                        ││                                                                                            │
 │                                      ││                        ││                                                                                            │
 │                                      ││                        ││                                                                                            │
