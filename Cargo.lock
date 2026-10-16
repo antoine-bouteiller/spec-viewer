@@ -1731,6 +1731,7 @@ dependencies = [
  "notify",
  "ratatui",
  "rust-embed",
+ "rustls",
  "serde",
  "serde_json",
  "syntect",
