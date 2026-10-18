@@ -37,11 +37,11 @@ impl Documents {
             .unwrap_or(&resolved.real)
             .to_string_lossy()
             .into_owned();
-        let document = self.cache.lock().expect("document cache").cached(&resolved.real, stamp, || {
-            let mut document = parse(&source, &render_path, &self.config);
-            document.meta = crate::parse_meta(&source, &resolved.file, &self.config);
-            Arc::new(document)
-        });
+        let document = self
+            .cache
+            .lock()
+            .expect("document cache")
+            .cached(&resolved.real, stamp, || Arc::new(parse(&source, &render_path, &self.config)));
         Ok(Opened {
             path: resolved.file,
             root_path: resolved.root_path,

@@ -274,8 +274,11 @@ impl Converter<'_> {
                         self.path,
                     )))
                 } else {
-                    let content = self.literal_inlines(name, &node.attributes, &node.children);
-                    let mut blocks = vec![Block::Paragraph(content)];
+                    let mut blocks = if matches!(name, "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "blockquote") {
+                        self.literal_blocks(name, &node.attributes, &node.children)
+                    } else {
+                        vec![Block::Paragraph(self.literal_inlines(name, &node.attributes, &node.children))]
+                    };
                     plugins::resolve(&mut blocks, self.state);
                     Inline::Component(Box::new(crate::Component::Unknown { name: name.into(), blocks }))
                 }
@@ -287,13 +290,16 @@ impl Converter<'_> {
         vec![node]
     }
     fn literal_inlines(&mut self, name: &str, attrs: &[markdown_ast::AttributeContent], children: &[Md]) -> Vec<Inline> {
+        let checked = attrs
+            .iter()
+            .any(|attr| matches!(attr, markdown_ast::AttributeContent::Property(property) if property.name == "checked"));
         let attrs = components::literal_attributes(attrs);
         let content = self.inlines(children);
         let node = match name {
             "strong" | "b" => Inline::Strong(content),
             "em" | "i" => Inline::Emphasis(content),
             "del" => Inline::Delete(content),
-            "code" => Inline::Code(plugins::inline_text(&content)),
+            "code" => return code_inlines(content),
             // Literal JSX links aren't document links; only markdown links are resolved.
             "a" => Inline::Link {
                 href: components::value(&attrs, "href").unwrap_or("").into(),
@@ -305,20 +311,24 @@ impl Converter<'_> {
                 alt: components::value(&attrs, "alt").unwrap_or("").into(),
                 src: components::value(&attrs, "src").unwrap_or("").into(),
             },
-            "input" => Inline::Text("[ ] ".into()),
+            "input" => Inline::Text(if checked { "[x] " } else { "[ ] " }.into()),
             _ => return content,
         };
         vec![node]
     }
     fn literal_blocks(&mut self, name: &str, attrs: &[markdown_ast::AttributeContent], children: &[Md]) -> Vec<Block> {
-        let blocks = convert_children(children, self.state, self.path);
         match name {
-            "blockquote" => vec![Block::Quote(blocks)],
+            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => vec![Block::Heading {
+                depth: name.as_bytes()[1] - b'0',
+                id: String::new(),
+                content: self.inlines(children),
+            }],
+            "blockquote" => vec![Block::Quote(convert_children(children, self.state, self.path))],
             "hr" => vec![Block::Rule],
-            _ => {
-                let _ = attrs;
-                blocks
+            "input" | "code" | "strong" | "b" | "em" | "i" | "del" | "a" | "br" | "img" => {
+                vec![Block::Paragraph(self.literal_inlines(name, attrs, children))]
             }
+            _ => convert_children(children, self.state, self.path),
         }
     }
     fn revert(&mut self, children: &[Md], kind: &markdown_ast::ReferenceKind, label: Option<&str>, image: Option<&str>) -> Vec<Inline> {
@@ -382,6 +392,35 @@ impl Converter<'_> {
             ]
         }
     }
+}
+// Preserve nested formatting while applying inline-code colour to literal JSX prose.
+fn code_inlines(nodes: Vec<Inline>) -> Vec<Inline> {
+    nodes
+        .into_iter()
+        .flat_map(|node| match node {
+            Inline::Text(value) => vec![Inline::Code(value)],
+            Inline::Strong(content) => vec![Inline::Strong(code_inlines(content))],
+            Inline::Emphasis(content) => vec![Inline::Emphasis(code_inlines(content))],
+            Inline::Delete(content) => vec![Inline::Delete(code_inlines(content))],
+            Inline::Link { href, doc, content } => vec![Inline::Link {
+                href,
+                doc,
+                content: code_inlines(content),
+            }],
+            Inline::Component(component) => match *component {
+                crate::Component::Unknown { name, mut blocks } if name.as_bytes().first().is_some_and(u8::is_ascii_lowercase) => {
+                    for block in &mut blocks {
+                        if let Block::Paragraph(content) | Block::Heading { content, .. } = block {
+                            *content = code_inlines(std::mem::take(content));
+                        }
+                    }
+                    vec![Inline::Component(Box::new(crate::Component::Unknown { name, blocks }))]
+                }
+                component => vec![Inline::Component(Box::new(component))],
+            },
+            node => vec![node],
+        })
+        .collect()
 }
 pub(crate) fn uri(value: &str) -> String {
     let bytes = value.as_bytes();

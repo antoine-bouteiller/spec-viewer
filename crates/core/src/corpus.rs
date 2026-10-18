@@ -3,13 +3,13 @@ use std::path::Path;
 use plan_viewer_source::{Entry, changed_specs, list};
 
 use crate::js::label;
-use crate::{DocMeta, Docs, ParseConfig, build_tree, meta_of};
+use crate::{DocMeta, Docs, ParseConfig, build_tree, parse_meta};
 
 fn to_doc_meta(entry: Entry, config: &ParseConfig) -> DocMeta {
     let Entry { real, path, kind } = entry;
     let meta = std::fs::read(&real)
         .ok()
-        .map(|source| meta_of(&String::from_utf8_lossy(&source), &real, config));
+        .map(|source| parse_meta(&String::from_utf8_lossy(&source), &real, config));
     DocMeta {
         archived: meta.as_ref().and_then(|meta| meta.archived),
         kind: kind.or_else(|| meta.as_ref().and_then(|meta| meta.kind.clone())),

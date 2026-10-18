@@ -8,7 +8,6 @@ use std::collections::BTreeMap;
 pub struct Theme {
     pub mode: Mode,
     pub code: syntect::highlighting::Theme,
-    pub palette: BTreeMap<String, Color>,
     pub roles: Roles<Color>,
     statuses: BTreeMap<String, Color>,
     auto_light: Option<Box<Theme>>,
@@ -46,13 +45,10 @@ impl Theme {
         }
     }
     fn resolved(config: &Config, mode: Mode, code: syntect::highlighting::Theme) -> Result<Self, Error> {
-        let ResolvedTheme {
-            palette, roles, statuses, ..
-        } = config.resolve(mode)?;
+        let ResolvedTheme { roles, statuses, .. } = config.resolve(mode)?;
         Ok(Self {
             mode,
             code,
-            palette: palette.into_iter().map(|(name, color)| (name, color_to_terminal(color))).collect(),
             roles: roles
                 .try_map(|_, color| Ok::<_, std::convert::Infallible>(color_to_terminal(*color)))
                 .unwrap(),
@@ -129,7 +125,71 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vc_8_ansi_slot_mapping_preserves_terminal_colours() {
+    fn vc_1_default_theme_reproduces_terminal_colours() {
+        for mode in [Mode::Dark, Mode::Light] {
+            let theme = Theme::from_config(&Config::default(), Some(mode)).unwrap();
+            let roles = &theme.roles;
+            for (name, actual, expected) in [
+                ("accent", roles.accent, Color::Blue),
+                ("muted", roles.muted, Color::DarkGray),
+                ("inline_code", roles.inline_code, Color::Yellow),
+                ("annotation", roles.annotation, Color::Yellow),
+                ("warning", roles.warning, Color::Yellow),
+                ("meter_progress", roles.meter_progress, Color::Cyan),
+                ("meter_complete", roles.meter_complete, Color::Green),
+                ("hint_fg", roles.hint_fg, Color::Black),
+                ("hint_bg", roles.hint_bg, Color::Yellow),
+                ("status_unknown", roles.status_unknown, Color::DarkGray),
+            ] {
+                assert_eq!(actual, expected, "{mode:?}: {name}");
+            }
+            assert_eq!(
+                roles.headings,
+                [Color::Magenta, Color::Blue, Color::Cyan, Color::Green, Color::Yellow, Color::Red]
+            );
+            let statuses = [
+                ("draft", Color::Yellow),
+                ("amended", Color::Yellow),
+                ("ready", Color::Blue),
+                ("accepted", Color::Blue),
+                ("converging", Color::Blue),
+                ("in-progress", Color::Cyan),
+                ("implementing", Color::Cyan),
+                ("blocked", Color::Red),
+                ("done", Color::Green),
+            ];
+            assert_eq!(theme.statuses.len(), statuses.len());
+            for (name, expected) in statuses {
+                assert_eq!(
+                    theme.status_color(Some(&Status {
+                        name: name.into(),
+                        known: true
+                    })),
+                    expected,
+                    "{mode:?}: {name}"
+                );
+            }
+            assert_eq!(theme.status_color(None), Color::DarkGray);
+            for (family, expected) in [
+                ("g", Color::Cyan),
+                ("ng", Color::Red),
+                ("pi", Color::Magenta),
+                ("kd", Color::Blue),
+                ("so", Color::Yellow),
+                ("c", Color::Yellow),
+                ("ct", Color::LightBlue),
+                ("vc", Color::Green),
+                ("oq", Color::LightMagenta),
+                ("ex", Color::LightCyan),
+                ("other", Color::DarkGray),
+            ] {
+                assert_eq!(theme.family_color(family), expected, "{mode:?}: {family}");
+            }
+        }
+    }
+
+    #[test]
+    fn vc_6_ansi_slot_mapping_preserves_terminal_colours() {
         for (slot, expected) in [
             (Ansi::Black, Color::Black),
             (Ansi::Red, Color::Red),
@@ -154,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn vc_8_modes_select_builtin_and_code_defaults_with_auto_fallback() {
+    fn vc_6_modes_select_builtin_and_code_defaults_with_auto_fallback() {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(
             root.path().join(".plan-viewer.toml"),

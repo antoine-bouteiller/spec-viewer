@@ -129,14 +129,6 @@ impl Viewer {
         project.worktrees.clear();
         project
     }
-
-    pub fn worktree_at(&self, wt: &str) -> Option<PathBuf> {
-        if wt.is_empty() {
-            return None;
-        }
-        let wanted = std::fs::canonicalize(wt).ok()?;
-        self.current().worktrees.into_iter().find(|wt| wt.path == wanted).map(|wt| wt.path)
-    }
 }
 
 #[cfg(test)]
@@ -184,12 +176,6 @@ mod tests {
             [("main", true), ("feature", false)]
         );
         let viewer = Viewer::new(second.path()).unwrap();
-        assert_eq!(
-            viewer.worktree_at(second.path().to_str().unwrap()),
-            Some(fs::canonicalize(second.path()).unwrap())
-        );
-        assert_eq!(viewer.worktree_at(root.path().join(".git").to_str().unwrap()), None);
-        assert_eq!(viewer.worktree_at(""), None);
         run(root.path(), &["worktree", "remove", "--force", second.path().to_str().unwrap()]);
         assert_eq!(viewer.current().worktrees.len(), 1);
     }
@@ -228,7 +214,7 @@ mod tests {
         let root = directory.path().join("repo\u{2028}tail");
         fs::create_dir(&root).unwrap();
         run(&root, &["init", "-qb", "main"]);
-        // Bun's /^worktree (.+)$/m captures only `repo`, which does not exist.
+        // The field ends at the Unicode line separator, leaving `repo`, which does not exist.
         assert_eq!(project_of(&root).unwrap_err().to_string(), "project has no worktrees");
     }
 

@@ -1,7 +1,7 @@
 use plan_viewer_config::{Color, Config, Mode};
 
 #[test]
-fn vc_9_layers_merge_tables_and_replace_arrays() {
+fn vc_7_layers_merge_tables_and_replace_arrays() {
     let root = tempfile::tempdir().unwrap();
     let user = root.path().join("user.toml");
     let worktree = root.path().join(".plan-viewer.toml");
@@ -23,11 +23,14 @@ fn vc_9_layers_merge_tables_and_replace_arrays() {
 }
 
 #[test]
-fn vc_9_validation_errors_name_the_defining_file_and_key() {
+fn vc_7_validation_errors_name_the_defining_file_and_key() {
     let root = tempfile::tempdir().unwrap();
     let file = root.path().join(".plan-viewer.toml");
     for (source, key) in [
         ("[theme]\nmode='rainbow'", "theme.mode"),
+        ("[theme\naccent='red'", "line 1"),
+        ("[theme]\nmode='dark'\nname = [", "line 3"),
+        ("[theme]\nmode='dark'\nname = 'terminal'\n[theme.roles\naccent='red'", "line 4"),
         ("[theme]\nname='missing'", "theme.name"),
         ("[theme]\nlight_name='missing'", "theme.light_name"),
         ("[theme]\nstrange=true", "theme.strange"),
@@ -73,7 +76,7 @@ fn vc_9_validation_errors_name_the_defining_file_and_key() {
 }
 
 #[test]
-fn vc_9_colour_syntax_and_palette_validation() {
+fn colour_syntax_and_palette_validation() {
     use plan_viewer_config::Ansi;
     for (source, expected) in [
         ("#123aBC", Color::Rgb(0x12, 0x3a, 0xbc)),
@@ -115,7 +118,7 @@ fn vc_9_colour_syntax_and_palette_validation() {
 }
 
 #[test]
-fn vc_9_empty_unknown_table_errors_name_the_file() {
+fn vc_7_empty_unknown_table_errors_name_the_file() {
     let root = tempfile::tempdir().unwrap();
     let file = root.path().join(".plan-viewer.toml");
     std::fs::write(&file, "[theme.unknown]\n").unwrap();
@@ -125,7 +128,7 @@ fn vc_9_empty_unknown_table_errors_name_the_file() {
 }
 
 #[test]
-fn vc_9_palette_shape_errors_identify_the_exact_key_and_layer() {
+fn vc_7_palette_shape_errors_identify_the_exact_key_and_layer() {
     let root = tempfile::tempdir().unwrap();
     let file = root.path().join(".plan-viewer.toml");
     for (source, key) in [

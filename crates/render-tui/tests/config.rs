@@ -27,10 +27,13 @@ fn text(buffer: &Buffer) -> String {
     buffer.content.iter().map(|cell| cell.symbol()).collect()
 }
 fn assert_text_fg(buffer: &Buffer, text: &str, color: Color) -> usize {
+    assert_text_fg_from_column(buffer, text, color, 0)
+}
+fn assert_text_fg_from_column(buffer: &Buffer, text: &str, color: Color, start: u16) -> usize {
     let chars: Vec<_> = text.chars().map(|c| c.to_string()).collect();
     let mut matches = 0;
     for y in 0..buffer.area.height {
-        for x in 0..=buffer.area.width.saturating_sub(chars.len() as u16) {
+        for x in start..=buffer.area.width.saturating_sub(chars.len() as u16) {
             if chars.iter().enumerate().all(|(i, c)| buffer[(x + i as u16, y)].symbol() == c) {
                 matches += 1;
                 for i in 0..chars.len() {
@@ -44,7 +47,7 @@ fn assert_text_fg(buffer: &Buffer, text: &str, color: Color) -> usize {
 }
 
 #[test]
-fn vc_6_worktree_statuses_replace_defaults_in_tree_and_header() {
+fn vc_4_worktree_statuses_replace_defaults_in_tree_and_header() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join(".plan")).unwrap();
     std::fs::write(
@@ -71,7 +74,7 @@ fn vc_6_worktree_statuses_replace_defaults_in_tree_and_header() {
 }
 
 #[test]
-fn vc_7_custom_checklist_replaces_all_header_chips() {
+fn vc_5_custom_checklist_replaces_all_header_chips() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join(".plan")).unwrap();
     std::fs::write(root.path().join(".plan/risks.md"), "# Risk plan\n## Risks\n- [x] identified\n- [ ] remaining\n## Implementation\n### Phase\n- [x] task\n## Acceptance criteria\n- [x] done\n").unwrap();
@@ -91,7 +94,7 @@ fn vc_7_custom_checklist_replaces_all_header_chips() {
 }
 
 #[test]
-fn vc_8_palette_overrides_recolour_border_xrefs_and_status() {
+fn vc_6_palette_overrides_recolour_border_xrefs_and_status() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join(".plan")).unwrap();
     std::fs::write(
@@ -130,12 +133,12 @@ fn vc_8_palette_overrides_recolour_border_xrefs_and_status() {
 }
 
 #[test]
-fn vc_8_mocha_dialect_buffer_uses_only_palette_and_syntect_colours() {
+fn vc_6_mocha_dialect_buffer_uses_only_palette_and_syntect_colours() {
     let fixture = Fixture::new();
     let mut app = configured(&fixture.root, "[theme]\nname='catppuccin-mocha'", Some(Mode::Dark));
     app.open("spec/dialect.spec.mdx");
     let mut allowed = vec![Color::Reset];
-    // Independent published terminal palette, not Theme::palette under test.
+    // Independent published catppuccin/alacritty terminal palette, not the resolver's table.
     for hex in [
         0x45475a_u32,
         0xf38ba8,
@@ -178,10 +181,27 @@ fn vc_8_mocha_dialect_buffer_uses_only_palette_and_syntect_colours() {
         }
     }
     assert!(pages >= 4);
+
+    // Exercise specific role assignments too: palette membership alone misses swapped slots.
+    std::fs::write(
+        fixture.root.join(".plan/mocha.md"),
+        "---\ntitle: Mocha roles\nstatus: accepted\n---\n# Mocha roles\n\n## Body\n# Mocha heading\n\nKD-1\n",
+    )
+    .unwrap();
+    app.reload();
+    app.open(".plan/mocha.md");
+    app.focus = Focus::Sidebar;
+    let buffer = draw(&mut app);
+    assert_eq!(buffer[(0, 0)].fg, Color::Rgb(0x89, 0xb4, 0xfa));
+    assert_eq!(buffer[(40, 0)].fg, Color::Rgb(0x58, 0x5b, 0x70));
+    // The outline repeats this text in the rail; assert the body's heading cells only.
+    assert_text_fg_from_column(&buffer, "Mocha heading", Color::Rgb(0xf5, 0xc2, 0xe7), 66);
+    assert_eq!(assert_text_fg(&buffer, "[accepted]", Color::Rgb(0x89, 0xb4, 0xfa)), 2);
+    assert_text_fg(&buffer, "KD-1", Color::Rgb(0x89, 0xb4, 0xfa));
 }
 
 #[test]
-fn vc_8_code_theme_file_is_decoded_and_invalid_content_is_a_config_error() {
+fn vc_6_code_theme_file_is_decoded_and_invalid_content_is_a_config_error() {
     let root = tempfile::tempdir().unwrap();
     std::fs::write(
         root.path().join("custom.tmTheme"),
@@ -201,7 +221,7 @@ fn vc_8_code_theme_file_is_decoded_and_invalid_content_is_a_config_error() {
 }
 
 #[test]
-fn vc_9_session_keeps_startup_config_on_reload_and_worktree_switch() {
+fn vc_7_session_keeps_startup_config_on_reload_and_worktree_switch() {
     let fixture = Fixture::new();
     let mut app = configured(
         &fixture.root,
@@ -224,7 +244,7 @@ fn vc_9_session_keeps_startup_config_on_reload_and_worktree_switch() {
 }
 
 #[test]
-fn vc_7_headings_chip_label_is_configured_and_zero_chips_are_omitted() {
+fn vc_5_headings_chip_label_is_configured_and_zero_chips_are_omitted() {
     let root = tempfile::tempdir().unwrap();
     std::fs::create_dir(root.path().join(".plan")).unwrap();
     std::fs::write(root.path().join(".plan/a.md"), "# Plan\n## Risks\n### First\n### Second\n").unwrap();

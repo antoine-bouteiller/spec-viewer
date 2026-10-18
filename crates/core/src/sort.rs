@@ -41,7 +41,7 @@ fn run<Element: Copy>(values: &mut [Element], begin: usize, less: &impl Fn(Eleme
     end
 }
 
-// The exponential probes matter for Bun parity with a non-total comparator.
+// Exponential probes preserve the established order when the comparator is non-total.
 fn gallop<Element: Copy>(
     key: Element,
     values: &[Element],
@@ -164,7 +164,7 @@ fn merge<Element: Copy>(
     values[destination..destination + right_end - right].copy_from_slice(&source[right..right_end]);
 }
 
-pub(super) fn bun_sort<Element: Copy>(values: &mut [Element], less: impl Fn(Element, Element) -> bool) {
+pub(super) fn adaptive_sort<Element: Copy>(values: &mut [Element], less: impl Fn(Element, Element) -> bool) {
     if values.len() < 8 {
         insertion(values, 0, &less);
         return;

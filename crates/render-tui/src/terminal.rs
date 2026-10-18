@@ -772,6 +772,80 @@ mod tests {
     }
 
     #[test]
+    fn literal_jsx_inputs_preserve_checked_markers() {
+        for (attribute, marker) in [("checked", "[x]"), ("checked=\"checked\"", "[x]"), ("", "[ ]")] {
+            for source in [
+                format!("<input type=\"checkbox\" {attribute} />"),
+                format!("before <input type=\"checkbox\" {attribute} /> after"),
+            ] {
+                let document = to_terminal(&parse(&source, "fixture.mdx"), 80, &Theme::default());
+                let body = document.lines.iter().map(Line::to_string).collect::<Vec<_>>().join("\n");
+                assert!(body.contains(marker), "{source}: {body}");
+            }
+        }
+    }
+
+    #[test]
+    fn literal_jsx_headings_and_blockquotes_preserve_terminal_styles() {
+        for (depth, color) in [
+            (1, Color::Magenta),
+            (2, Color::Blue),
+            (3, Color::Cyan),
+            (4, Color::Green),
+            (5, Color::Yellow),
+            (6, Color::Red),
+        ] {
+            for source in [
+                format!("<h{depth}>Heading</h{depth}>"),
+                format!("before <h{depth}>Heading</h{depth}> after"),
+            ] {
+                let document = to_terminal(&parse(&source, "fixture.mdx"), 80, &Theme::default());
+                let span = document
+                    .lines
+                    .iter()
+                    .flat_map(|line| &line.spans)
+                    .find(|span| span.content == "Heading")
+                    .unwrap();
+                assert_eq!(span.style.fg, Some(color), "{source}");
+                assert!(span.style.add_modifier.contains(Modifier::BOLD), "{source}");
+            }
+        }
+        for source in ["<blockquote>Quoted</blockquote>", "before <blockquote>Quoted</blockquote> after"] {
+            let document = to_terminal(&parse(source, "fixture.mdx"), 80, &Theme::default());
+            assert!(
+                document.lines.iter().any(|line| line.to_string() == "│ Quoted"),
+                "{source}: {:?}",
+                document.lines
+            );
+        }
+    }
+
+    #[test]
+    fn literal_jsx_code_preserves_nested_inline_formatting() {
+        for source in [
+            "<code>plain <strong>bold</strong> <em>italic</em> <del>removed</del></code>",
+            "before <code>plain <strong>bold</strong> <em>italic</em> <del>removed</del></code> after",
+        ] {
+            let document = to_terminal(&parse(source, "fixture.mdx"), 80, &Theme::default());
+            for (label, modifier) in [
+                ("plain", Modifier::empty()),
+                ("bold", Modifier::BOLD),
+                ("italic", Modifier::ITALIC),
+                ("removed", Modifier::CROSSED_OUT),
+            ] {
+                let span = document
+                    .lines
+                    .iter()
+                    .flat_map(|line| &line.spans)
+                    .find(|span| span.content.contains(label))
+                    .unwrap();
+                assert_eq!(span.style.fg, Some(Color::Yellow), "{source}: {label}");
+                assert!(span.style.add_modifier.contains(modifier), "{source}: {label}");
+            }
+        }
+    }
+
+    #[test]
     fn headings_wrapping_and_target_coordinates() {
         let parsed = parse(
             "## Heading\n\nSee [the document](next.spec.md) and `[KD-3.1]`.\n",

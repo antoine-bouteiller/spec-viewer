@@ -8,7 +8,7 @@ mod plugins;
 mod types;
 
 pub use ast::*;
-pub use metadata::{body_below_header, meta_of, meta_of as parse_meta};
+pub use metadata::{body_below_header, parse_meta};
 pub use plan_viewer_config::ParseConfig;
 pub use types::{Chip, ChipValue, Meta, Status};
 
@@ -28,13 +28,11 @@ pub struct Degraded {
 /// Parse the body below the document header; metadata describes the complete source.
 /// JavaScript in MDX is never executed, and parser failures never escape as panics.
 pub fn parse(source: &str, path: &str, config: &ParseConfig) -> Document {
-    let mut document = parse_with(&body_below_header(source), path, config, |source, path| {
-        pipeline(source, path, config)
-    });
+    let mut document = parse_with(&body_below_header(source), path, pipeline);
     document.meta = parse_meta(source, std::path::Path::new(path), config);
     document
 }
-fn pipeline(source: &str, path: &str, config: &ParseConfig) -> Result<Document, Degraded> {
+fn pipeline(source: &str, path: &str) -> Result<Document, Degraded> {
     let mut options = markdown::ParseOptions::gfm();
     if path.ends_with(".mdx") {
         options.constructs.html_flow = false;
@@ -51,15 +49,12 @@ fn pipeline(source: &str, path: &str, config: &ParseConfig) -> Result<Document, 
         options.mdx_expression_parse = Some(Box::new(|value, _| lexical_boundary(value)));
     }
     let mut root = markdown::to_mdast(source, &options).map_err(failure_details)?;
-    if path.ends_with(".mdx") {
-        validate_trailing_jsx_marker(&root, source)?;
-    }
     repair_line_endings(&mut root, source);
     let mut state = plugins::State::default();
     let blocks = mdast::convert_children(root.children().map(Vec::as_slice).unwrap_or(&[]), &mut state, path);
     let toc = plugins::ordered_toc(&state.toc, &blocks);
     Ok(Document {
-        meta: parse_meta(source, std::path::Path::new(path), config),
+        meta: Meta::default(),
         blocks,
         toc,
         degraded: None,
@@ -124,7 +119,7 @@ fn lexical_boundary(value: &str) -> markdown::MdxSignal {
         markdown::MdxSignal::Ok
     }
 }
-fn parse_with(source: &str, path: &str, config: &ParseConfig, run: impl Fn(&str, &str) -> Result<Document, Degraded>) -> Document {
+fn parse_with(source: &str, path: &str, run: impl Fn(&str, &str) -> Result<Document, Degraded>) -> Document {
     let safe_run = |path: &str| {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(source, path))).unwrap_or_else(|panic| {
             let message = panic
@@ -144,7 +139,7 @@ fn parse_with(source: &str, path: &str, config: &ParseConfig, run: impl Fn(&str,
         Err(degraded) => {
             let markdown_path = if path.ends_with(".mdx") { &path[..path.len() - 1] } else { path };
             let mut document = safe_run(markdown_path).unwrap_or_else(|_| Document {
-                meta: parse_meta(source, std::path::Path::new(path), config),
+                meta: Meta::default(),
                 blocks: vec![Block::Code {
                     lang: None,
                     source: source.into(),
@@ -301,34 +296,4 @@ fn repair_sibling_gaps(children: &mut Vec<markdown::mdast::Node>, source: &str, 
         }
     }
     *children = output;
-}
-
-fn validate_trailing_jsx_marker(node: &markdown::mdast::Node, source: &str) -> Result<(), Degraded> {
-    // markdown-rs treats an EOF JSX start marker as prose; remark-mdx errors on it.
-    if let markdown::mdast::Node::Text(text) = node
-        && text.value.ends_with('<')
-        && let Some(position) = &text.position
-        && position.end.offset == source.len()
-        && source.ends_with('<')
-    {
-        let backslashes = source[..source.len() - 1]
-            .chars()
-            .rev()
-            .take_while(|character| *character == '\\')
-            .count();
-        if backslashes % 2 == 0 {
-            return Err(Degraded {
-                reason: "mdx-parse".into(),
-                message: "Unexpected end of file before name, expected a character that can start a name, such as a letter, `$`, or `_`"
-                    .into(),
-                line: position.end.line,
-            });
-        }
-    }
-    if let Some(children) = node.children() {
-        for child in children {
-            validate_trailing_jsx_marker(child, source)?;
-        }
-    }
-    Ok(())
 }

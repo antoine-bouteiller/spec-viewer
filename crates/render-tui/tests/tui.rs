@@ -53,7 +53,7 @@ fn draw(app: &mut App) -> String {
 }
 
 #[test]
-fn vc_4_plan_header_tree_family_and_legacy_snapshots() {
+fn vc_1_plan_header_tree_family_and_legacy_snapshots() {
     let fixture = Fixture::new();
     let mut app = App::new(
         Library::new(&fixture.root, ParseConfig::default()).unwrap(),
@@ -62,20 +62,20 @@ fn vc_4_plan_header_tree_family_and_legacy_snapshots() {
     )
     .unwrap();
     app.open(".plan/rollout/index.md");
-    insta::assert_snapshot!("vc_4_plan_index", draw(&mut app));
+    insta::assert_snapshot!("vc_1_plan_index", draw(&mut app));
     app.open(".plan/rollout/01-design.md");
-    insta::assert_snapshot!("vc_4_plan_phase", draw(&mut app));
+    insta::assert_snapshot!("vc_1_plan_phase", draw(&mut app));
     assert!(
         app.rows()
             .iter()
             .any(|row| row.current && row.node.path.as_deref() == Some(".plan/rollout/index.md"))
     );
     app.open(".plan/legacy.md");
-    insta::assert_snapshot!("vc_4_legacy", draw(&mut app));
+    insta::assert_snapshot!("vc_1_legacy", draw(&mut app));
 }
 
 #[test]
-fn vc_4_spec_outline_umbrella_and_fallback_snapshots() {
+fn vc_1_spec_outline_umbrella_and_fallback_snapshots() {
     let fixture = Fixture::new();
     assert!(fixture.outside.exists());
     let mut app = App::new(
@@ -86,18 +86,18 @@ fn vc_4_spec_outline_umbrella_and_fallback_snapshots() {
     .unwrap();
     key(&mut app, KeyCode::Char('2'));
     app.open("spec/standalone.spec.md");
-    insta::assert_snapshot!("vc_4_spec_outline", draw(&mut app));
+    insta::assert_snapshot!("vc_1_spec_outline", draw(&mut app));
     assert!(app.rail_entries().iter().all(|entry| matches!(entry, RailEntry::Section { .. })));
     app.open("doc/architecture/tree.spec.md");
-    insta::assert_snapshot!("vc_4_spec_family", draw(&mut app));
+    insta::assert_snapshot!("vc_1_spec_family", draw(&mut app));
     app.open("spec/broken.spec.mdx");
-    insta::assert_snapshot!("vc_4_degraded", draw(&mut app));
+    insta::assert_snapshot!("vc_1_degraded", draw(&mut app));
     app.open("spec/raw.spec.md");
-    insta::assert_snapshot!("vc_4_raw_html", draw(&mut app));
+    insta::assert_snapshot!("vc_1_raw_html", draw(&mut app));
 }
 
 #[test]
-fn vc_4_every_dialect_construct_across_document_pages() {
+fn vc_1_every_dialect_construct_across_document_pages() {
     let fixture = Fixture::new();
     let mut app = App::new(
         Library::new(&fixture.root, ParseConfig::default()).unwrap(),
@@ -108,7 +108,7 @@ fn vc_4_every_dialect_construct_across_document_pages() {
     key(&mut app, KeyCode::Char('2'));
     app.open("spec/dialect.spec.mdx");
     let first = draw(&mut app);
-    insta::assert_snapshot!("vc_4_dialect_0", first);
+    insta::assert_snapshot!("vc_1_dialect_0", first);
     let mut page = 1;
     loop {
         let previous = app.scroll;
@@ -116,14 +116,14 @@ fn vc_4_every_dialect_construct_across_document_pages() {
         if app.scroll == previous {
             break;
         }
-        insta::assert_snapshot!(format!("vc_4_dialect_{page}"), draw(&mut app));
+        insta::assert_snapshot!(format!("vc_1_dialect_{page}"), draw(&mut app));
         page += 1;
     }
     assert!(page >= 4);
 }
 
 #[test]
-fn vc_5_filter_is_flat_with_paths_and_without_attached_examples() {
+fn vc_2_filter_is_flat_with_paths_and_without_attached_examples() {
     let fixture = Fixture::new();
     let mut app = App::new(
         Library::new(&fixture.root, ParseConfig::default()).unwrap(),
@@ -150,7 +150,7 @@ fn vc_5_filter_is_flat_with_paths_and_without_attached_examples() {
 }
 
 #[test]
-fn vc_5_diff_is_specs_only_and_restricts_to_changed_paths() {
+fn vc_2_diff_is_specs_only_and_restricts_to_changed_paths() {
     let fixture = Fixture::new();
     let mut app = App::new(
         Library::new(&fixture.root, ParseConfig::default()).unwrap(),
@@ -174,7 +174,7 @@ fn vc_5_diff_is_specs_only_and_restricts_to_changed_paths() {
 }
 
 #[test]
-fn vc_5_worktree_and_tabs_clear_documents_but_keep_filter_and_diff() {
+fn vc_2_worktree_and_tabs_clear_documents_but_keep_filter_and_diff() {
     let fixture = Fixture::new();
     let mut app = App::new(
         Library::new(&fixture.root.join(".plan/rollout"), ParseConfig::default()).unwrap(),
@@ -213,7 +213,7 @@ fn vc_5_worktree_and_tabs_clear_documents_but_keep_filter_and_diff() {
 }
 
 #[test]
-fn vc_5_phase_opened_from_rail_keeps_owner_current_and_documents_never_expand() {
+fn vc_2_phase_opened_from_rail_keeps_owner_current_and_documents_never_expand() {
     let fixture = Fixture::new();
     let mut app = App::new(
         Library::new(&fixture.root, ParseConfig::default()).unwrap(),
@@ -249,7 +249,7 @@ fn vc_5_phase_opened_from_rail_keeps_owner_current_and_documents_never_expand() 
 }
 
 #[test]
-fn vc_5_visible_hints_copy_xrefs_open_docs_and_copy_paths_with_osc_52() {
+fn vc_2_visible_hints_copy_xrefs_open_docs_and_copy_paths_with_osc_52() {
     let fixture = Fixture::new();
     let clipboard = Clipboard::default();
     let mut app = App::new(
@@ -294,7 +294,7 @@ fn vc_5_visible_hints_copy_xrefs_open_docs_and_copy_paths_with_osc_52() {
 }
 
 #[test]
-fn vc_6_live_reload_adds_plan_refreshes_body_and_preserves_scroll_within_one_second() {
+fn vc_3_live_reload_adds_plan_refreshes_body_and_preserves_scroll_within_one_second() {
     let fixture = Fixture::new();
     let mut app = App::new(
         Library::new(&fixture.root, ParseConfig::default()).unwrap(),
@@ -330,7 +330,7 @@ fn vc_6_live_reload_adds_plan_refreshes_body_and_preserves_scroll_within_one_sec
 }
 
 #[test]
-fn vc_5_focus_scrolling_expansion_and_quit_state_transitions() {
+fn vc_2_focus_scrolling_expansion_and_quit_state_transitions() {
     let fixture = Fixture::new();
     let mut app = App::new(
         Library::new(&fixture.root, ParseConfig::default()).unwrap(),

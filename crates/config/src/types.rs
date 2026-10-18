@@ -136,8 +136,6 @@ impl<T> Roles<T> {
 #[derive(Clone, Debug)]
 pub struct ResolvedTheme {
     pub mode: Mode,
-    pub palette: BTreeMap<String, Color>,
     pub roles: Roles<Color>,
     pub statuses: BTreeMap<String, Color>,
-    pub code: String,
 }

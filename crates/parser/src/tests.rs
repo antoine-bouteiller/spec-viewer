@@ -117,7 +117,7 @@ impl<'a> Nodes<'a> {
 }
 
 #[test]
-fn vc_5_dialect_components_are_semantic() {
+fn dialect_components_are_semantic() {
     let document = mdx(include_str!("../../../fixtures/dialect.spec.mdx"));
     let nodes = Nodes::document(&document);
     let components = &nodes.components;
@@ -147,7 +147,7 @@ fn vc_5_dialect_components_are_semantic() {
 }
 
 #[test]
-fn vc_5_dialect_navigation_and_mermaid() {
+fn dialect_navigation_and_mermaid() {
     // The checked-in dialect has no markdown document link or duplicate heading.
     let source = format!(
         "{}\n\n# Header\n\n# Appendix\n\n## Repeated\n\n## Repeated\n\n[relative](../other.spec.md#s)\n",
@@ -183,7 +183,7 @@ fn vc_5_dialect_navigation_and_mermaid() {
 }
 
 #[test]
-fn vc_5_malformed_mdx_starts_with_degraded_markdown_fallback() {
+fn malformed_mdx_starts_with_degraded_markdown_fallback() {
     let document = mdx("The prose before the component remains readable.\n\n<StepRail>");
     assert_eq!(document.degraded.as_ref().unwrap().reason, "mdx-parse");
     assert_eq!(document.blocks[0], Block::Degraded);
@@ -363,6 +363,12 @@ fn esm_and_quoted_expression_placeholders() {
 fn mdx_inline_code_angles_are_not_components() {
     let document = mdx("`List<String>`");
     assert_eq!(document.blocks, [Block::Paragraph(vec![Inline::Code("List<String>".into())])]);
+    for source in ["before <", "before \\<", "&lt;"] {
+        let document = mdx(source);
+        assert!(document.degraded.is_none());
+        let expected = if source == "&lt;" { "<" } else { "before <" };
+        assert_eq!(document.blocks, [Block::Paragraph(vec![Inline::Text(expected.into())])]);
+    }
 }
 
 #[test]
@@ -380,7 +386,7 @@ fn markdown_jsx_stays_raw() {
 #[test]
 fn panic_and_final_fallback_retain_source() {
     for panic in [false, true] {
-        let document = parse_with("source ' < &", "fixture.md", &ParseConfig::default(), |_, _| {
+        let document = parse_with("source ' < &", "fixture.md", |_, _| {
             if panic {
                 panic!("pipeline unavailable");
             }
@@ -554,14 +560,6 @@ fn mdx_soft_breaks_between_child_nodes_are_repaired() {
 }
 
 #[test]
-fn mdx_trailing_angle_degrades_but_escaped_angle_does_not() {
-    assert_eq!(mdx("before <").degraded.unwrap().line, 1);
-    for source in ["before \\<", "`<`", "&lt;"] {
-        assert!(mdx(source).degraded.is_none());
-    }
-}
-
-#[test]
 fn lexical_boundary_handles_nested_quotes_comments_and_incomplete_input() {
     for value in [
         "({ value: ['}'] })",
@@ -598,7 +596,7 @@ fn footnotes_keep_visible_numbers_heading_and_return_labels() {
 }
 
 #[test]
-fn vc_7_configured_chips_follow_order_and_first_present_section() {
+fn vc_5_configured_chips_follow_order_and_first_present_section() {
     use plan_viewer_config::{ChipConfig, ChipKind};
     let config = ParseConfig {
         statuses: vec![],

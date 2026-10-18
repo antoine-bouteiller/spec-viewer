@@ -1,4 +1,4 @@
-//! The string/regular-expression primitives used by the Bun metadata parser.
+//! String and regular-expression primitives with JavaScript whitespace and line-terminator rules.
 use std::cmp::Ordering;
 use std::sync::OnceLock;
 

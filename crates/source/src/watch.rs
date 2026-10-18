@@ -1,4 +1,4 @@
-//! Debounced corpus change notifications with the watch set of the Bun `/api/events` route.
+//! Debounced change notifications for plan, spec, and Git metadata paths.
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};

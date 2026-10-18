@@ -279,7 +279,7 @@ fn normalize_status(raw: Option<String>, config: &ParseConfig) -> Option<Status>
     })
 }
 
-pub fn meta_of(source: &str, file: &Path, config: &ParseConfig) -> Meta {
+pub fn parse_meta(source: &str, file: &Path, config: &ParseConfig) -> Meta {
     let fm = parse_frontmatter(source);
     let raw = strip_frontmatter(source);
     let body = strip_fences(raw);
@@ -355,12 +355,12 @@ pub fn body_below_header(source: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn meta_of(source: &str, file: &Path) -> Meta {
-        super::meta_of(source, file, &ParseConfig::default())
+    fn parse_meta(source: &str, file: &Path) -> Meta {
+        super::parse_meta(source, file, &ParseConfig::default())
     }
     #[test]
     fn frontmatter_scalars_lists_and_comments() {
-        let meta = meta_of(
+        let meta = parse_meta(
             "---\ntitle: \" A title \" # comment\nstatus: completed\nauthor: 'Agent'\ndate: 2026-10-16\nrelated: [a.spec.md, 'b.spec.md', ]\nkind: unusual\nparent-spec: a.spec.md\narchived: TRUE\n---\n# Ignored\n",
             Path::new("fallback.md"),
         );
@@ -376,36 +376,36 @@ mod tests {
 
     #[test]
     fn block_lists_and_scalar_related() {
-        let meta = meta_of(
+        let meta = parse_meta(
             "---\r\nrelated: replaced\r\n - a.spec.md\r\n # comment\r\n - 'b.spec.md' # note\r\n - ''\r\n---\r\n",
             Path::new("a.md"),
         );
         assert_eq!(meta.related, ["a.spec.md", "b.spec.md", ""]);
         assert_eq!(meta.lines, 1);
-        let meta = meta_of("---\nrelated: a.spec.md\n---\n", Path::new("a.md"));
+        let meta = parse_meta("---\nrelated: a.spec.md\n---\n", Path::new("a.md"));
         assert_eq!(meta.related, ["a.spec.md"]);
     }
     #[test]
     fn legacy_identity_and_title_fallback() {
-        let meta = meta_of("# Legacy title\n\n**STATUS:** WIP — note\n", Path::new("fallback.md"));
+        let meta = parse_meta("# Legacy title\n\n**STATUS:** WIP — note\n", Path::new("fallback.md"));
         assert_eq!(meta.title, "Legacy title");
         assert_eq!(meta.status.as_ref().map(|status| status.name.as_str()), Some("in-progress"));
         assert!(meta.legacy);
-        let meta = meta_of("---\ntitle: Front title\n---\n**Status:** finished\n", Path::new("fallback.md"));
+        let meta = parse_meta("---\ntitle: Front title\n---\n**Status:** finished\n", Path::new("fallback.md"));
         assert!(!meta.legacy);
         assert_eq!(meta.status.as_ref().map(|status| status.name.as_str()), Some("done"));
-        assert_eq!(meta_of("", Path::new("name.spec.mdx")).title, "name.spec.mdx");
-        assert_eq!(meta_of("", Path::new("name.spec.md")).title, "name.spec");
+        assert_eq!(parse_meta("", Path::new("name.spec.mdx")).title, "name.spec.mdx");
+        assert_eq!(parse_meta("", Path::new("name.spec.md")).title, "name.spec");
     }
     #[test]
     fn whitespace_only_legacy_status_still_marks_legacy() {
-        let meta = meta_of("**Status:**   ", Path::new("a.md"));
+        let meta = parse_meta("**Status:**   ", Path::new("a.md"));
         assert!(meta.legacy);
         assert_eq!(meta.status, None);
     }
 
     #[test]
-    fn vc_3_aliases_and_status_normalization() {
+    fn aliases_and_status_normalization() {
         for (raw, expected) in [
             ("complete", "done"),
             ("completed", "done"),
@@ -422,18 +422,18 @@ mod tests {
             ("Ready—detail", "ready"),
             (" Converging.;,—- ", "converging"),
         ] {
-            let meta = meta_of(&format!("---\nstatus: {raw}\n---\n"), Path::new("a.md"));
+            let meta = parse_meta(&format!("---\nstatus: {raw}\n---\n"), Path::new("a.md"));
             assert_eq!(meta.status.as_ref().map(|status| status.name.as_str()), Some(expected), "{raw}");
             assert_eq!(meta.status.as_ref().unwrap().known, expected != "custom", "{raw}");
         }
         for raw in ["", "---", ";;;", ", detail"] {
-            assert_eq!(meta_of(&format!("---\nstatus: '{raw}'\n---\n"), Path::new("a.md")).status, None);
+            assert_eq!(parse_meta(&format!("---\nstatus: '{raw}'\n---\n"), Path::new("a.md")).status, None);
         }
     }
     #[test]
     fn counts_and_phases_ignore_fences_and_unowned_checks() {
         let source = "# Plan\n- [x] Outside\n## Acceptance criteria\n- [X] done\n* [ ] pending\n```md\n- [x] fake\n## Implementation\n### fake\n```\n## Implementation\n### Phase one  \n- [x] task\n### Phase two\n  * [ ] task\n~~~md\n- [x] fake\n~~~\n## Other\n- [x] not a task\n";
-        let meta = meta_of(source, Path::new("a.md"));
+        let meta = parse_meta(source, Path::new("a.md"));
         assert_eq!(
             meta.chips,
             [
@@ -455,21 +455,21 @@ mod tests {
     }
     #[test]
     fn steps_fallback_and_last_section_wins() {
-        let meta = meta_of(
+        let meta = parse_meta(
             "## Steps\n### Step\n- [x] done\n## Acceptance criteria\n- [x] old\n## Acceptance criteria\n- [ ] new\n",
             Path::new("a.md"),
         );
         assert_eq!(meta.chips[2].value, ChipValue::Count(1));
         assert_eq!(meta.chips[1].value, ChipValue::Checklist { done: 1, total: 1 });
         assert_eq!(meta.chips[0].value, ChipValue::Checklist { done: 0, total: 1 });
-        let meta = meta_of("## Steps\n- [x] done\n## Implementation\n", Path::new("a.md"));
+        let meta = parse_meta("## Steps\n- [x] done\n## Implementation\n", Path::new("a.md"));
         assert_eq!(meta.chips[1].value, ChipValue::Checklist { done: 0, total: 0 });
     }
     #[test]
     fn unicode_whitespace_and_lines() {
-        let meta = meta_of("\u{feff} \n", Path::new("a.md"));
+        let meta = parse_meta("\u{feff} \n", Path::new("a.md"));
         assert_eq!(meta.lines, 1);
-        let meta = meta_of(
+        let meta = parse_meta(
             "#\u{a0}Title\n##\u{2003}Implementation\n\u{feff}-\u{a0}[X] yes\n",
             Path::new("a.md"),
         );

@@ -96,13 +96,9 @@ impl Config {
             std::iter::once((Path::new("crates/config/default.toml"), DEFAULT)).chain(layers.iter().map(|(p, s)| (p.as_path(), s.as_str())))
         {
             let layer = toml::from_str::<Value>(source).map_err(|e| {
-                let key = e
-                    .span()
-                    .and_then(|span| source.get(..span.start))
-                    .and_then(|s| s.lines().last())
-                    .and_then(|line| line.split_once('=').map(|(key, _)| key.trim()))
-                    .unwrap_or("TOML");
-                Error::new(path, key, e.message())
+                let offset = e.span().map_or(0, |span| span.start);
+                let line = source.as_bytes()[..offset].iter().filter(|&&byte| byte == b'\n').count() + 1;
+                Error::new(path, format!("line {line}"), e.message())
             })?;
             merge(&mut value, layer, "", path, &mut origins);
         }
@@ -288,13 +284,7 @@ impl Config {
             .enumerate()
             .map(|(index, status)| Ok((status.name.clone(), colour(&format!("status[{index}].color"), &status.color)?)))
             .collect::<Result<_, Error>>()?;
-        Ok(ResolvedTheme {
-            mode,
-            palette,
-            roles,
-            statuses,
-            code: self.code_theme(mode),
-        })
+        Ok(ResolvedTheme { mode, roles, statuses })
     }
 }
 

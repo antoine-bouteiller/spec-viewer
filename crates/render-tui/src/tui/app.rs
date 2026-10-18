@@ -72,14 +72,10 @@ pub struct App {
 impl App {
     pub fn new(library: Library, theme: Theme, output: impl Write + 'static) -> io::Result<Self> {
         let project = library.project();
-        let real_root = std::fs::canonicalize(library.root())?;
         let worktree = project
             .worktrees
             .iter()
-            .enumerate()
-            .filter(|(_, worktree)| real_root.starts_with(&worktree.path))
-            .max_by_key(|(_, worktree)| worktree.path.components().count())
-            .map(|(index, _)| index)
+            .position(|worktree| worktree.path == library.containing_worktree().path)
             .unwrap_or(0);
         let selected = project
             .worktrees
@@ -218,7 +214,7 @@ impl App {
 
     pub fn reload(&mut self) {
         let path = self.worktree_path().to_path_buf();
-        let project = self.library.project();
+        let project = self.library.refresh_project();
         if let Some(index) = project.worktrees.iter().position(|worktree| worktree.path == path) {
             self.worktree = index;
             self.project = project;
@@ -375,7 +371,7 @@ impl App {
             }
             KeyCode::Char('w') => {
                 let path = self.worktree_path().to_path_buf();
-                self.project = self.library.project();
+                self.project = self.library.refresh_project();
                 if let Some(index) = self.project.worktrees.iter().position(|worktree| worktree.path == path) {
                     self.worktree = index;
                 }

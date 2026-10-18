@@ -15,7 +15,7 @@ pub use library::Library;
 pub use plan_viewer_config::ParseConfig;
 pub use plan_viewer_parser::{
     Align, Block, Chip, ChipValue, CodeTab, ComparisonOption, Component, ComponentBody, Degraded, Document, Inline, ListItem, MarginNote,
-    Meta, NodeDetail, Status, Step, TocEntry, body_below_header, meta_of, parse, parse_meta,
+    Meta, NodeDetail, Status, Step, TocEntry, body_below_header, parse, parse_meta,
 };
 pub use plan_viewer_source::{DocError, Project, ResolvedDoc, Stamp, Watch, WatchResult, Worktree, project_of, watch};
 pub use tree::build_tree;

@@ -22,13 +22,13 @@ fn assert_error(output: Output, file: &Path, key: &str) {
 }
 
 #[test]
-fn vc_9_binary_config_errors_are_single_lines_with_file_and_key() {
+fn vc_7_binary_config_errors_are_single_lines_with_file_and_key() {
     let root = tempfile::tempdir().unwrap();
     let user = tempfile::tempdir().unwrap();
     std::fs::create_dir(user.path().join("plan-viewer")).unwrap();
     let user_file = user.path().join("plan-viewer/config.toml");
     std::fs::write(&user_file, "[theme\naccent='red'").unwrap();
-    assert_error(run(root.path(), user.path(), &[]), &user_file, "TOML");
+    assert_error(run(root.path(), user.path(), &[]), &user_file, "line 1");
     std::fs::remove_file(&user_file).unwrap();
     let worktree_file = root.path().join(".plan-viewer.toml");
     std::fs::write(&worktree_file, "[theme]\nunknown='red'").unwrap();
@@ -50,7 +50,7 @@ fn vc_9_binary_config_errors_are_single_lines_with_file_and_key() {
 }
 
 #[test]
-fn vc_8_binary_rejects_missing_palette_role_and_bad_code_theme() {
+fn vc_6_binary_rejects_missing_palette_role_and_bad_code_theme() {
     let root = tempfile::tempdir().unwrap();
     let user = tempfile::tempdir().unwrap();
     let file = root.path().join(".plan-viewer.toml");
@@ -62,7 +62,7 @@ fn vc_8_binary_rejects_missing_palette_role_and_bad_code_theme() {
 }
 
 #[test]
-fn vc_9_binary_loads_the_worktree_containing_nested_root() {
+fn vc_7_binary_loads_the_worktree_containing_nested_root() {
     let root = tempfile::tempdir().unwrap();
     let user = tempfile::tempdir().unwrap();
     let git = |args: &[&str]| {
@@ -92,7 +92,7 @@ fn vc_9_binary_loads_the_worktree_containing_nested_root() {
 }
 
 #[test]
-fn vc_9_binary_cli_boundary_errors_are_single_lines() {
+fn vc_7_binary_cli_boundary_errors_are_single_lines() {
     let root = tempfile::tempdir().unwrap();
     let user = tempfile::tempdir().unwrap();
     for (args, expected) in [

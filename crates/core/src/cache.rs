@@ -24,7 +24,7 @@ impl<Value> Cache<Value> {
             .find(|(entry_key, entry_stamp, _)| entry_key == key && *entry_stamp == stamp)
             .map(|(_, _, value)| value)
     }
-    /// Replacing a stamp does not promote its key, matching Map.set in Bun.
+    /// Replacing a stamp keeps the key's original insertion position.
     pub fn insert(&mut self, key: PathBuf, stamp: Stamp, value: Value) {
         if let Some(entry) = self.entries.iter_mut().find(|(entry_key, _, _)| *entry_key == key) {
             *entry = (key, stamp, value);

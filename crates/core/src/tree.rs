@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use super::js::{locale_compare, spec_stem};
-use super::sort::bun_sort;
+use super::sort::adaptive_sort;
 use super::{DocMeta, DocNode};
 
 struct Node {
@@ -282,7 +282,7 @@ impl<'a> Tree<'a> {
     }
     fn sort(&mut self, node: usize) {
         let mut children = self.nodes[node].children.clone();
-        bun_sort(&mut children, |left, right| compare(&self.nodes[left], &self.nodes[right]).is_lt());
+        adaptive_sort(&mut children, |left, right| compare(&self.nodes[left], &self.nodes[right]).is_lt());
         self.nodes[node].children = children.clone();
         for child in children {
             self.sort(child);
@@ -619,7 +619,7 @@ mod tests {
         );
     }
     #[test]
-    fn non_total_archived_order_matches_bun_sort() {
+    fn non_total_archived_order_preserves_established_order() {
         let mut explicit_false = doc("other/16.spec.md", "中");
         explicit_false.archived = Some(false);
         let tree = build_tree(

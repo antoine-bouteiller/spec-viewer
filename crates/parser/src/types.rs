@@ -22,7 +22,7 @@ pub enum ChipValue {
     Count(usize),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Meta {
     pub title: String,
     pub status: Option<Status>,
