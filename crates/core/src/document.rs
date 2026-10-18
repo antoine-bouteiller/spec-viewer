@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::cache::Cache;
-use crate::{DocError, Document, parse};
+use crate::{DocError, Document, ParseConfig, parse};
 use plan_viewer_source::{read, resolve};
 
 #[derive(Debug, Clone)]
@@ -16,9 +16,17 @@ pub struct Opened {
 #[derive(Debug, Default)]
 pub struct Documents {
     cache: Mutex<Cache<Arc<Document>>>,
+    config: ParseConfig,
 }
 
 impl Documents {
+    pub fn new(config: ParseConfig) -> Self {
+        Self {
+            cache: Mutex::default(),
+            config,
+        }
+    }
+
     pub fn open(&self, worktree: &Path, rel: &str) -> Result<Opened, DocError> {
         let resolved = resolve(worktree, rel)?;
         let (source, stamp) = read(&resolved)?;
@@ -30,8 +38,8 @@ impl Documents {
             .to_string_lossy()
             .into_owned();
         let document = self.cache.lock().expect("document cache").cached(&resolved.real, stamp, || {
-            let mut document = parse(&source, &render_path);
-            document.meta = crate::parse_meta(&source, &resolved.file);
+            let mut document = parse(&source, &render_path, &self.config);
+            document.meta = crate::parse_meta(&source, &resolved.file, &self.config);
             Arc::new(document)
         });
         Ok(Opened {

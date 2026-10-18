@@ -6,7 +6,6 @@ pub use app::{App, Focus, Hint, RailEntry, Tab};
 
 use std::{
     io::{self, Write},
-    path::Path,
     process::ExitCode,
     time::Duration,
 };
@@ -33,8 +32,8 @@ fn restore() {
     let _ = execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen, crossterm::cursor::Show);
 }
 
-pub fn run(root: &Path, theme: Option<Theme>) -> ExitCode {
-    match start(root, theme) {
+pub fn run(library: plan_viewer_core::Library, theme: Theme) -> ExitCode {
+    match start(library, theme) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("plan-viewer: {error}");
@@ -43,7 +42,7 @@ pub fn run(root: &Path, theme: Option<Theme>) -> ExitCode {
     }
 }
 
-fn start(root: &Path, theme: Option<Theme>) -> io::Result<()> {
+fn start(library: plan_viewer_core::Library, theme: Theme) -> io::Result<()> {
     let previous_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |information| {
         restore();
@@ -51,12 +50,9 @@ fn start(root: &Path, theme: Option<Theme>) -> io::Result<()> {
     }));
     enable_raw_mode()?;
     let _restore = Restore;
-    let theme = match theme {
-        Some(theme) => (Some(theme), Vec::new()),
-        None => theme::detect(),
-    };
-    let mut app = App::new(root, theme.0.unwrap_or(Theme::Dark), io::stdout())?;
-    for character in String::from_utf8_lossy(&theme.1).chars() {
+    let (detected, input) = if theme.is_auto() { theme::detect() } else { (None, Vec::new()) };
+    let mut app = App::new(library, theme.resolve_auto(detected), io::stdout())?;
+    for character in String::from_utf8_lossy(&input).chars() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let key = match character {
             '\x03' => KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),

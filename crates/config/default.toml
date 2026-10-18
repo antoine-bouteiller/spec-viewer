@@ -1,0 +1,87 @@
+# crates/config/default.toml; lower layers first:
+# default < $XDG_CONFIG_HOME/plan-viewer/config.toml (else ~/.config/…) < <ROOT worktree>/.plan-viewer.toml < --config PATH
+[theme]
+mode = "auto"                  # auto | light | dark; auto = OSC 11 reply, else dark; --theme overrides
+name = "terminal"              # built-ins: terminal | catppuccin-latte | catppuccin-mocha
+# light_name = "catppuccin-latte"  # optional; theme used when mode resolves to light (default: name)
+# dark_name = "catppuccin-mocha"   # optional; theme used when mode resolves to dark (default: name)
+# code_light = "catppuccin-latte"  # optional; bundled syntect theme or .tmTheme path (default: the theme's own)
+# code_dark = "catppuccin-mocha"
+
+# Palette: name -> colour. A colour is "#rrggbb", "rgb(r,g,b)", an ANSI slot name, or "reset".
+# Layering: active built-in < [theme.palette] < [theme.palette.<mode>]. New names are allowed.
+[theme.palette]
+# brand = "#ff79c6"
+[theme.palette.light]
+[theme.palette.dark]
+
+[theme.roles]                  # every value names a palette colour
+accent = "blue"                # focused border, current row and rail entry
+muted = "bright_black"         # unfocused border, filter, paths, header details, footer, code label
+inline_code = "yellow"
+annotation = "yellow"          # margin-note line labels
+warning = "yellow"             # degraded banner
+headings = ["magenta", "blue", "cyan", "green", "yellow", "red"]
+meter_progress = "cyan"
+meter_complete = "green"
+hint_fg = "black"
+hint_bg = "yellow"
+status_unknown = "bright_black" # also archived
+
+[theme.roles.xref]
+g = "cyan"
+ng = "red"
+pi = "magenta"
+kd = "blue"
+so = "yellow"
+c = "yellow"
+ct = "bright_blue"
+vc = "green"
+oq = "bright_magenta"
+ex = "bright_cyan"
+other = "bright_black"
+
+[[status]]
+name = "draft"
+aliases = ["planned", "todo"]
+color = "yellow"
+[[status]]
+name = "amended"
+color = "yellow"
+[[status]]
+name = "ready"
+aliases = ["review"]
+color = "blue"
+[[status]]
+name = "accepted"
+color = "blue"
+[[status]]
+name = "converging"
+color = "blue"
+[[status]]
+name = "in-progress"
+aliases = ["in progress", "wip"]
+color = "cyan"
+[[status]]
+name = "implementing"
+color = "cyan"
+[[status]]
+name = "blocked"
+color = "red"
+[[status]]
+name = "done"
+aliases = ["complete", "completed", "finished", "implemented"]
+color = "green"
+
+[[chip]]
+label = "AC"
+kind = "checklist"
+sections = ["acceptance criteria"]
+[[chip]]
+label = "T"
+kind = "checklist"
+sections = ["implementation", "steps"]
+[[chip]]
+label = "phases"
+kind = "headings"
+sections = ["implementation", "steps"]

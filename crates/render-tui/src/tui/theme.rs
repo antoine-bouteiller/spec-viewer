@@ -1,6 +1,6 @@
-use crate::terminal::Theme;
+use plan_viewer_config::Mode;
 
-fn background(response: &str) -> Option<Theme> {
+fn background(response: &str) -> Option<Mode> {
     let remaining = response.split("11;rgb:").nth(1)?;
     let end = remaining.find('\x07').or_else(|| remaining.find("\x1b\\"))?;
     let value = &remaining[..end];
@@ -16,11 +16,11 @@ fn background(response: &str) -> Option<Theme> {
         return None;
     }
     let luminance = channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
-    Some(if luminance > 0.5 { Theme::Light } else { Theme::Dark })
+    Some(if luminance > 0.5 { Mode::Light } else { Mode::Dark })
 }
 
 #[cfg(unix)]
-pub(super) fn detect() -> (Option<Theme>, Vec<u8>) {
+pub(super) fn detect() -> (Option<Mode>, Vec<u8>) {
     use std::{
         io::{self, Write},
         time::{Duration, Instant},
@@ -66,7 +66,7 @@ pub(super) fn detect() -> (Option<Theme>, Vec<u8>) {
 }
 
 #[cfg(not(unix))]
-pub(super) fn detect() -> (Option<Theme>, Vec<u8>) {
+pub(super) fn detect() -> (Option<Mode>, Vec<u8>) {
     (None, Vec::new())
 }
 
@@ -76,8 +76,8 @@ mod tests {
 
     #[test]
     fn osc_11_backgrounds_and_invalid_responses() {
-        assert_eq!(background("\x1b]11;rgb:ffff/eeee/dddd\x1b\\"), Some(Theme::Light));
-        assert_eq!(background("\x1b]11;rgb:1e/1e/2e\x07"), Some(Theme::Dark));
+        assert_eq!(background("\x1b]11;rgb:ffff/eeee/dddd\x1b\\"), Some(Mode::Light));
+        assert_eq!(background("\x1b]11;rgb:1e/1e/2e\x07"), Some(Mode::Dark));
         assert_eq!(background("\x1b]11;rgb:invalid/00/00\x07"), None);
         assert_eq!(background("no response"), None);
         assert_eq!(background("\x1b]11;rgb:ffff/ffff/ffff"), None);

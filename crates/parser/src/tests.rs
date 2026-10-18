@@ -1,4 +1,7 @@
 use super::*;
+fn parse(source: &str, path: &str) -> Document {
+    super::parse(source, path, &ParseConfig::default())
+}
 
 fn render(source: &str) -> Document {
     parse(source, "fixture.md")
@@ -140,7 +143,7 @@ fn vc_5_dialect_components_are_semantic() {
     );
     assert_eq!(components.len(), 8);
     assert_eq!(document.meta.title, "Spec Dialect Fixture");
-    assert_eq!(document.meta.status.as_deref(), Some("accepted"));
+    assert_eq!(document.meta.status.as_ref().map(|status| status.name.as_str()), Some("accepted"));
 }
 
 #[test]
@@ -377,7 +380,7 @@ fn markdown_jsx_stays_raw() {
 #[test]
 fn panic_and_final_fallback_retain_source() {
     for panic in [false, true] {
-        let document = parse_with("source ' < &", "fixture.md", |_, _| {
+        let document = parse_with("source ' < &", "fixture.md", &ParseConfig::default(), |_, _| {
             if panic {
                 panic!("pipeline unavailable");
             }
@@ -592,4 +595,51 @@ fn footnotes_keep_visible_numbers_heading_and_return_labels() {
         .collect::<Vec<_>>();
     assert_eq!(labels, ["1", "1", "↩", "↩2"]);
     assert_eq!(document.toc[0].text, "Footnotes");
+}
+
+#[test]
+fn vc_7_configured_chips_follow_order_and_first_present_section() {
+    use plan_viewer_config::{ChipConfig, ChipKind};
+    let config = ParseConfig {
+        statuses: vec![],
+        chips: vec![
+            ChipConfig {
+                label: "milestones".into(),
+                kind: ChipKind::Headings,
+                sections: vec!["missing".into(), "RISKS".into(), "steps".into()],
+            },
+            ChipConfig {
+                label: "R".into(),
+                kind: ChipKind::Checklist,
+                sections: vec!["risks".into()],
+            },
+            ChipConfig {
+                label: "empty".into(),
+                kind: ChipKind::Checklist,
+                sections: vec!["implementation".into(), "steps".into()],
+            },
+        ],
+    };
+    let document = super::parse(
+        "## Steps\n### Not selected\n- [x] task\n## Risks\n### First\n- [x] identified\n### Second\n- [ ] pending\n## Implementation\n",
+        ".plan/risks.md",
+        &config,
+    );
+    assert_eq!(
+        document.meta.chips,
+        [
+            Chip {
+                label: "milestones".into(),
+                value: ChipValue::Count(2)
+            },
+            Chip {
+                label: "R".into(),
+                value: ChipValue::Checklist { done: 1, total: 2 }
+            },
+            Chip {
+                label: "empty".into(),
+                value: ChipValue::Checklist { done: 0, total: 0 }
+            },
+        ]
+    );
 }

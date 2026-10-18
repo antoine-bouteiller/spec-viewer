@@ -9,7 +9,8 @@ mod types;
 
 pub use ast::*;
 pub use metadata::{body_below_header, meta_of, meta_of as parse_meta};
-pub use types::{Counts, Meta};
+pub use plan_viewer_config::ParseConfig;
+pub use types::{Chip, ChipValue, Meta, Status};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TocEntry {
@@ -26,12 +27,14 @@ pub struct Degraded {
 
 /// Parse the body below the document header; metadata describes the complete source.
 /// JavaScript in MDX is never executed, and parser failures never escape as panics.
-pub fn parse(source: &str, path: &str) -> Document {
-    let mut document = parse_with(&body_below_header(source), path, pipeline);
-    document.meta = parse_meta(source, std::path::Path::new(path));
+pub fn parse(source: &str, path: &str, config: &ParseConfig) -> Document {
+    let mut document = parse_with(&body_below_header(source), path, config, |source, path| {
+        pipeline(source, path, config)
+    });
+    document.meta = parse_meta(source, std::path::Path::new(path), config);
     document
 }
-fn pipeline(source: &str, path: &str) -> Result<Document, Degraded> {
+fn pipeline(source: &str, path: &str, config: &ParseConfig) -> Result<Document, Degraded> {
     let mut options = markdown::ParseOptions::gfm();
     if path.ends_with(".mdx") {
         options.constructs.html_flow = false;
@@ -56,7 +59,7 @@ fn pipeline(source: &str, path: &str) -> Result<Document, Degraded> {
     let blocks = mdast::convert_children(root.children().map(Vec::as_slice).unwrap_or(&[]), &mut state, path);
     let toc = plugins::ordered_toc(&state.toc, &blocks);
     Ok(Document {
-        meta: parse_meta(source, std::path::Path::new(path)),
+        meta: parse_meta(source, std::path::Path::new(path), config),
         blocks,
         toc,
         degraded: None,
@@ -121,7 +124,7 @@ fn lexical_boundary(value: &str) -> markdown::MdxSignal {
         markdown::MdxSignal::Ok
     }
 }
-fn parse_with(source: &str, path: &str, run: impl Fn(&str, &str) -> Result<Document, Degraded>) -> Document {
+fn parse_with(source: &str, path: &str, config: &ParseConfig, run: impl Fn(&str, &str) -> Result<Document, Degraded>) -> Document {
     let safe_run = |path: &str| {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(source, path))).unwrap_or_else(|panic| {
             let message = panic
@@ -141,7 +144,7 @@ fn parse_with(source: &str, path: &str, run: impl Fn(&str, &str) -> Result<Docum
         Err(degraded) => {
             let markdown_path = if path.ends_with(".mdx") { &path[..path.len() - 1] } else { path };
             let mut document = safe_run(markdown_path).unwrap_or_else(|_| Document {
-                meta: parse_meta(source, std::path::Path::new(path)),
+                meta: parse_meta(source, std::path::Path::new(path), config),
                 blocks: vec![Block::Code {
                     lang: None,
                     source: source.into(),

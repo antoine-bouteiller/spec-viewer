@@ -9,14 +9,14 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 
 use super::navigation::{self, Row};
-use crate::terminal::{Target, TargetSpan, TermDoc, Theme, status_color, to_terminal};
-use plan_viewer_core::{self as core, Counts, Docs, Library, Opened, Project};
+use crate::terminal::{Target, TargetSpan, TermDoc, Theme, to_terminal};
+use plan_viewer_core::{self as core, ChipValue, Docs, Library, Opened, Project};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
@@ -70,10 +70,9 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(root: &Path, theme: Theme, output: impl Write + 'static) -> io::Result<Self> {
-        let library = Library::new(root)?;
+    pub fn new(library: Library, theme: Theme, output: impl Write + 'static) -> io::Result<Self> {
         let project = library.project();
-        let real_root = std::fs::canonicalize(root)?;
+        let real_root = std::fs::canonicalize(library.root())?;
         let worktree = project
             .worktrees
             .iter()
@@ -535,7 +534,10 @@ impl App {
                 .clone()
                 .unwrap_or_else(|| "Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · r rail · q quit".into())
         };
-        frame.render_widget(Paragraph::new(footer).style(Style::default().fg(Color::DarkGray)), vertical[1]);
+        frame.render_widget(
+            Paragraph::new(footer).style(Style::default().fg(self.theme.roles.muted)),
+            vertical[1],
+        );
         if let Some(selection) = self.picker {
             let width = area.width.min(60);
             let height = area.height.min(self.project.worktrees.len() as u16 + 2);
@@ -562,15 +564,15 @@ impl App {
         }
     }
 
-    fn pane(title: &str, focused: bool) -> Block<'static> {
+    fn pane(&self, title: &str, focused: bool) -> Block<'static> {
         Block::default()
             .borders(Borders::ALL)
             .title(title.to_owned())
-            .border_style(Style::default().fg(if focused { Color::Blue } else { Color::DarkGray }))
+            .border_style(Style::default().fg(if focused { self.theme.roles.accent } else { self.theme.roles.muted }))
     }
 
     fn draw_sidebar(&self, frame: &mut Frame, area: Rect) {
-        let block = Self::pane(&format!("{} · Plans", self.project.name), self.focus == Focus::Sidebar);
+        let block = self.pane(&format!("{} · Plans", self.project.name), self.focus == Focus::Sidebar);
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let regions = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(inner);
@@ -590,7 +592,7 @@ impl App {
             Line::raw(format!("{tabs}{diff}")),
             Line::styled(
                 format!("/ {}{}", self.filter, if self.filter_editing { "▏" } else { "" }),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(self.theme.roles.muted),
             ),
         ];
         frame.render_widget(Paragraph::new(heading), regions[0]);
@@ -608,25 +610,25 @@ impl App {
                 let mut spans = vec![Span::styled(
                     format!("{}{prefix}{}", "  ".repeat(row.depth), row.node.name),
                     if row.current {
-                        Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)
+                        Style::default().fg(self.theme.roles.accent).add_modifier(Modifier::BOLD)
                     } else {
                         Style::default()
                     },
                 )];
-                let status = if row.node.archived == Some(true) {
-                    Some("archived")
-                } else {
-                    row.node.status.as_deref()
-                };
-                if let Some(status) = status {
-                    spans.push(Span::styled(format!(" [{status}]"), Style::default().fg(status_color(status))));
+                if row.node.archived == Some(true) {
+                    spans.push(Span::styled(" [archived]", Style::default().fg(self.theme.roles.status_unknown)));
+                } else if let Some(status) = &row.node.status {
+                    spans.push(Span::styled(
+                        format!(" [{}]", status.name),
+                        Style::default().fg(self.theme.status_color(Some(status))),
+                    ));
                 }
                 let mut lines = wrap_lines(vec![Line::from(spans)], regions[1].width);
                 if self.filtering() {
                     lines.extend(wrap_lines(
                         vec![Line::styled(
                             row.node.path.clone().unwrap_or_default(),
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(self.theme.roles.muted),
                         )],
                         regions[1].width,
                     ));
@@ -659,7 +661,7 @@ impl App {
     fn draw_rail(&self, frame: &mut Frame, area: Rect) {
         let entries = self.rail_entries();
         let family = entries.iter().any(|entry| matches!(entry, RailEntry::File { .. }));
-        let block = Self::pane(if family { "Files" } else { "Sections" }, self.focus == Focus::Rail);
+        let block = self.pane(if family { "Files" } else { "Sections" }, self.focus == Focus::Rail);
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let active = self.doc.as_ref().map(|doc| doc.root_path.as_str());
@@ -697,7 +699,7 @@ impl App {
                         .collect::<Vec<_>>(),
                 )
                 .style(if current {
-                    Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD)
+                    Style::default().fg(self.theme.roles.accent).add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
                 })
@@ -715,7 +717,7 @@ impl App {
     }
 
     fn draw_document(&mut self, frame: &mut Frame, area: Rect) {
-        let block = Self::pane("Document", self.focus == Focus::Document);
+        let block = self.pane("Document", self.focus == Focus::Document);
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let Some(doc) = &self.doc else {
@@ -730,17 +732,23 @@ impl App {
                     .meta
                     .status
                     .as_ref()
-                    .map(|status| format!(" [{status}]"))
+                    .map(|status| format!(" [{}]", status.name))
                     .unwrap_or_default(),
-                Style::default().fg(status_color(doc.document.meta.status.as_deref().unwrap_or("unknown"))),
+                Style::default().fg(self.theme.status_color(doc.document.meta.status.as_ref())),
             ),
         ])];
         let mut metrics = Vec::new();
-        for (label, counts) in [("AC", doc.document.meta.acceptance), ("T", doc.document.meta.tasks)] {
-            if counts.total > 0 {
+        for chip in &doc.document.meta.chips {
+            if let ChipValue::Checklist { done, total } = chip.value
+                && total > 0
+            {
                 metrics.push(Span::styled(
-                    meter(label, counts),
-                    Style::default().fg(if counts.done == counts.total { Color::Green } else { Color::Cyan }),
+                    meter(&chip.label, done, total),
+                    Style::default().fg(if done == total {
+                        self.theme.roles.meter_complete
+                    } else {
+                        self.theme.roles.meter_progress
+                    }),
                 ));
             }
         }
@@ -758,8 +766,12 @@ impl App {
         {
             details.push(owner.name.clone());
         }
-        if !doc.document.meta.phases.is_empty() {
-            details.push(format!("{} phases", doc.document.meta.phases.len()));
+        for chip in &doc.document.meta.chips {
+            if let ChipValue::Count(count) = chip.value
+                && count > 0
+            {
+                details.push(format!("{count} {}", chip.label));
+            }
         }
         if doc.document.meta.legacy {
             details.push("legacy format".into());
@@ -777,7 +789,7 @@ impl App {
         metadata.push(format!("{}  y path · Y name", doc.root_path));
         for value in metadata {
             for wrapped in textwrap::wrap(&value, usize::from(inner.width.max(1))) {
-                header.push(Line::styled(wrapped.into_owned(), Style::default().fg(Color::DarkGray)));
+                header.push(Line::styled(wrapped.into_owned(), Style::default().fg(self.theme.roles.muted)));
             }
         }
         header.push(Line::raw("─".repeat(usize::from(inner.width))));
@@ -816,8 +828,12 @@ impl App {
                     1,
                 );
                 frame.render_widget(
-                    Paragraph::new(hint.label.clone())
-                        .style(Style::default().fg(Color::Black).bg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Paragraph::new(hint.label.clone()).style(
+                        Style::default()
+                            .fg(self.theme.roles.hint_fg)
+                            .bg(self.theme.roles.hint_bg)
+                            .add_modifier(Modifier::BOLD),
+                    ),
                     area,
                 );
             }
@@ -825,15 +841,9 @@ impl App {
     }
 }
 
-fn meter(label: &str, counts: Counts) -> String {
-    let filled = counts.done.saturating_mul(5).checked_div(counts.total).unwrap_or(0).min(5);
-    format!(
-        "{label} {}/{} {}{}  ",
-        counts.done,
-        counts.total,
-        "▮".repeat(filled),
-        "▯".repeat(5 - filled)
-    )
+fn meter(label: &str, done: usize, total: usize) -> String {
+    let filled = done.saturating_mul(5).checked_div(total).unwrap_or(0).min(5);
+    format!("{label} {}/{} {}{}  ", done, total, "▮".repeat(filled), "▯".repeat(5 - filled))
 }
 
 fn wrap_lines(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'static>> {
@@ -875,7 +885,12 @@ mod tests {
         std::fs::create_dir(root.path().join(".plan")).unwrap();
         std::fs::write(root.path().join(".plan/first.md"), "## First\n\nG-1 [next](second.md)\n").unwrap();
         std::fs::write(root.path().join(".plan/second.md"), "## Second\n").unwrap();
-        let app = App::new(root.path(), Theme::Dark, io::sink()).unwrap();
+        let app = App::new(
+            Library::new(root.path(), core::ParseConfig::default()).unwrap(),
+            Theme::default(),
+            io::sink(),
+        )
+        .unwrap();
         (root, app)
     }
 

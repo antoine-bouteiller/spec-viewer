@@ -6,7 +6,7 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthChar;
 
-pub use super::highlight::Theme;
+pub use crate::Theme;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
@@ -30,7 +30,7 @@ pub struct TermDoc {
 }
 
 pub fn to_terminal(document: &Document, width: u16, theme: &Theme) -> TermDoc {
-    let mut renderer = Renderer::new(usize::from(width.max(1)), *theme);
+    let mut renderer = Renderer::new(usize::from(width.max(1)), theme);
     renderer.blocks(&document.blocks);
     let toc = document
         .toc
@@ -45,32 +45,6 @@ pub fn to_terminal(document: &Document, width: u16, theme: &Theme) -> TermDoc {
         .collect();
     renderer.document.toc = toc;
     renderer.document
-}
-
-pub fn status_color(status: &str) -> Color {
-    match status {
-        "accepted" | "converging" | "ready" => Color::Blue,
-        "amended" | "draft" => Color::Yellow,
-        "blocked" => Color::Red,
-        "done" | "implemented" => Color::Green,
-        "implementing" | "in-progress" | "review" => Color::Cyan,
-        _ => Color::DarkGray,
-    }
-}
-
-pub fn family_color(family: &str) -> Color {
-    match family {
-        "g" => Color::Cyan,
-        "ng" => Color::Red,
-        "pi" => Color::Magenta,
-        "kd" => Color::Blue,
-        "so" | "c" => Color::Yellow,
-        "ct" => Color::LightBlue,
-        "vc" => Color::Green,
-        "oq" => Color::LightMagenta,
-        "ex" => Color::LightCyan,
-        _ => Color::DarkGray,
-    }
 }
 
 #[derive(Clone)]
@@ -98,91 +72,92 @@ fn glyphs(value: &str, style: Style, target: Option<Target>) -> Vec<Glyph> {
         .collect()
 }
 
-fn inline(nodes: &[Inline], style: Style, target: Option<Target>, compact: bool) -> Vec<Glyph> {
+fn inline(theme: &Theme, nodes: &[Inline], style: Style, target: Option<Target>, compact: bool) -> Vec<Glyph> {
     nodes
         .iter()
         .flat_map(|node| match node {
             Inline::Text(value) => glyphs(value, style, target.clone()),
             Inline::Raw(value) => glyphs(value, style.add_modifier(Modifier::DIM), None),
-            Inline::Strong(content) => inline(content, style.add_modifier(Modifier::BOLD), target.clone(), compact),
-            Inline::Emphasis(content) => inline(content, style.add_modifier(Modifier::ITALIC), target.clone(), compact),
-            Inline::Delete(content) => inline(content, style.add_modifier(Modifier::CROSSED_OUT), target.clone(), compact),
-            Inline::Code(value) => glyphs(value, style.fg(Color::Yellow), target.clone()),
+            Inline::Strong(content) => inline(theme, content, style.add_modifier(Modifier::BOLD), target.clone(), compact),
+            Inline::Emphasis(content) => inline(theme, content, style.add_modifier(Modifier::ITALIC), target.clone(), compact),
+            Inline::Delete(content) => inline(theme, content, style.add_modifier(Modifier::CROSSED_OUT), target.clone(), compact),
+            Inline::Code(value) => glyphs(value, style.fg(theme.roles.inline_code), target.clone()),
             Inline::Link { doc, content, .. } => inline(
+                theme,
                 content,
                 style.add_modifier(Modifier::UNDERLINED),
                 doc.as_ref().map(|path| Target::Doc(path.clone())).or_else(|| target.clone()),
                 compact,
             ),
-            Inline::Xref { id, family } => glyphs(id, style.fg(family_color(family)), Some(Target::Xref(id.clone()))),
+            Inline::Xref { id, family } => glyphs(id, style.fg(theme.family_color(family)), Some(Target::Xref(id.clone()))),
             Inline::Break => glyphs(if compact { "\n" } else { "\n\n" }, style, None),
             Inline::Image { alt, .. } => glyphs(alt, style, None),
-            Inline::Component(component) => inline_component(component, style, target.clone(), compact),
+            Inline::Component(component) => inline_component(theme, component, style, target.clone(), compact),
         })
         .collect()
 }
-fn inline_blocks(blocks: &[Block], style: Style, target: Option<Target>, compact: bool) -> Vec<Glyph> {
+fn inline_blocks(theme: &Theme, blocks: &[Block], style: Style, target: Option<Target>, compact: bool) -> Vec<Glyph> {
     blocks
         .iter()
         .flat_map(|block| match block {
-            Block::Heading { content, .. } | Block::Paragraph(content) => inline(content, style, target.clone(), compact),
-            Block::Quote(blocks) => inline_blocks(blocks, style, target.clone(), compact),
+            Block::Heading { content, .. } | Block::Paragraph(content) => inline(theme, content, style, target.clone(), compact),
+            Block::Quote(blocks) => inline_blocks(theme, blocks, style, target.clone(), compact),
             Block::List { items, .. } => items
                 .iter()
-                .flat_map(|item| inline_blocks(&item.blocks, style, target.clone(), compact))
+                .flat_map(|item| inline_blocks(theme, &item.blocks, style, target.clone(), compact))
                 .collect(),
             Block::Table { head, rows, .. } => head
                 .iter()
                 .chain(rows.iter().flatten())
-                .flat_map(|cell| inline(cell, style, target.clone(), compact))
+                .flat_map(|cell| inline(theme, cell, style, target.clone(), compact))
                 .collect(),
-            Block::Code { source, .. } => glyphs(source, style.fg(Color::Yellow), target.clone()),
+            Block::Code { source, .. } => glyphs(source, style.fg(theme.roles.inline_code), target.clone()),
             Block::Mermaid { source } => glyphs(source, style, target.clone()),
             Block::Raw(value) => glyphs(value, style.add_modifier(Modifier::DIM), None),
-            Block::Component(component) => inline_component(component, style, target.clone(), compact),
+            Block::Component(component) => inline_component(theme, component, style, target.clone(), compact),
             Block::Rule | Block::Degraded => vec![],
         })
         .collect()
 }
-fn inline_component(component: &Component, style: Style, target: Option<Target>, compact: bool) -> Vec<Glyph> {
+fn inline_component(theme: &Theme, component: &Component, style: Style, target: Option<Target>, compact: bool) -> Vec<Glyph> {
     let mut out = Vec::new();
     match component {
         Component::CodeTabs { tabs, blocks } => {
             for tab in tabs {
                 out.extend(glyphs(&tab.label, style, target.clone()));
-                out.extend(inline_blocks(&tab.body.blocks, style, target.clone(), compact));
+                out.extend(inline_blocks(theme, &tab.body.blocks, style, target.clone(), compact));
             }
-            out.extend(inline_blocks(blocks, style, target, compact));
+            out.extend(inline_blocks(theme, blocks, style, target, compact));
         }
         Component::Comparison { options, blocks } => {
             for option in options {
                 out.extend(glyphs(&option.name, style, target.clone()));
-                out.extend(inline_blocks(&option.body.blocks, style, target.clone(), compact));
+                out.extend(inline_blocks(theme, &option.body.blocks, style, target.clone(), compact));
             }
-            out.extend(inline_blocks(blocks, style, target, compact));
+            out.extend(inline_blocks(theme, blocks, style, target, compact));
         }
         Component::DecisionMatrix { blocks, .. } | Component::Unknown { blocks, .. } => {
-            out.extend(inline_blocks(blocks, style, target, compact))
+            out.extend(inline_blocks(theme, blocks, style, target, compact))
         }
         Component::AnnotatedDiff { blocks, notes } => {
-            out.extend(inline_blocks(blocks, style, target.clone(), compact));
+            out.extend(inline_blocks(theme, blocks, style, target.clone(), compact));
             for note in notes {
-                out.extend(inline_blocks(&note.body.blocks, style, target.clone(), compact));
+                out.extend(inline_blocks(theme, &note.body.blocks, style, target.clone(), compact));
             }
         }
         Component::Flowchart { source, details } => {
             out.extend(glyphs(source, style, target.clone()));
             for detail in details {
                 out.extend(glyphs(&detail.name, style, target.clone()));
-                out.extend(inline_blocks(&detail.body.blocks, style, target.clone(), compact));
+                out.extend(inline_blocks(theme, &detail.body.blocks, style, target.clone(), compact));
             }
         }
         Component::StepRail { steps, blocks } => {
             for step in steps {
                 out.extend(glyphs(&step.title, style, target.clone()));
-                out.extend(inline_blocks(&step.body.blocks, style, target.clone(), compact));
+                out.extend(inline_blocks(theme, &step.body.blocks, style, target.clone(), compact));
             }
-            out.extend(inline_blocks(blocks, style, target, compact));
+            out.extend(inline_blocks(theme, blocks, style, target, compact));
         }
     }
     out
@@ -195,15 +170,15 @@ struct Cell<'a> {
     compact: bool,
 }
 
-struct Renderer {
+struct Renderer<'a> {
     width: usize,
-    theme: Theme,
+    theme: &'a Theme,
     document: TermDoc,
     anchors: Vec<(String, usize)>,
 }
 
-impl Renderer {
-    fn new(width: usize, theme: Theme) -> Self {
+impl<'a> Renderer<'a> {
+    fn new(width: usize, theme: &'a Theme) -> Self {
         Self {
             width: width.max(1),
             theme,
@@ -331,7 +306,7 @@ impl Renderer {
             for node in content {
                 if matches!(node, Inline::Component(_) | Inline::Raw(_)) {
                     if !pending.is_empty() {
-                        self.paragraph(inline(&pending, Style::default(), None, true), "", "", false);
+                        self.paragraph(inline(self.theme, &pending, Style::default(), None, true), "", "", false);
                         pending.clear();
                     }
                     match node {
@@ -344,17 +319,17 @@ impl Renderer {
                 }
             }
             if !pending.is_empty() {
-                self.paragraph(inline(&pending, Style::default(), None, true), "", "", false);
+                self.paragraph(inline(self.theme, &pending, Style::default(), None, true), "", "", false);
             }
         } else {
-            self.paragraph(inline(content, Style::default(), None, false), "", "", false);
+            self.paragraph(inline(self.theme, content, Style::default(), None, false), "", "", false);
         }
         if !compact {
             self.blank();
         }
     }
 
-    fn embed(&mut self, child: Renderer, prefix: &str, suffix: &str) {
+    fn embed(&mut self, child: Renderer<'_>, prefix: &str, suffix: &str) {
         let line_offset = self.document.lines.len();
         let column_offset = unicode_width::UnicodeWidthStr::width(prefix);
         for line in child.document.lines {
@@ -405,16 +380,15 @@ impl Renderer {
         if !id.is_empty() {
             self.anchors.push((id.into(), self.document.lines.len()));
         }
-        let color = match depth {
-            1 => Color::Magenta,
-            2 => Color::Blue,
-            3 => Color::Cyan,
-            4 => Color::Green,
-            5 => Color::Yellow,
-            _ => Color::Red,
-        };
+        let color = self.theme.heading_color(depth);
         self.paragraph(
-            inline(content, Style::default().fg(color).add_modifier(Modifier::BOLD), None, false),
+            inline(
+                self.theme,
+                content,
+                Style::default().fg(color).add_modifier(Modifier::BOLD),
+                None,
+                false,
+            ),
             "",
             "",
             false,
@@ -470,7 +444,7 @@ impl Renderer {
                 self.paragraph(
                     glyphs(
                         "MDX parsing failed; this document is shown as plain markdown.",
-                        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                        Style::default().fg(self.theme.roles.warning).add_modifier(Modifier::BOLD),
                         None,
                     ),
                     "⚠ ",
@@ -491,7 +465,7 @@ impl Renderer {
         }
     }
 
-    fn list_child(&mut self, mut child: Renderer, marker: String) {
+    fn list_child(&mut self, mut child: Renderer<'_>, marker: String) {
         if child.document.lines.is_empty() {
             child.document.lines.push(Line::default());
         }
@@ -558,7 +532,11 @@ impl Renderer {
                         self.theme,
                     );
                     child.paragraph(
-                        glyphs(&format!("line {}", note.line), Style::default().fg(Color::Yellow), None),
+                        glyphs(
+                            &format!("line {}", note.line),
+                            Style::default().fg(self.theme.roles.annotation),
+                            None,
+                        ),
                         "",
                         "",
                         false,
@@ -606,14 +584,14 @@ impl Renderer {
         self.paragraph(
             glyphs(
                 &format!("── {language} ──"),
-                Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+                Style::default().fg(self.theme.roles.muted).add_modifier(Modifier::BOLD),
                 None,
             ),
             "",
             "",
             false,
         );
-        if let Some(lines) = highlight::tokens(source, language, self.theme) {
+        if let Some(lines) = highlight::tokens(source, language, &self.theme.code) {
             for tokens in lines {
                 let values = tokens
                     .into_iter()
@@ -669,7 +647,7 @@ impl Renderer {
         let mut widths = vec![1; count];
         for row in table_rows {
             for (index, cell) in row.iter().enumerate() {
-                let value = plain_blocks(&cell.blocks);
+                let value = plain_blocks(self.theme, &cell.blocks);
                 widths[index] = widths[index].max(unicode_width::UnicodeWidthStr::width(value.as_str()).min(available));
             }
         }
@@ -756,30 +734,30 @@ impl Renderer {
     }
 }
 
-fn plain_inline(nodes: &[Inline]) -> String {
+fn plain_inline(theme: &Theme, nodes: &[Inline]) -> String {
     nodes
         .iter()
         .map(|node| match node {
             Inline::Text(value) | Inline::Code(value) => value.clone(),
             Inline::Strong(content) | Inline::Emphasis(content) | Inline::Delete(content) | Inline::Link { content, .. } => {
-                plain_inline(content)
+                plain_inline(theme, content)
             }
             Inline::Xref { id, .. } => id.clone(),
             Inline::Break => "\n".into(),
             Inline::Raw(_) | Inline::Image { .. } => String::new(),
-            Inline::Component(component) => inline_component(component, Style::default(), None, false)
+            Inline::Component(component) => inline_component(theme, component, Style::default(), None, false)
                 .iter()
                 .map(|glyph| glyph.character)
                 .collect(),
         })
         .collect()
 }
-fn plain_blocks(blocks: &[Block]) -> String {
+fn plain_blocks(theme: &Theme, blocks: &[Block]) -> String {
     blocks
         .iter()
         .map(|block| match block {
-            Block::Paragraph(content) | Block::Heading { content, .. } => plain_inline(content),
-            Block::Quote(blocks) => plain_blocks(blocks),
+            Block::Paragraph(content) | Block::Heading { content, .. } => plain_inline(theme, content),
+            Block::Quote(blocks) => plain_blocks(theme, blocks),
             Block::Code { source, .. } | Block::Mermaid { source } => source.clone(),
             _ => String::new(),
         })
@@ -789,7 +767,9 @@ fn plain_blocks(blocks: &[Block]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plan_viewer_core::parse;
+    fn parse(source: &str, path: &str) -> Document {
+        plan_viewer_core::parse(source, path, &plan_viewer_config::ParseConfig::default())
+    }
 
     #[test]
     fn headings_wrapping_and_target_coordinates() {
@@ -797,7 +777,7 @@ mod tests {
             "## Heading\n\nSee [the document](next.spec.md) and `[KD-3.1]`.\n",
             "spec/source.spec.md",
         );
-        let rendered = to_terminal(&parsed, 18, &Theme::Dark);
+        let rendered = to_terminal(&parsed, 18, &Theme::default());
         assert_eq!(rendered.toc[0].0.text, "Heading");
         assert_eq!(rendered.lines[rendered.toc[0].1].to_string(), "Heading");
         assert!(rendered.lines.iter().all(|line| line.width() <= 18));
@@ -821,7 +801,7 @@ mod tests {
         let source = "- [x] finished task with a long label\n- [ ] pending\n  - nested G-1\n\n> Quoted paragraph with unicode 界.\n\n| Name | Value |\n| --- | --- |\n| 界 | [a long link](target.spec.md) |\n\n<FeatureViewer>\n\nRetained child G-2.\n\n</FeatureViewer>";
         let parsed = parse(source, "spec/narrow.spec.mdx");
         for width in 1..=30 {
-            let document = to_terminal(&parsed, width, &Theme::Dark);
+            let document = to_terminal(&parsed, width, &Theme::default());
             assert!(
                 document.lines.iter().all(|line| line.width() <= usize::from(width)),
                 "width {width}: {:?}",
@@ -838,7 +818,7 @@ mod tests {
                 assert!(target.line < document.lines.len());
             }
         }
-        let document = to_terminal(&parsed, 50, &Theme::Dark);
+        let document = to_terminal(&parsed, 50, &Theme::default());
         let body = document.lines.iter().map(Line::to_string).collect::<Vec<_>>().join("\n");
         assert!(body.contains("• [x] finished"), "{body}");
         assert!(body.contains("• [ ] pending"));
@@ -852,7 +832,11 @@ mod tests {
             "```ts\n  const value = 42\n```\n\n```brainfuck\n++[>++<-]>.\n```\n\n```mermaid\nflowchart TD\n  Source --> Render\n```",
             "spec/code.spec.md",
         );
-        let document = to_terminal(&parsed, 60, &Theme::Light);
+        let document = to_terminal(
+            &parsed,
+            60,
+            &Theme::from_config(&plan_viewer_config::Config::default(), Some(plan_viewer_config::Mode::Light)).unwrap(),
+        );
         let source = document.lines.iter().map(Line::to_string).collect::<Vec<_>>().join("\n");
         assert!(source.contains("── ts ──\n  const value = 42"));
         assert!(source.contains("── brainfuck ──\n++[>++<-]>."));
@@ -870,7 +854,7 @@ mod tests {
     #[test]
     fn dialect_components_retain_labels_scores_notes_and_step_numbers() {
         let parsed = parse(include_str!("../../../fixtures/dialect.spec.mdx"), "spec/dialect.spec.mdx");
-        let document = to_terminal(&parsed, 78, &Theme::Dark);
+        let document = to_terminal(&parsed, 78, &Theme::default());
         let body = document.lines.iter().map(Line::to_string).collect::<Vec<_>>().join("\n");
         for required in [
             "TypeScript",
@@ -898,13 +882,13 @@ mod tests {
     #[test]
     fn degraded_banner_raw_html_and_inline_styles() {
         let parsed = parse("## Fallback\n\n<StepRail>\n\nbody", "spec/broken.spec.mdx");
-        let document = to_terminal(&parsed, 90, &Theme::Dark);
+        let document = to_terminal(&parsed, 90, &Theme::default());
         assert!(document.lines[0].to_string().contains("MDX parsing failed"));
         let parsed = parse(
             "## Heading\n\n**bold** *italic* ~~removed~~ [link](target.spec.md) `[AC-001]`\n\n<div>raw HTML</div>",
             "spec/source.spec.md",
         );
-        let document = to_terminal(&parsed, 90, &Theme::Dark);
+        let document = to_terminal(&parsed, 90, &Theme::default());
         let styles: Vec<_> = document.lines.iter().flat_map(|line| &line.spans).collect();
         for (label, modifier) in [
             ("bold", Modifier::BOLD),
@@ -926,7 +910,7 @@ mod tests {
     #[test]
     fn table_targets_use_terminal_columns_after_wide_unicode_cells() {
         let parsed = parse("| 名 | Ref |\n| --- | --- |\n| 界 | G-1 |", "spec/table.spec.md");
-        let document = to_terminal(&parsed, 20, &Theme::Dark);
+        let document = to_terminal(&parsed, 20, &Theme::default());
         let target = document
             .targets
             .iter()

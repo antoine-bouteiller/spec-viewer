@@ -7,7 +7,7 @@ use std::{
 };
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use plan_viewer_core::watch;
+use plan_viewer_core::{Library, ParseConfig, watch};
 use plan_viewer_render_tui::{
     terminal::{Target, Theme},
     tui::{App, Focus, RailEntry, Tab},
@@ -55,7 +55,12 @@ fn draw(app: &mut App) -> String {
 #[test]
 fn vc_4_plan_header_tree_family_and_legacy_snapshots() {
     let fixture = Fixture::new();
-    let mut app = App::new(&fixture.root, Theme::Dark, io::sink()).unwrap();
+    let mut app = App::new(
+        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
+        Theme::default(),
+        io::sink(),
+    )
+    .unwrap();
     app.open(".plan/rollout/index.md");
     insta::assert_snapshot!("vc_4_plan_index", draw(&mut app));
     app.open(".plan/rollout/01-design.md");
@@ -73,7 +78,12 @@ fn vc_4_plan_header_tree_family_and_legacy_snapshots() {
 fn vc_4_spec_outline_umbrella_and_fallback_snapshots() {
     let fixture = Fixture::new();
     assert!(fixture.outside.exists());
-    let mut app = App::new(&fixture.root, Theme::Dark, io::sink()).unwrap();
+    let mut app = App::new(
+        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
+        Theme::default(),
+        io::sink(),
+    )
+    .unwrap();
     key(&mut app, KeyCode::Char('2'));
     app.open("spec/standalone.spec.md");
     insta::assert_snapshot!("vc_4_spec_outline", draw(&mut app));
@@ -89,7 +99,12 @@ fn vc_4_spec_outline_umbrella_and_fallback_snapshots() {
 #[test]
 fn vc_4_every_dialect_construct_across_document_pages() {
     let fixture = Fixture::new();
-    let mut app = App::new(&fixture.root, Theme::Dark, io::sink()).unwrap();
+    let mut app = App::new(
+        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
+        Theme::default(),
+        io::sink(),
+    )
+    .unwrap();
     key(&mut app, KeyCode::Char('2'));
     app.open("spec/dialect.spec.mdx");
     let first = draw(&mut app);
@@ -110,7 +125,12 @@ fn vc_4_every_dialect_construct_across_document_pages() {
 #[test]
 fn vc_5_filter_is_flat_with_paths_and_without_attached_examples() {
     let fixture = Fixture::new();
-    let mut app = App::new(&fixture.root, Theme::Dark, io::sink()).unwrap();
+    let mut app = App::new(
+        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
+        Theme::default(),
+        io::sink(),
+    )
+    .unwrap();
     key(&mut app, KeyCode::Char('/'));
     type_text(&mut app, "rollout");
     key(&mut app, KeyCode::Enter);
@@ -132,7 +152,12 @@ fn vc_5_filter_is_flat_with_paths_and_without_attached_examples() {
 #[test]
 fn vc_5_diff_is_specs_only_and_restricts_to_changed_paths() {
     let fixture = Fixture::new();
-    let mut app = App::new(&fixture.root, Theme::Dark, io::sink()).unwrap();
+    let mut app = App::new(
+        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
+        Theme::default(),
+        io::sink(),
+    )
+    .unwrap();
     key(&mut app, KeyCode::Char('d'));
     assert!(!app.diff);
     key(&mut app, KeyCode::Char('2'));
@@ -151,7 +176,12 @@ fn vc_5_diff_is_specs_only_and_restricts_to_changed_paths() {
 #[test]
 fn vc_5_worktree_and_tabs_clear_documents_but_keep_filter_and_diff() {
     let fixture = Fixture::new();
-    let mut app = App::new(&fixture.root.join(".plan/rollout"), Theme::Dark, io::sink()).unwrap();
+    let mut app = App::new(
+        Library::new(&fixture.root.join(".plan/rollout"), ParseConfig::default()).unwrap(),
+        Theme::default(),
+        io::sink(),
+    )
+    .unwrap();
     assert_eq!(app.worktree_path(), fixture.root);
     key(&mut app, KeyCode::Char('2'));
     key(&mut app, KeyCode::Char('d'));
@@ -173,14 +203,24 @@ fn vc_5_worktree_and_tabs_clear_documents_but_keep_filter_and_diff() {
     assert!(app.doc.is_none());
     assert_eq!(app.filter, "standalone");
     assert!(app.diff);
-    let sibling = App::new(&fixture.sibling.join("spec"), Theme::Dark, io::sink()).unwrap();
+    let sibling = App::new(
+        Library::new(&fixture.sibling.join("spec"), ParseConfig::default()).unwrap(),
+        Theme::default(),
+        io::sink(),
+    )
+    .unwrap();
     assert_eq!(sibling.worktree_path(), fixture.sibling);
 }
 
 #[test]
 fn vc_5_phase_opened_from_rail_keeps_owner_current_and_documents_never_expand() {
     let fixture = Fixture::new();
-    let mut app = App::new(&fixture.root, Theme::Dark, io::sink()).unwrap();
+    let mut app = App::new(
+        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
+        Theme::default(),
+        io::sink(),
+    )
+    .unwrap();
     key(&mut app, KeyCode::Char('/'));
     type_text(&mut app, "API rollout");
     key(&mut app, KeyCode::Enter);
@@ -212,7 +252,12 @@ fn vc_5_phase_opened_from_rail_keeps_owner_current_and_documents_never_expand() 
 fn vc_5_visible_hints_copy_xrefs_open_docs_and_copy_paths_with_osc_52() {
     let fixture = Fixture::new();
     let clipboard = Clipboard::default();
-    let mut app = App::new(&fixture.root, Theme::Dark, clipboard.clone()).unwrap();
+    let mut app = App::new(
+        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
+        Theme::default(),
+        clipboard.clone(),
+    )
+    .unwrap();
     app.open(".plan/actions.md");
     draw(&mut app);
     key(&mut app, KeyCode::Char('f'));
@@ -251,7 +296,12 @@ fn vc_5_visible_hints_copy_xrefs_open_docs_and_copy_paths_with_osc_52() {
 #[test]
 fn vc_6_live_reload_adds_plan_refreshes_body_and_preserves_scroll_within_one_second() {
     let fixture = Fixture::new();
-    let mut app = App::new(&fixture.root, Theme::Dark, io::sink()).unwrap();
+    let mut app = App::new(
+        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
+        Theme::default(),
+        io::sink(),
+    )
+    .unwrap();
     app.open(".plan/actions.md");
     draw(&mut app);
     key(&mut app, KeyCode::PageDown);
@@ -282,7 +332,12 @@ fn vc_6_live_reload_adds_plan_refreshes_body_and_preserves_scroll_within_one_sec
 #[test]
 fn vc_5_focus_scrolling_expansion_and_quit_state_transitions() {
     let fixture = Fixture::new();
-    let mut app = App::new(&fixture.root, Theme::Dark, io::sink()).unwrap();
+    let mut app = App::new(
+        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
+        Theme::default(),
+        io::sink(),
+    )
+    .unwrap();
     app.open(".plan/actions.md");
     draw(&mut app);
     key(&mut app, KeyCode::Tab);

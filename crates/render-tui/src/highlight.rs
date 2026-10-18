@@ -6,11 +6,6 @@ use syntect::{
     parsing::{SyntaxReference, SyntaxSet},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Theme {
-    Light,
-    Dark,
-}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Token {
     pub style: Style,
@@ -29,6 +24,14 @@ static HIGHLIGHTER: LazyLock<Highlighter> = LazyLock::new(|| Highlighter {
             .expect("vendored mocha theme"),
     ],
 });
+pub fn load_theme(name: &str) -> Result<syntect::highlighting::Theme, String> {
+    match name {
+        "catppuccin-latte" => Ok(HIGHLIGHTER.themes[0].clone()),
+        "catppuccin-mocha" => Ok(HIGHLIGHTER.themes[1].clone()),
+        path => ThemeSet::get_theme(path).map_err(|error| format!("{path}: {error}")),
+    }
+}
+
 fn syntax(lang: &str) -> Option<&'static SyntaxReference> {
     let ext = match lang {
         "ts" | "typescript" | "cts" | "mts" => "ts",
@@ -49,10 +52,9 @@ fn syntax(lang: &str) -> Option<&'static SyntaxReference> {
 }
 /// Returns one token vector per source line, including a final empty line after a newline.
 /// Unsupported languages or a syntax engine failure return None (plain code fallback).
-pub fn tokens(source: &str, lang: &str, theme: Theme) -> Option<Vec<Vec<Token>>> {
+pub fn tokens(source: &str, lang: &str, theme: &syntect::highlighting::Theme) -> Option<Vec<Vec<Token>>> {
     let syntax = syntax(lang)?;
-    let index = usize::from(theme == Theme::Dark);
-    let mut highlighter = HighlightLines::new(syntax, &HIGHLIGHTER.themes[index]);
+    let mut highlighter = HighlightLines::new(syntax, theme);
     let mut lines = Vec::new();
     let source = source.replace("\r\n", "\n").replace('\r', "\n");
     for line in source.split_inclusive('\n') {
@@ -107,8 +109,9 @@ mod tests {
             "kt",
             "kts",
         ] {
-            for theme in [highlight::Theme::Light, highlight::Theme::Dark] {
-                let lines = highlight::tokens(source, language, theme).unwrap();
+            for name in ["catppuccin-latte", "catppuccin-mocha"] {
+                let theme = highlight::load_theme(name).unwrap();
+                let lines = highlight::tokens(source, language, &theme).unwrap();
                 assert_eq!(
                     lines
                         .iter()
@@ -119,7 +122,8 @@ mod tests {
                 );
             }
         }
-        assert!(highlight::tokens(source, "brainfuck", highlight::Theme::Light).is_none());
-        assert!(highlight::tokens(source, "rust", highlight::Theme::Light).is_none());
+        let theme = highlight::load_theme("catppuccin-latte").unwrap();
+        assert!(highlight::tokens(source, "brainfuck", &theme).is_none());
+        assert!(highlight::tokens(source, "rust", &theme).is_none());
     }
 }

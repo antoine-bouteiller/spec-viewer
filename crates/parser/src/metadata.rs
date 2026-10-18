@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use super::js::{horizontal, label, starts, take_while, terminator, trim, whitespace};
-use super::{Counts, Meta};
+use super::types::Counts;
+use super::{Chip, ChipValue, Meta, ParseConfig, Status};
+use plan_viewer_config::ChipKind;
 
 #[derive(Clone)]
 enum Value {
@@ -252,7 +254,7 @@ fn count_checks(source: Option<&str>) -> Counts {
     counts
 }
 
-fn normalize_status(raw: Option<String>) -> Option<String> {
+fn normalize_status(raw: Option<String>, config: &ParseConfig) -> Option<Status> {
     let raw = raw?;
     let lower = trim(&raw).to_lowercase();
     let cleaned = trim(lower.trim_end_matches(['.', ';', ',', '—', '-']));
@@ -267,19 +269,17 @@ fn normalize_status(raw: Option<String>) -> Option<String> {
     if head.is_empty() {
         return None;
     }
-    Some(
-        match head {
-            "complete" | "completed" | "finished" | "implemented" => "done",
-            "in progress" | "wip" => "in-progress",
-            "planned" | "todo" => "draft",
-            "review" => "ready",
-            other => other,
-        }
-        .into(),
-    )
+    let status = config
+        .statuses
+        .iter()
+        .find(|status| status.name.to_lowercase() == head || status.aliases.iter().any(|alias| alias.to_lowercase() == head));
+    Some(Status {
+        name: status.map_or_else(|| head.to_owned(), |status| status.name.clone()),
+        known: status.is_some(),
+    })
 }
 
-pub fn meta_of(source: &str, file: &Path) -> Meta {
+pub fn meta_of(source: &str, file: &Path, config: &ParseConfig) -> Meta {
     let fm = parse_frontmatter(source);
     let raw = strip_frontmatter(source);
     let body = strip_fences(raw);
@@ -289,13 +289,24 @@ pub fn meta_of(source: &str, file: &Path) -> Meta {
         let to = headings.get(index + 1).map_or(body.len(), |heading| heading.0);
         sections.insert(name.to_lowercase(), &body[from..to]);
     }
-    let implementation = sections.get("implementation").or_else(|| sections.get("steps")).copied();
-    let phases = implementation.map_or_else(Vec::new, |source| {
-        self::headings(source, "###", true)
-            .into_iter()
-            .map(|heading| heading.2.to_owned())
-            .collect()
-    });
+    let chips = config
+        .chips
+        .iter()
+        .map(|chip| {
+            let section = chip.sections.iter().find_map(|name| sections.get(&name.to_lowercase()).copied());
+            let value = match chip.kind {
+                ChipKind::Checklist => {
+                    let Counts { done, total } = count_checks(section);
+                    ChipValue::Checklist { done, total }
+                }
+                ChipKind::Headings => ChipValue::Count(section.map_or(0, |source| self::headings(source, "###", true).len())),
+            };
+            Chip {
+                label: chip.label.clone(),
+                value,
+            }
+        })
+        .collect();
     let legacy_status = legacy_status(&body).map(|source| source.2.to_owned());
     let status = text(fm.get("status"));
     let title = text(fm.get("title"));
@@ -306,16 +317,14 @@ pub fn meta_of(source: &str, file: &Path) -> Meta {
     Meta {
         legacy: status.is_none() && title.is_none() && legacy_status.is_some(),
         title: title.unwrap_or(fallback),
-        status: normalize_status(status.or(legacy_status)),
+        status: normalize_status(status.or(legacy_status), config),
         author: text(fm.get("author")),
         date: text(fm.get("date")),
         related: match fm.get("related") {
             Some(Value::List(values)) => values.clone(),
             value => text(value).into_iter().collect(),
         },
-        tasks: count_checks(implementation),
-        acceptance: count_checks(sections.get("acceptance criteria").copied()),
-        phases,
+        chips,
         lines: trim(raw).split('\n').count(),
         kind: text(fm.get("kind")),
         parent_spec: text(fm.get("parent-spec")),
@@ -346,6 +355,9 @@ pub fn body_below_header(source: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn meta_of(source: &str, file: &Path) -> Meta {
+        super::meta_of(source, file, &ParseConfig::default())
+    }
     #[test]
     fn frontmatter_scalars_lists_and_comments() {
         let meta = meta_of(
@@ -353,7 +365,7 @@ mod tests {
             Path::new("fallback.md"),
         );
         assert_eq!(meta.title, "A title");
-        assert_eq!(meta.status.as_deref(), Some("done"));
+        assert_eq!(meta.status.as_ref().map(|status| status.name.as_str()), Some("done"));
         assert_eq!(meta.author.as_deref(), Some("Agent"));
         assert_eq!(meta.date.as_deref(), Some("2026-10-16"));
         assert_eq!(meta.related, ["a.spec.md", "b.spec.md"]);
@@ -377,11 +389,11 @@ mod tests {
     fn legacy_identity_and_title_fallback() {
         let meta = meta_of("# Legacy title\n\n**STATUS:** WIP — note\n", Path::new("fallback.md"));
         assert_eq!(meta.title, "Legacy title");
-        assert_eq!(meta.status.as_deref(), Some("in-progress"));
+        assert_eq!(meta.status.as_ref().map(|status| status.name.as_str()), Some("in-progress"));
         assert!(meta.legacy);
         let meta = meta_of("---\ntitle: Front title\n---\n**Status:** finished\n", Path::new("fallback.md"));
         assert!(!meta.legacy);
-        assert_eq!(meta.status.as_deref(), Some("done"));
+        assert_eq!(meta.status.as_ref().map(|status| status.name.as_str()), Some("done"));
         assert_eq!(meta_of("", Path::new("name.spec.mdx")).title, "name.spec.mdx");
         assert_eq!(meta_of("", Path::new("name.spec.md")).title, "name.spec");
     }
@@ -393,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn aliases_and_status_normalization() {
+    fn vc_3_aliases_and_status_normalization() {
         for (raw, expected) in [
             ("complete", "done"),
             ("completed", "done"),
@@ -411,7 +423,8 @@ mod tests {
             (" Converging.;,—- ", "converging"),
         ] {
             let meta = meta_of(&format!("---\nstatus: {raw}\n---\n"), Path::new("a.md"));
-            assert_eq!(meta.status.as_deref(), Some(expected), "{raw}");
+            assert_eq!(meta.status.as_ref().map(|status| status.name.as_str()), Some(expected), "{raw}");
+            assert_eq!(meta.status.as_ref().unwrap().known, expected != "custom", "{raw}");
         }
         for raw in ["", "---", ";;;", ", detail"] {
             assert_eq!(meta_of(&format!("---\nstatus: '{raw}'\n---\n"), Path::new("a.md")).status, None);
@@ -421,9 +434,23 @@ mod tests {
     fn counts_and_phases_ignore_fences_and_unowned_checks() {
         let source = "# Plan\n- [x] Outside\n## Acceptance criteria\n- [X] done\n* [ ] pending\n```md\n- [x] fake\n## Implementation\n### fake\n```\n## Implementation\n### Phase one  \n- [x] task\n### Phase two\n  * [ ] task\n~~~md\n- [x] fake\n~~~\n## Other\n- [x] not a task\n";
         let meta = meta_of(source, Path::new("a.md"));
-        assert_eq!(meta.acceptance, Counts { done: 1, total: 2 });
-        assert_eq!(meta.tasks, Counts { done: 1, total: 2 });
-        assert_eq!(meta.phases, ["Phase one", "Phase two"]);
+        assert_eq!(
+            meta.chips,
+            [
+                Chip {
+                    label: "AC".into(),
+                    value: ChipValue::Checklist { done: 1, total: 2 }
+                },
+                Chip {
+                    label: "T".into(),
+                    value: ChipValue::Checklist { done: 1, total: 2 }
+                },
+                Chip {
+                    label: "phases".into(),
+                    value: ChipValue::Count(2)
+                },
+            ]
+        );
         assert_eq!(meta.lines, 20);
     }
     #[test]
@@ -432,11 +459,11 @@ mod tests {
             "## Steps\n### Step\n- [x] done\n## Acceptance criteria\n- [x] old\n## Acceptance criteria\n- [ ] new\n",
             Path::new("a.md"),
         );
-        assert_eq!(meta.phases, ["Step"]);
-        assert_eq!(meta.tasks, Counts { done: 1, total: 1 });
-        assert_eq!(meta.acceptance, Counts { done: 0, total: 1 });
+        assert_eq!(meta.chips[2].value, ChipValue::Count(1));
+        assert_eq!(meta.chips[1].value, ChipValue::Checklist { done: 1, total: 1 });
+        assert_eq!(meta.chips[0].value, ChipValue::Checklist { done: 0, total: 1 });
         let meta = meta_of("## Steps\n- [x] done\n## Implementation\n", Path::new("a.md"));
-        assert_eq!(meta.tasks, Counts::default());
+        assert_eq!(meta.chips[1].value, ChipValue::Checklist { done: 0, total: 0 });
     }
     #[test]
     fn unicode_whitespace_and_lines() {
@@ -447,7 +474,7 @@ mod tests {
             Path::new("a.md"),
         );
         assert_eq!(meta.title, "Title");
-        assert_eq!(meta.tasks, Counts { done: 1, total: 1 });
+        assert_eq!(meta.chips[1].value, ChipValue::Checklist { done: 1, total: 1 });
         assert_eq!(meta.lines, 3);
     }
     #[test]

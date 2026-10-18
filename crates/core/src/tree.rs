@@ -86,8 +86,6 @@ impl<'a> Tree<'a> {
                 kind: "dir".into(),
                 status: None,
                 archived: None,
-                tasks: None,
-                acceptance: None,
                 children: None,
             },
             children: vec![],
@@ -149,8 +147,6 @@ impl<'a> Tree<'a> {
                     kind: kind_of(doc),
                     status: doc.status.clone(),
                     archived: doc.archived,
-                    tasks: doc.tasks,
-                    acceptance: doc.acceptance,
                     children: None,
                 },
                 children: vec![],
@@ -389,11 +385,19 @@ mod tests {
     #[test]
     fn absorbs_umbrella_with_linking_siblings() {
         let mut umbrella = kind(doc("area/area.spec.md", "Area overview"), "umbrella");
-        umbrella.status = Some("active".into());
+        umbrella.status = Some(crate::Status {
+            name: "active".into(),
+            known: false,
+        });
         let tree = build_tree(&[umbrella, parent(doc("area/child.spec.md", "Child"), "area/area.spec.md")], false);
         assert_eq!(tree.len(), 1);
         assert_eq!(
-            (&*tree[0].kind, &*tree[0].name, tree[0].path.as_deref(), tree[0].status.as_deref()),
+            (
+                &*tree[0].kind,
+                &*tree[0].name,
+                tree[0].path.as_deref(),
+                tree[0].status.as_ref().map(|status| status.name.as_str())
+            ),
             ("umbrella", "Area overview", Some("area/area.spec.md"), Some("active"))
         );
         assert_eq!(paths(children(&tree[0])), ["area/child.spec.md"]);

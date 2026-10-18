@@ -3,33 +3,45 @@ use std::path::Path;
 use plan_viewer_source::{Entry, changed_specs, list};
 
 use crate::js::label;
-use crate::{DocMeta, Docs, build_tree, meta_of};
+use crate::{DocMeta, Docs, ParseConfig, build_tree, meta_of};
 
-fn to_doc_meta(entry: Entry) -> DocMeta {
+fn to_doc_meta(entry: Entry, config: &ParseConfig) -> DocMeta {
     let Entry { real, path, kind } = entry;
     let meta = std::fs::read(&real)
         .ok()
-        .map(|source| meta_of(&String::from_utf8_lossy(&source), &real));
+        .map(|source| meta_of(&String::from_utf8_lossy(&source), &real, config));
     DocMeta {
-        acceptance: meta.as_ref().map(|meta| meta.acceptance),
         archived: meta.as_ref().and_then(|meta| meta.archived),
         kind: kind.or_else(|| meta.as_ref().and_then(|meta| meta.kind.clone())),
         parent_spec: meta.as_ref().and_then(|meta| meta.parent_spec.clone()),
         status: meta.as_ref().and_then(|meta| meta.status.clone()),
-        tasks: meta.as_ref().map(|meta| meta.tasks),
         title: meta.as_ref().map_or_else(|| label(Path::new(&path)), |meta| meta.title.clone()),
         path,
     }
 }
 
-pub fn docs(worktree: &Path, project_name: &str) -> Docs {
+pub fn docs(worktree: &Path, project_name: &str, config: &ParseConfig) -> Docs {
     let changed_specs = changed_specs(worktree);
     let listing = list(worktree);
     Docs {
         changed_specs,
-        plans: build_tree(&listing.plans.into_iter().map(to_doc_meta).collect::<Vec<_>>(), true),
+        plans: build_tree(
+            &listing
+                .plans
+                .into_iter()
+                .map(|entry| to_doc_meta(entry, config))
+                .collect::<Vec<_>>(),
+            true,
+        ),
         project: project_name.to_owned(),
-        specs: build_tree(&listing.specs.into_iter().map(to_doc_meta).collect::<Vec<_>>(), false),
+        specs: build_tree(
+            &listing
+                .specs
+                .into_iter()
+                .map(|entry| to_doc_meta(entry, config))
+                .collect::<Vec<_>>(),
+            false,
+        ),
     }
 }
 
@@ -67,12 +79,12 @@ mod tests {
             std::os::unix::fs::symlink(root.path().join(".plan/folder/index.md"), root.path().join(".plan/link.md")).unwrap();
             std::os::unix::fs::symlink(root.path().join(".plan/folder"), root.path().join(".plan/link-dir")).unwrap();
         }
-        let result = docs(root.path(), "Project");
+        let result = docs(root.path(), "Project", &ParseConfig::default());
         assert_eq!(result.project, "Project");
         assert_eq!(result.plans.len(), 1);
         let plan = &result.plans[0];
         assert_eq!(
-            (&*plan.name, &*plan.kind, plan.status.as_deref()),
+            (&*plan.name, &*plan.kind, plan.status.as_ref().map(|status| status.name.as_str())),
             ("Folder", "plan", Some("ready"))
         );
         assert_eq!(
