@@ -48,6 +48,7 @@ impl std::error::Error for Error {}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Raw {
+    web: WebSettings,
     theme: ThemeSettings,
     status: Vec<StatusConfig>,
     chip: Vec<ChipConfig>,
@@ -55,6 +56,7 @@ struct Raw {
 
 #[derive(Clone, Debug)]
 pub struct Config {
+    pub web: WebSettings,
     pub theme: ThemeSettings,
     pub parse: ParseConfig,
     origins: BTreeMap<String, PathBuf>,
@@ -73,31 +75,32 @@ impl Config {
     pub fn load_layers(user: Option<&Path>, worktree: &Path, explicit: Option<&Path>) -> Result<Self, Error> {
         let local = worktree.join(".spec-viewer.toml");
         let mut layers = Vec::new();
-        for (path, required) in user
-            .into_iter()
-            .map(|p| (p, false))
-            .chain([(&*local, false)])
-            .chain(explicit.map(|p| (p, true)))
-        {
+        let user = user.into_iter().map(|p| (p, false, true));
+        for (path, required, is_user) in user.chain([(&*local, false, false)]).chain(explicit.map(|p| (p, true, false))) {
             match fs::read_to_string(path) {
-                Ok(source) => layers.push((path.to_path_buf(), source)),
+                Ok(source) => layers.push((path.to_path_buf(), source, is_user)),
                 Err(error) if !required && error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(Error::new(path, if required { "--config" } else { "config" }, error)),
             }
         }
         Self::from_layers(&layers)
     }
-    fn from_layers(layers: &[(PathBuf, String)]) -> Result<Self, Error> {
+    /// Each layer is `(file, source, is_user)`; only the user layer may set `[web]`.
+    fn from_layers(layers: &[(PathBuf, String, bool)]) -> Result<Self, Error> {
         let mut value = Value::Table(Default::default());
         let mut origins = BTreeMap::new();
-        for (path, source) in
-            std::iter::once((Path::new("crates/config/default.toml"), DEFAULT)).chain(layers.iter().map(|(p, s)| (p.as_path(), s.as_str())))
+        for (path, source, is_user) in std::iter::once((Path::new("crates/config/default.toml"), DEFAULT, true))
+            .chain(layers.iter().map(|(p, s, u)| (p.as_path(), s.as_str(), *u)))
         {
             let layer = toml::from_str::<Value>(source).map_err(|e| {
                 let offset = e.span().map_or(0, |span| span.start);
                 let line = source.as_bytes()[..offset].iter().filter(|&&byte| byte == b'\n').count() + 1;
                 Error::new(path, format!("line {line}"), e.message())
             })?;
+            // A worktree file must not open the server to the network.
+            if !is_user && layer.get("web").is_some() {
+                return Err(Error::new(path, "web", "only allowed in the user config"));
+            }
             merge(&mut value, layer, "", path, &mut origins);
         }
         // serde's flatten loses the offending key for a dynamic palette name.
@@ -129,7 +132,16 @@ impl Config {
             }
             Error::new(origin(&origins, &key), key, message)
         })?;
+        let mut web = raw.web;
+        for (key, file) in [("web.cert", &mut web.cert), ("web.key", &mut web.key)] {
+            if let Some(file) = file.as_mut()
+                && let Some(dir) = origin(&origins, key).parent()
+            {
+                *file = dir.join(&*file);
+            }
+        }
         let config = Self {
+            web,
             theme: raw.theme,
             parse: ParseConfig {
                 statuses: raw.status,
@@ -167,6 +179,14 @@ impl Config {
         palette
     }
     fn validate(&self) -> Result<(), Error> {
+        if self.web.bind.trim().is_empty() {
+            return Err(self.error("web.bind", "must not be empty"));
+        }
+        match (&self.web.cert, &self.web.key) {
+            (Some(_), None) => return Err(self.error("web.cert", "requires web.key")),
+            (None, Some(_)) => return Err(self.error("web.key", "requires web.cert")),
+            _ => {}
+        }
         for (key, name) in [
             ("theme.name", Some(&self.theme.name)),
             ("theme.light_name", self.theme.light_name.as_ref()),

@@ -8,12 +8,14 @@ publish.workspace = true
 [dependencies]
 spec-viewer-core = { path = "../core" }
 spec-viewer-config = { path = "../config" }
+rustls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 syntect.workspace = true
 two-face.workspace = true
 
 [dev-dependencies]
+rcgen.workspace = true
 tempfile.workspace = true
 
 [lints]

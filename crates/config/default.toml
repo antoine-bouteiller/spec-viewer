@@ -1,5 +1,10 @@
 # crates/config/default.toml; lower layers first:
 # default < $XDG_CONFIG_HOME/spec-viewer/config.toml (else ~/.config/…) < <ROOT worktree>/.spec-viewer.toml < --config PATH
+[web]                          # user config only
+bind = "127.0.0.1"             # an IP, or a hostname to bind all interfaces; unauthenticated off loopback
+# cert = "cert.pem"            # with key: serve HTTPS; PEM paths, relative to the config file
+# key = "key.pem"
+
 [theme]
 mode = "auto"                  # auto | light | dark; auto = OSC 11 reply, else dark; --theme overrides
 name = "terminal"              # built-ins: terminal

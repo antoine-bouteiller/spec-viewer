@@ -143,3 +143,38 @@ fn vc_7_palette_shape_errors_identify_the_exact_key_and_layer() {
         assert_eq!(error.key, key, "{source}: {error}");
     }
 }
+
+#[test]
+fn web_is_user_only_with_paths_relative_to_the_user_file() {
+    let root = tempfile::tempdir().unwrap();
+    let user = root.path().join("user/config.toml");
+    std::fs::create_dir(root.path().join("user")).unwrap();
+    std::fs::write(&user, "[web]\nbind='0.0.0.0'\ncert='cert.pem'\nkey='/abs/key.pem'\n").unwrap();
+    let config = Config::load_layers(Some(&user), root.path(), None).unwrap();
+    assert_eq!(config.web.bind, "0.0.0.0");
+    assert_eq!(config.web.cert, Some(root.path().join("user/cert.pem")));
+    assert_eq!(config.web.key, Some("/abs/key.pem".into()));
+    assert_eq!(Config::default().web.bind, "127.0.0.1");
+
+    let worktree = root.path().join(".spec-viewer.toml");
+    let explicit = root.path().join("explicit.toml");
+    std::fs::write(&explicit, "").unwrap();
+    for file in [&worktree, &explicit] {
+        std::fs::write(file, "[web]\nbind='0.0.0.0'\n").unwrap();
+        let error = Config::load_layers(None, root.path(), Some(&explicit)).unwrap_err();
+        assert_eq!((&error.file, error.key.as_str()), (file, "web"), "{error}");
+        std::fs::write(file, "").unwrap();
+    }
+
+    for (source, key) in [
+        ("[web]\nbind=''", "web.bind"),
+        ("[web]\ncert='c.pem'", "web.cert"),
+        ("[web]\nkey='k.pem'", "web.key"),
+        ("[web]\nport=1", "web.port"),
+    ] {
+        std::fs::write(&user, source).unwrap();
+        let error = Config::load_layers(Some(&user), root.path(), None).unwrap_err();
+        assert_eq!(error.file, user, "{source}: {error}");
+        assert!(error.key.starts_with(key), "{source}: {error}");
+    }
+}

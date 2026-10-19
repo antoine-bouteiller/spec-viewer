@@ -24,6 +24,18 @@ port the OS assigns is stored per project in `$XDG_CONFIG_HOME/spec-viewer/ports
 `~/.config/spec-viewer/ports.toml`) and reused by later sessions, unless another process holds it.
 Mermaid diagrams load from jsDelivr; offline, their source stays visible.
 
+To reach the web app from another machine, set `[web]` in the user config
+(`$XDG_CONFIG_HOME/spec-viewer/config.toml`); worktree and `--config` files may not set it:
+
+```toml
+[web]
+bind = "0.0.0.0"   # an IP, or a hostname to bind all interfaces
+cert = "cert.pem"  # optional, with key: serve HTTPS; relative to the config file
+key = "key.pem"
+```
+
+The server has no authentication, so only bind beyond loopback on a trusted network.
+
 ## Development
 
 ```sh

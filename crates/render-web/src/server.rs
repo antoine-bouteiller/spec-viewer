@@ -1,15 +1,19 @@
-//! Loopback HTTP server: the embedded client, the JSON API, and server-sent reload events.
+//! HTTP(S) server: the embedded client, the JSON API, and server-sent reload events.
 use std::{
     collections::HashMap,
     io::{self, BufRead, BufReader, Read, Write},
-    net::{SocketAddr, TcpListener, TcpStream},
+    net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, mpsc::RecvTimeoutError},
     time::Duration,
 };
 
+use rustls::{
+    ServerConfig, ServerConnection, StreamOwned,
+    pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
+};
 use serde::Serialize;
-use spec_viewer_config::{Color, Config, Mode};
+use spec_viewer_config::{Color, Config, Mode, WebSettings};
 use spec_viewer_core::{ChipValue, DocError, DocNode, Document, Library, Status, TocEntry};
 
 use crate::html::{Html, to_html};
@@ -20,18 +24,31 @@ const APP_CSS: &str = include_str!("../assets/app.css");
 const HEARTBEAT: Duration = Duration::from_secs(15);
 const HEAD_LIMIT: u64 = 16 * 1024;
 
-/// Binds `127.0.0.1:<preferred>`, else any free port, and serves on background threads until exit.
+/// Binds `<web.bind>:<preferred>`, else any free port, and serves on background threads until exit.
+/// A `web.bind` that is not an IP binds all interfaces; `web.cert` and `web.key` enable TLS.
 pub fn start(library: Library, config: &Config, preferred: Option<u16>) -> io::Result<SocketAddr> {
+    let tls = tls(&config.web)?;
+    // A hostname often resolves to loopback via /etc/hosts, which would defeat a remote bind.
+    let ip = config.web.bind.parse().unwrap_or(IpAddr::V4(Ipv4Addr::UNSPECIFIED));
     let listener = preferred
-        .and_then(|port| TcpListener::bind(("127.0.0.1", port)).ok())
-        .map_or_else(|| TcpListener::bind(("127.0.0.1", 0)), Ok)?;
+        .and_then(|port| TcpListener::bind((ip, port)).ok())
+        .map_or_else(|| TcpListener::bind((ip, 0)), Ok)?;
     let address = listener.local_addr()?;
     let state = Arc::new(State::new(library, config));
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let state = Arc::clone(&state);
+            let tls = tls.clone();
             std::thread::spawn(move || {
-                if let Some(target) = request_target(&stream) {
+                if stream.set_read_timeout(Some(Duration::from_secs(5))).is_err() {
+                    return;
+                }
+                let mut stream = match tls.map(ServerConnection::new) {
+                    None => Conn::Plain(stream),
+                    Some(Ok(connection)) => Conn::Tls(Box::new(StreamOwned::new(connection, stream))),
+                    Some(Err(_)) => return,
+                };
+                if let Some(target) = request_target(&mut stream) {
                     state.handle(stream, &target);
                 }
             });
@@ -40,10 +57,63 @@ pub fn start(library: Library, config: &Config, preferred: Option<u16>) -> io::R
     Ok(address)
 }
 
+fn tls(web: &WebSettings) -> io::Result<Option<Arc<ServerConfig>>> {
+    let (Some(cert), Some(key)) = (&web.cert, &web.key) else {
+        return Ok(None);
+    };
+    let invalid = |path: &Path, error: &dyn std::fmt::Display| io::Error::other(format!("{}: {error}", path.display()));
+    let certs = CertificateDer::pem_file_iter(cert)
+        .and_then(Iterator::collect::<Result<Vec<_>, _>>)
+        .map_err(|error| invalid(cert, &error))?;
+    let key = PrivateKeyDer::from_pem_file(key).map_err(|error| invalid(key, &error))?;
+    let config = ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+        .with_safe_default_protocol_versions()
+        .and_then(|builder| builder.with_no_client_auth().with_single_cert(certs, key))
+        .map_err(|error| invalid(cert, &error))?;
+    Ok(Some(Arc::new(config)))
+}
+
+enum Conn {
+    Plain(TcpStream),
+    Tls(Box<StreamOwned<ServerConnection, TcpStream>>),
+}
+
+impl Read for Conn {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Self::Plain(stream) => stream.read(buf),
+            Self::Tls(stream) => stream.read(buf),
+        }
+    }
+}
+
+impl Write for Conn {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Self::Plain(stream) => stream.write(buf),
+            Self::Tls(stream) => stream.write(buf),
+        }
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Self::Plain(stream) => stream.flush(),
+            Self::Tls(stream) => stream.flush(),
+        }
+    }
+}
+
+impl Drop for Conn {
+    fn drop(&mut self) {
+        if let Self::Tls(stream) = self {
+            stream.conn.send_close_notify();
+            let _ = stream.flush();
+        }
+    }
+}
+
 /// Reads the request head and returns its target. Any method is served as GET and every response
 /// closes the connection, so request bodies and keep-alive never need handling.
-fn request_target(stream: &TcpStream) -> Option<String> {
-    stream.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
+fn request_target(stream: &mut Conn) -> Option<String> {
     let mut reader = BufReader::new(stream.take(HEAD_LIMIT));
     let mut line = String::new();
     reader.read_line(&mut line).ok()?;
@@ -66,7 +136,7 @@ struct Reply {
 }
 
 impl Reply {
-    fn send(self, mut stream: &TcpStream) {
+    fn send(self, stream: &mut Conn) {
         let reason = match self.status {
             200 => "OK",
             403 => "Forbidden",
@@ -135,13 +205,13 @@ impl State {
         }
     }
 
-    fn handle(&self, stream: TcpStream, target: &str) {
+    fn handle(&self, mut stream: Conn, target: &str) {
         let (path, query) = target.split_once('?').unwrap_or((target, ""));
         let query = Query(query);
         if path == "/api/events" {
             return match self.worktree(&query) {
-                Some(worktree) => self.events(&stream, &worktree),
-                None => text(403, "forbidden").send(&stream),
+                Some(worktree) => self.events(&mut stream, &worktree),
+                None => text(403, "forbidden").send(&mut stream),
             };
         }
         let reply = match path {
@@ -159,7 +229,7 @@ impl State {
             ),
             _ => text(404, "not found"),
         };
-        reply.send(&stream);
+        reply.send(&mut stream);
     }
 
     /// Only a worktree the project currently lists may be read.
@@ -252,7 +322,7 @@ impl State {
         })
     }
 
-    fn events(&self, mut stream: &TcpStream, worktree: &Path) {
+    fn events(&self, stream: &mut Conn, worktree: &Path) {
         let watch = match self.library.watch(worktree) {
             Ok(watch) => watch,
             Err(error) => return text(500, &error.to_string()).send(stream),

@@ -1,6 +1,6 @@
 use crate::Color;
 use serde::Deserialize;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, path::PathBuf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -140,4 +140,12 @@ pub struct ResolvedTheme {
     /// The palette's colour for each ANSI slot, in `ANSI_SLOTS` order.
     pub ansi: [Color; 16],
     pub statuses: BTreeMap<String, Color>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WebSettings {
+    pub bind: String,
+    pub cert: Option<PathBuf>,
+    pub key: Option<PathBuf>,
 }

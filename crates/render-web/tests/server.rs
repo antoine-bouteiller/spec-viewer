@@ -3,6 +3,7 @@ use std::{
     net::{SocketAddr, TcpStream},
     path::{Path, PathBuf},
     process::Command,
+    sync::Arc,
     time::Duration,
 };
 
@@ -119,4 +120,35 @@ fn events_stream_a_reload_when_a_plan_changes() {
     line.clear();
     reader.read_line(&mut line).unwrap();
     assert_eq!(line, "data: reload\n");
+}
+
+#[test]
+fn serves_https_on_all_interfaces_when_configured() {
+    let (directory, root) = repository();
+    let rcgen::CertifiedKey { cert, signing_key } = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+    let (cert_file, key_file) = (directory.path().join("cert.pem"), directory.path().join("key.pem"));
+    std::fs::write(&cert_file, cert.pem()).unwrap();
+    std::fs::write(&key_file, signing_key.serialize_pem()).unwrap();
+    let mut config = Config::default();
+    config.web.bind = "0.0.0.0".into();
+    config.web.cert = Some(cert_file);
+    config.web.key = Some(key_file);
+    let address = spec_viewer_render_web::start(Library::new(&root, Default::default()).unwrap(), &config, None).unwrap();
+    assert!(address.ip().is_unspecified());
+
+    let mut roots = rustls::RootCertStore::empty();
+    roots.add(cert.der().clone()).unwrap();
+    let client = rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    let connection = rustls::ClientConnection::new(Arc::new(client), "localhost".try_into().unwrap()).unwrap();
+    let tcp = TcpStream::connect(("127.0.0.1", address.port())).unwrap();
+    let mut stream = rustls::StreamOwned::new(connection, tcp);
+    write!(stream, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n").unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 200"), "{response}");
+    assert!(response.contains("src=\"/app.js\""));
 }

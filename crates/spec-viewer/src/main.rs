@@ -1,9 +1,12 @@
-use std::process::ExitCode;
+use std::{
+    net::{IpAddr, SocketAddr},
+    process::ExitCode,
+};
 
 mod cli;
 
 use cli::Command;
-use spec_viewer_config::{Config, Ports};
+use spec_viewer_config::{Config, Ports, WebSettings};
 use spec_viewer_core::{Library, ParseConfig};
 use spec_viewer_render_tui::Theme;
 
@@ -41,7 +44,19 @@ fn serve(library: Library, config: &Config, ports: Option<Ports>) -> Result<Stri
         // An unwritable config directory only costs a stable port.
         let _ = ports.set(&key, address.port());
     }
-    Ok(format!("http://{address}"))
+    Ok(url(&config.web, address))
+}
+
+/// A hostname bind keeps its name, which a certificate usually covers; an all-interfaces IP shows as
+/// `localhost`.
+fn url(web: &WebSettings, address: SocketAddr) -> String {
+    let scheme = if web.cert.is_some() { "https" } else { "http" };
+    let port = address.port();
+    match web.bind.parse::<IpAddr>() {
+        Err(_) => format!("{scheme}://{}:{port}", web.bind),
+        Ok(ip) if ip.is_unspecified() => format!("{scheme}://localhost:{port}"),
+        Ok(_) => format!("{scheme}://{address}"),
+    }
 }
 
 #[cfg(test)]
@@ -62,5 +77,19 @@ mod tests {
         let second = serve(library(), &Config::default(), Some(ports.clone())).unwrap();
         assert_ne!(second, first);
         assert_eq!(ports.get(&key), Some(stored));
+    }
+
+    #[test]
+    fn the_url_names_the_bind_and_the_scheme() {
+        let web = |bind: &str, tls: bool| WebSettings {
+            bind: bind.into(),
+            cert: tls.then(|| "c.pem".into()),
+            key: tls.then(|| "k.pem".into()),
+        };
+        let v4: SocketAddr = "0.0.0.0:4100".parse().unwrap();
+        let v6: SocketAddr = "[::1]:4100".parse().unwrap();
+        assert_eq!(url(&web("0.0.0.0", false), v4), "http://localhost:4100");
+        assert_eq!(url(&web("devbox.local", true), v4), "https://devbox.local:4100");
+        assert_eq!(url(&web("::1", true), v6), "https://[::1]:4100");
     }
 }

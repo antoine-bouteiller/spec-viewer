@@ -11,8 +11,9 @@ related: [spec/terminal-ui.spec.md]
 
 A terminal session shows one document at a time in monospace. Diagrams, wide tables, and long
 specs read better in a browser, and a browser tab can stay open beside an editor. Each
-`spec-viewer` session therefore also serves its project's corpus as a web app on loopback, with the
-same corpus, tree, metadata, and live reload as the terminal. The layout and styling follow the Bun
+`spec-viewer` session therefore also serves its project's corpus as a web app, on loopback unless
+the user config binds elsewhere, with the same corpus, tree, metadata, and live reload as the
+terminal. The layout and styling follow the Bun
 plan-viewer that preceded this repository. This spec owns the HTML rendering, the HTTP surface, the
 browser client, and the per-project port. Discovery, metadata, the tree, and confinement live in the
 `source`, `parser`, and `core` crates.
@@ -20,7 +21,7 @@ browser client, and the per-project port. Discovery, metadata, the tree, and con
 - `[G-1]` A browser view of the same corpus as the terminal, reachable from the running session.
 - `[G-2]` A stable URL per project across sessions, so a bookmarked or open tab keeps working.
 - `[NG-1]` No editing: the server never writes to the worktree.
-- `[NG-2]` No authentication and no non-loopback bind.
+- `[NG-2]` No authentication: a non-loopback bind is opt-in from the user config only.
 - `[NG-3]` No headless server mode: the web app lives as long as a terminal session.
 - `[NG-4]` No full-text search: navigation is the tree plus a title and path filter.
 - `[NG-5]` No offline diagrams: Mermaid loads from a CDN, and offline shows source.
@@ -35,7 +36,7 @@ browser client, and the per-project port. Discovery, metadata, the tree, and con
 
 | Decision                | Choice                                                                                                                       | Rationale                                                                          |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `[KD-1]` Server         | `tiny_http` on `127.0.0.1`, one thread per request                                                                           | Synchronous like the rest of the workspace; a thread per SSE stream needs no async |
+| `[KD-1]` Server         | `tiny_http` on `web.bind` (default `127.0.0.1`), one thread per request; `rustls` (ring) when `web.cert` and `web.key` are set | Synchronous like the rest of the workspace; a thread per SSE stream needs no async |
 | `[KD-2]` Client         | One hand-written ES module, `index.html`, and CSS, embedded with `include_str!`                                              | The build stays Cargo-only; no Node or Bun in the flake or CI                      |
 | `[KD-3]` Render site    | The server renders HTML; the client injects it                                                                               | Highlighting and the parser already run in Rust                                    |
 | `[KD-4]` Highlighting   | `syntect` class spans (`hl-` prefix); each token takes its ANSI slot's palette colour, with rules scoped to the colour mode  | Both modes ship in one response; scoping keeps their specificities from competing  |
@@ -47,9 +48,9 @@ browser client, and the per-project port. Discovery, metadata, the tree, and con
 
 ## Outcome
 
-- `[SO-1]` Every terminal session serves its project's corpus at a loopback URL shown in the
-  footer; `o` opens the current worktree, tab, and document there. — demonstrated by `[VC-5]`,
-  `[VC-6]`
+- `[SO-1]` Every terminal session serves its project's corpus at a URL, loopback by default, shown
+  in the footer; `o` opens the current worktree, tab, and document there. — demonstrated by
+  `[VC-5]`, `[VC-6]`, `[VC-8]`
 - `[SO-2]` A project keeps the same port across sessions unless another process holds it.
   — demonstrated by `[VC-5]`, `[VC-7]`
 - `[SO-3]` Every parser construct, including the MDX dialect components, renders as HTML with the
@@ -95,7 +96,8 @@ Text and attribute values are HTML-escaped.
 Kind: api · Anchor: `crates/render-web/src/server.rs#start`
 
 ```rust
-/// Binds 127.0.0.1:<preferred>, else any free port, and serves on background threads until exit.
+/// Binds `<web.bind>:<preferred>`, else any free port, and serves on background threads until exit.
+/// A `web.bind` that is not an IP binds all interfaces; `web.cert` and `web.key` enable TLS.
 pub fn start(library: Library, config: &Config, preferred: Option<u16>) -> io::Result<SocketAddr>;
 ```
 
@@ -169,8 +171,25 @@ Kind: invariant · Anchor: `crates/spec-viewer/src/main.rs#serve`
 After the config loads, the session builds a second `Library` for the server and starts it on the
 stored port. A missing stored port records the OS-assigned one; a taken stored port serves elsewhere
 and leaves the file unchanged; a write failure is ignored. A server that cannot bind at all exits 1
-with `spec-viewer: cannot start web server: <error>`. The terminal footer appends `o <url>`, and `o`
-opens the current view per `spec/terminal-ui.spec.md` `[CT-2]`.
+with `spec-viewer: cannot start web server: <error>`. The URL is `https` with a certificate, else
+`http`; its host is the configured hostname, `localhost` for an all-interfaces IP, else the bound
+address. The terminal footer appends `o <url>`, and `o` opens the current view per
+`spec/terminal-ui.spec.md` `[CT-2]`.
+
+### [CT-6] Web config
+
+Kind: config · Anchor: `crates/config/default.toml`
+
+```toml
+[web]                 # only in $XDG_CONFIG_HOME/spec-viewer/config.toml
+bind = "127.0.0.1"    # an IP, or a hostname: binds 0.0.0.0, since a hostname often resolves to loopback
+cert = "cert.pem"     # optional PEM chain; requires key; relative to the user config file
+key = "key.pem"       # optional PEM private key; requires cert
+```
+
+`[web]` in a worktree `.spec-viewer.toml` or a `--config` file, an empty `bind`, or `cert` without
+`key` (or the reverse) is a config error naming the file and key. An unreadable or invalid PEM file
+fails the server start per `[CT-5]`.
 
 ## Acceptance
 
@@ -192,6 +211,9 @@ opens the current view per `spec/terminal-ui.spec.md` `[CT-2]`.
 - `[VC-6]` Given a session with a web URL and an open plan, then the link `o` opens carries `wt`,
   `tab`, and `doc`; without a web URL, `o` reports that the web app is not running.
   — demonstrates `[SO-1]`
+- `[VC-8]` Given a user config with `bind = "0.0.0.0"` and a certificate, then the server listens on
+  all interfaces and answers HTTPS; `[web]` in a worktree or `--config` file, or a lone `cert`, is a
+  config error; relative PEM paths resolve against the user config file. — demonstrates `[SO-1]`
 - `[VC-7]` Given a port file, then `set` keeps other projects' entries, a malformed file yields no
   port and is not overwritten, and an out-of-range or non-integer value yields no port.
   — demonstrates `[SO-2]`
