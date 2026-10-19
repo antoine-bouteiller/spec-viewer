@@ -1,5 +1,10 @@
 # spec-viewer
 
+<p align="center">
+  <a href="https://github.com/antoine-bouteiller/spec-viewer/actions/workflows/ci.yaml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/antoine-bouteiller/spec-viewer/ci.yaml?style=for-the-badge&branch=main&label=ci&logo=github"></a>
+  <a href="https://codecov.io/github/antoine-bouteiller/spec-viewer"><img alt="Codecov" src="https://img.shields.io/codecov/c/github/antoine-bouteiller/spec-viewer?style=for-the-badge&logo=codecov"></a>
+</p>
+
 A keyboard-first terminal viewer for the plans and specs in a Git worktree. It works over SSH, in a
 pane beside an agent, or anywhere a browser is out of reach.
 
