@@ -1,7 +1,9 @@
 //! Layered TOML configuration and renderer-neutral theme resolution.
 mod color;
+mod ports;
 mod types;
 pub use color::{ANSI_SLOTS, Ansi, Color};
+pub use ports::Ports;
 pub use types::*;
 
 use serde::Deserialize;
@@ -65,11 +67,7 @@ impl Default for Config {
 impl Config {
     /// The caller supplies the containing worktree, discovered by source::project_of.
     pub fn load(worktree: &Path, explicit: Option<&Path>) -> Result<Self, Error> {
-        let user = std::env::var_os("XDG_CONFIG_HOME")
-            .filter(|value| !value.is_empty())
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
-            .map(|dir| dir.join("spec-viewer/config.toml"));
+        let user = user_dir().map(|dir| dir.join("config.toml"));
         Self::load_layers(user.as_deref(), worktree, explicit)
     }
     pub fn load_layers(user: Option<&Path>, worktree: &Path, explicit: Option<&Path>) -> Result<Self, Error> {
@@ -286,6 +284,15 @@ impl Config {
             .collect::<Result<_, Error>>()?;
         Ok(ResolvedTheme { mode, roles, statuses })
     }
+}
+
+/// `$XDG_CONFIG_HOME/spec-viewer`, else `~/.config/spec-viewer`.
+fn user_dir() -> Option<PathBuf> {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .map(|dir| dir.join("spec-viewer"))
 }
 
 fn origin(origins: &BTreeMap<String, PathBuf>, key: &str) -> PathBuf {

@@ -60,6 +60,7 @@ pub struct App {
     pub rendered: TermDoc,
     pub hints: Vec<Hint>,
     pub message: Option<String>,
+    pub web_url: Option<String>,
     theme: Theme,
     sidebar_selection: usize,
     rail_selection: usize,
@@ -100,6 +101,7 @@ impl App {
             rendered: TermDoc::default(),
             hints: Vec::new(),
             message: None,
+            web_url: None,
             theme,
             sidebar_selection: 0,
             rail_selection: 0,
@@ -253,6 +255,49 @@ impl App {
         }
     }
 
+    /// The web app's URL for the current worktree, tab, filter mode, and document.
+    pub fn web_link(&self) -> Option<String> {
+        let base = self.web_url.as_ref()?;
+        let mut query = vec![
+            ("wt", self.worktree_path().to_string_lossy().into_owned()),
+            ("tab", if self.tab == Tab::Specs { "specs" } else { "plans" }.to_owned()),
+        ];
+        if let Some(doc) = &self.doc {
+            query.push(("doc", doc.root_path.clone()));
+        }
+        if self.diff {
+            query.push(("diff", "true".to_owned()));
+        }
+        let query = query
+            .iter()
+            .map(|(key, value)| format!("{key}={}", percent_encode(value)))
+            .collect::<Vec<_>>()
+            .join("&");
+        Some(format!("{base}/?{query}"))
+    }
+
+    fn open_browser(&mut self) {
+        let Some(link) = self.web_link() else {
+            self.message = Some("The web app is not running.".into());
+            return;
+        };
+        let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        let launched = std::process::Command::new(program)
+            .arg(&link)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        self.message = Some(match launched {
+            Ok(mut child) => {
+                std::thread::spawn(move || child.wait());
+                format!("Opened {link}")
+            }
+            // Over SSH there is usually no opener; the link can still be copied from the footer.
+            Err(error) => format!("Could not run {program} ({error}): {link}"),
+        });
+    }
+
     fn start_hints(&mut self) {
         let visible: Vec<_> = self
             .rendered
@@ -392,6 +437,7 @@ impl App {
                 self.diff = !self.diff;
                 self.sidebar_selection = 0;
             }
+            KeyCode::Char('o') => self.open_browser(),
             KeyCode::Char('r') => {
                 self.rail_visible = !self.rail_visible;
                 if self.focus == Focus::Rail && !self.rail_visible {
@@ -526,9 +572,13 @@ impl App {
         let footer = if let Some(input) = &self.hint_input {
             format!("Hint: {input}  Esc cancel")
         } else {
-            self.message
-                .clone()
-                .unwrap_or_else(|| "Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · r rail · q quit".into())
+            self.message.clone().unwrap_or_else(|| {
+                let keys = "Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · r rail · q quit";
+                match &self.web_url {
+                    Some(url) => format!("{keys} · o {url}"),
+                    None => keys.into(),
+                }
+            })
         };
         frame.render_widget(
             Paragraph::new(footer).style(Style::default().fg(self.theme.roles.muted)),
@@ -898,6 +948,16 @@ fn wrap_lines(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'static>> {
     wrapped
 }
 
+fn percent_encode(value: &str) -> String {
+    value
+        .bytes()
+        .map(|byte| match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'/' => (byte as char).to_string(),
+            _ => format!("%{byte:02X}"),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -935,6 +995,21 @@ mod tests {
         assert!(!app.quit);
         app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
         assert!(app.quit);
+    }
+
+    #[test]
+    fn web_link_carries_worktree_tab_and_open_document() {
+        let (_root, mut app) = app();
+        app.handle_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE));
+        assert_eq!(app.message.as_deref(), Some("The web app is not running."));
+        app.web_url = Some("http://127.0.0.1:4100".into());
+        app.open(".plan/first.md");
+        let worktree = percent_encode(&app.worktree_path().to_string_lossy());
+        assert_eq!(
+            app.web_link().unwrap(),
+            format!("http://127.0.0.1:4100/?wt={worktree}&tab=plans&doc=.plan/first.md")
+        );
+        assert_eq!(percent_encode("a b&c=é"), "a%20b%26c%3D%C3%A9");
     }
 
     #[test]

@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 spec-viewer-render-tui = { path = "../render-tui" }
+spec-viewer-render-web = { path = "../render-web" }
 spec-viewer-core = { path = "../core" }
 spec-viewer-config = { path = "../config" }
 

@@ -4,7 +4,7 @@ status: amended
 author: Antoine Bouteiller
 date: 2026-10-16
 module: [crates/render-tui, crates/config, crates/spec-viewer]
-related: []
+related: [spec/web-ui.spec.md]
 ---
 
 ## Why
@@ -105,6 +105,7 @@ d             Diff toggle; specs tab only, disabled when changed specs are unkno
 ↑↓ jk         move   → ← lh  expand / collapse   Enter  open
 PgUp PgDn g G scroll document        f        hint mode (open link / copy xref)
 y / Y         copy absolute path / file name   r        toggle rail
+o             open the current view in the web app (spec/web-ui.spec.md)
 q / C-c       quit
 ```
 
@@ -172,7 +173,9 @@ Kind: api · Anchor: `crates/spec-viewer/src/cli.rs#parse`
 
 ```text
 spec-viewer [ROOT] [--theme light|dark] [--config PATH]
-exit 1: unresolvable or non-directory ROOT, invalid --theme, config error per [CT-4]; one stderr line
+exit 1: unresolvable or non-directory ROOT, invalid --theme, config error per [CT-4],
+        web server bind failure; one stderr line
+also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 ```
 
 ## Acceptance
@@ -219,3 +222,4 @@ exit 1: unresolvable or non-directory ROOT, invalid --theme, config error per [C
 | 2026-10-18 | Moved out of spec-kit; dropped `parent-spec`; tree semantics stated in `[CT-2]`               | Why, Design, CT-2                    | `spec-viewer` became its own repository and owns this behaviour  |
 | 2026-10-18 | `to_terminal` takes the semantic `Document`; module paths follow the workspace crates         | CT-1, CT-3                           | The HTML-shaped tree existed only for parity with the Bun viewer |
 | 2026-10-18 | Layered config for theme, statuses, and header chips (`[KD-5]`, `[KD-8]`, `[KD-9]`, `[CT-4]`) | Design, CT-2, CT-4, CT-5, Acceptance | Projects use other statuses, header sections, and colours        |
+| 2026-10-19 | `o` opens the web app; the session also serves it                                             | CT-2, CT-5                           | The browser view moved into `spec-viewer` (spec/web-ui.spec.md)  |

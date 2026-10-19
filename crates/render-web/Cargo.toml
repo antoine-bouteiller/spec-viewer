@@ -1,0 +1,21 @@
+[package]
+name = "spec-viewer-render-web"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+spec-viewer-core = { path = "../core" }
+spec-viewer-config = { path = "../config" }
+serde.workspace = true
+serde_json.workspace = true
+syntect.workspace = true
+tiny_http.workspace = true
+two-face.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

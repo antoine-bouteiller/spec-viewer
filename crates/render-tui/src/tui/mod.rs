@@ -32,8 +32,8 @@ fn restore() {
     let _ = execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen, crossterm::cursor::Show);
 }
 
-pub fn run(library: spec_viewer_core::Library, theme: Theme) -> ExitCode {
-    match start(library, theme) {
+pub fn run(library: spec_viewer_core::Library, theme: Theme, web_url: Option<String>) -> ExitCode {
+    match start(library, theme, web_url) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("spec-viewer: {error}");
@@ -42,7 +42,7 @@ pub fn run(library: spec_viewer_core::Library, theme: Theme) -> ExitCode {
     }
 }
 
-fn start(library: spec_viewer_core::Library, theme: Theme) -> io::Result<()> {
+fn start(library: spec_viewer_core::Library, theme: Theme, web_url: Option<String>) -> io::Result<()> {
     let previous_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |information| {
         restore();
@@ -52,6 +52,7 @@ fn start(library: spec_viewer_core::Library, theme: Theme) -> io::Result<()> {
     let _restore = Restore;
     let (detected, input) = if theme.is_auto() { theme::detect() } else { (None, Vec::new()) };
     let mut app = App::new(library, theme.resolve_auto(detected), io::stdout())?;
+    app.web_url = web_url;
     for character in String::from_utf8_lossy(&input).chars() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
         let key = match character {

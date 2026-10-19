@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Specs</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%234f46e5'/><g stroke='white' stroke-width='2.5' stroke-linecap='round'><path d='M9 11h14M9 16h14M9 21h8'/></g></svg>"
+    />
+    <script>
+      var stored = localStorage.getItem('spec-viewer.theme')
+      if (stored === 'light' || stored === 'dark') document.documentElement.setAttribute('data-theme', stored)
+    </script>
+    <link rel="stylesheet" href="/app.css" />
+    <link rel="stylesheet" href="/theme.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <header class="sidebar-header">
+          <span class="brand">Specs<span class="brand-dot">.</span></span>
+          <div class="theme-selector" role="radiogroup" aria-label="Theme">
+            <button type="button" role="radio" class="theme-option" data-mode="light">light</button>
+            <button type="button" role="radio" class="theme-option" data-mode="dark">dark</button>
+            <button type="button" role="radio" class="theme-option" data-mode="system">system</button>
+          </div>
+        </header>
+        <div class="filter-bar">
+          <div class="filter">
+            <svg class="filter-icon" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
+              <path d="M17 17L21 21" />
+              <path d="M19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11C3 15.4183 6.58172 19 11 19C15.4183 19 19 15.4183 19 11Z" />
+            </svg>
+            <input id="filter" class="filter-input" placeholder="Filter plans…" />
+          </div>
+          <button
+            id="diff"
+            hidden
+            type="button"
+            aria-pressed="false"
+            aria-label="Show only specs changed from remote main"
+            title="Show only specs changed from remote main"
+            class="diff-toggle"
+          >
+            Diff
+          </button>
+        </div>
+        <nav id="nav" aria-label="Documents" class="sidebar-nav"></nav>
+      </aside>
+      <aside id="rail" class="rail"></aside>
+      <main id="page" class="page">
+        <div id="status-bar" class="status-bar"></div>
+        <div id="content"></div>
+      </main>
+    </div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

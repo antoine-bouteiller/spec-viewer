@@ -18,6 +18,12 @@ spec-viewer [ROOT] [--theme light|dark] [--config PATH]
 - `--theme` overrides the configured light or dark mode.
 - `--config` adds a TOML config layer on top of the user and worktree configs.
 
+The same session serves the corpus as a web app on `127.0.0.1`; the footer shows its URL, and `o`
+opens the current view there. The first
+port the OS assigns is stored per project in `$XDG_CONFIG_HOME/spec-viewer/ports.toml` (else
+`~/.config/spec-viewer/ports.toml`) and reused by later sessions, unless another process holds it.
+Mermaid diagrams load from jsDelivr; offline, their source stays visible.
+
 ## Development
 
 ```sh
@@ -26,4 +32,5 @@ cargo run -- .
 cargo test
 ```
 
-The behaviour is specified in [`spec/terminal-ui.spec.md`](spec/terminal-ui.spec.md).
+The behaviour is specified in [`spec/terminal-ui.spec.md`](spec/terminal-ui.spec.md) and
+[`spec/web-ui.spec.md`](spec/web-ui.spec.md).
