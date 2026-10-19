@@ -75,6 +75,7 @@
           hooks = git-hooks.lib.${system}.run {
             src = ./.;
             hooks = {
+              convco.enable = true;
               rustfmt = {
                 enable = true;
                 packageOverrides = {
