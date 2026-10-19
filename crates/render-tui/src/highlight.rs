@@ -1,8 +1,8 @@
-//! Syntect tokens for the terminal emitter.
-use std::{io::Cursor, sync::LazyLock};
+//! Syntect tokens for the terminal emitter, coloured by ANSI slot.
+use std::sync::LazyLock;
 use syntect::{
     easy::HighlightLines,
-    highlighting::{Style, ThemeSet},
+    highlighting::{Style, Theme},
     parsing::{SyntaxReference, SyntaxSet},
 };
 
@@ -11,25 +11,13 @@ pub struct Token {
     pub style: Style,
     pub text: String,
 }
-struct Highlighter {
-    syntaxes: SyntaxSet,
-    themes: [syntect::highlighting::Theme; 2],
-}
-static HIGHLIGHTER: LazyLock<Highlighter> = LazyLock::new(|| Highlighter {
-    syntaxes: two_face::syntax::extra_newlines(),
-    themes: [
-        ThemeSet::load_from_reader(&mut Cursor::new(include_bytes!("../assets/themes/catppuccin-latte.tmTheme")))
-            .expect("vendored latte theme"),
-        ThemeSet::load_from_reader(&mut Cursor::new(include_bytes!("../assets/themes/catppuccin-mocha.tmTheme")))
-            .expect("vendored mocha theme"),
-    ],
-});
-pub fn load_theme(name: &str) -> Result<syntect::highlighting::Theme, String> {
-    match name {
-        "catppuccin-latte" => Ok(HIGHLIGHTER.themes[0].clone()),
-        "catppuccin-mocha" => Ok(HIGHLIGHTER.themes[1].clone()),
-        path => ThemeSet::get_theme(path).map_err(|error| format!("{path}: {error}")),
-    }
+static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(two_face::syntax::extra_newlines);
+// Foregrounds are encoded as alpha 0 with the ANSI slot index in red, or alpha 1 for the default.
+static ANSI: LazyLock<Theme> = LazyLock::new(|| two_face::theme::extra().get(two_face::theme::EmbeddedThemeName::Ansi).clone());
+
+/// The ANSI slot index a token foreground names, or None for the default foreground.
+pub fn slot(color: syntect::highlighting::Color) -> Option<usize> {
+    (color.a == 0).then_some(usize::from(color.r)).filter(|index| *index < 16)
 }
 
 fn syntax(lang: &str) -> Option<&'static SyntaxReference> {
@@ -43,22 +31,23 @@ fn syntax(lang: &str) -> Option<&'static SyntaxReference> {
         "java" => "java",
         "kotlin" | "kt" | "kts" => "kt",
         "sql" => "sql",
+        "rs" | "rust" => "rs",
         "diff" => "diff",
         "md" | "markdown" => "md",
-        "text" | "txt" | "plain" | "plaintext" => return Some(HIGHLIGHTER.syntaxes.find_syntax_plain_text()),
+        "text" | "txt" | "plain" | "plaintext" => return Some(SYNTAXES.find_syntax_plain_text()),
         _ => return None,
     };
-    HIGHLIGHTER.syntaxes.find_syntax_by_extension(ext)
+    SYNTAXES.find_syntax_by_extension(ext)
 }
 /// Returns one token vector per source line, including a final empty line after a newline.
 /// Unsupported languages or a syntax engine failure return None (plain code fallback).
-pub fn tokens(source: &str, lang: &str, theme: &syntect::highlighting::Theme) -> Option<Vec<Vec<Token>>> {
+pub fn tokens(source: &str, lang: &str) -> Option<Vec<Vec<Token>>> {
     let syntax = syntax(lang)?;
-    let mut highlighter = HighlightLines::new(syntax, theme);
+    let mut highlighter = HighlightLines::new(syntax, &ANSI);
     let mut lines = Vec::new();
     let source = source.replace("\r\n", "\n").replace('\r', "\n");
     for line in source.split_inclusive('\n') {
-        let line_tokens = highlighter.highlight_line(line, &HIGHLIGHTER.syntaxes).ok()?;
+        let line_tokens = highlighter.highlight_line(line, &SYNTAXES).ok()?;
         let mut tokens = Vec::new();
         for (style, text) in line_tokens {
             let text = text.strip_suffix('\n').unwrap_or(text);
@@ -108,22 +97,27 @@ mod tests {
             "markdown",
             "kt",
             "kts",
+            "rs",
+            "rust",
         ] {
-            for name in ["catppuccin-latte", "catppuccin-mocha"] {
-                let theme = highlight::load_theme(name).unwrap();
-                let lines = highlight::tokens(source, language, &theme).unwrap();
-                assert_eq!(
-                    lines
-                        .iter()
-                        .map(|line| line.iter().map(|token| token.text.as_str()).collect::<String>())
-                        .collect::<Vec<_>>()
-                        .join("\n"),
-                    source
-                );
-            }
+            let lines = highlight::tokens(source, language).unwrap();
+            assert_eq!(
+                lines
+                    .iter()
+                    .map(|line| line.iter().map(|token| token.text.as_str()).collect::<String>())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+                source
+            );
         }
-        let theme = highlight::load_theme("catppuccin-latte").unwrap();
-        assert!(highlight::tokens(source, "brainfuck", &theme).is_none());
-        assert!(highlight::tokens(source, "rust", &theme).is_none());
+        let tokens = highlight::tokens(source, "ts").unwrap();
+        assert!(
+            tokens
+                .iter()
+                .flatten()
+                .any(|token| highlight::slot(token.style.foreground).is_some())
+        );
+        assert!(highlight::tokens(source, "brainfuck").is_none());
+        assert!(highlight::tokens(source, "cobol").is_none());
     }
 }

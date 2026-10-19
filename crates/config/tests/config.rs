@@ -58,8 +58,8 @@ fn vc_7_validation_errors_name_the_defining_file_and_key() {
             "[[status]]\nname='x'\ncolor='blue'\naliases=['released']\n[[status]]\nname='y'\ncolor='green'\naliases=['Released']",
             "status[1].aliases",
         ),
-        ("[theme]\ncode_dark='missing.tmTheme'", "theme.code_dark"),
-        ("[theme]\ncode_light='missing'", "theme.code_light"),
+        ("[theme]\nname='catppuccin-mocha'", "theme.name"),
+        ("[theme]\ncode_dark='custom.tmTheme'", "theme.code_dark"),
     ] {
         std::fs::write(&file, source).unwrap();
         let error = Config::load_layers(None, root.path(), None).unwrap_err();

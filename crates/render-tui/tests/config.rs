@@ -133,45 +133,44 @@ fn vc_6_palette_overrides_recolour_border_xrefs_and_status() {
 }
 
 #[test]
-fn vc_6_mocha_dialect_buffer_uses_only_palette_and_syntect_colours() {
+fn vc_6_hex_palette_dialect_buffer_uses_only_palette_colours() {
     let fixture = Fixture::new();
-    let mut app = configured(&fixture.root, "[theme]\nname='catppuccin-mocha'", Some(Mode::Dark));
+    let slots = [
+        "black",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "magenta",
+        "cyan",
+        "white",
+        "bright_black",
+        "bright_red",
+        "bright_green",
+        "bright_yellow",
+        "bright_blue",
+        "bright_magenta",
+        "bright_cyan",
+        "bright_white",
+    ];
+    let hex = |index: usize| Color::Rgb(0x10, 0x20, index as u8);
+    let mut source = String::from("[theme.palette]\n");
+    for (index, name) in slots.iter().enumerate() {
+        source.push_str(&format!("{name}='#1020{index:02x}'\n"));
+    }
+    source.push_str("[theme.palette.dark]\nsurface='#102099'\n");
+    let mut app = configured(&fixture.root, &source, Some(Mode::Dark));
     app.open("spec/dialect.spec.mdx");
-    let mut allowed = vec![Color::Reset];
-    // Independent published catppuccin/alacritty terminal palette, not the resolver's table.
-    for hex in [
-        0x45475a_u32,
-        0xf38ba8,
-        0xa6e3a1,
-        0xf9e2af,
-        0x89b4fa,
-        0xf5c2e7,
-        0x94e2d5,
-        0xbac2de,
-        0x585b70,
-        0xa6adc8,
-    ] {
-        allowed.push(Color::Rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8));
-    }
-    let code = syntect::highlighting::ThemeSet::load_from_reader(&mut io::Cursor::new(include_bytes!(
-        "../assets/themes/catppuccin-mocha.tmTheme"
-    )))
-    .unwrap();
-    for color in code
-        .scopes
-        .iter()
-        .flat_map(|scope| [scope.style.foreground, scope.style.background])
-        .chain([code.settings.foreground, code.settings.background])
-        .flatten()
-    {
-        allowed.push(Color::Rgb(color.r, color.g, color.b));
-    }
-    let mut pages = 0;
+    let surface = Color::Rgb(0x10, 0x20, 0x99);
+    let mut allowed: Vec<_> = (0..16).map(hex).collect();
+    allowed.extend([surface, Color::Reset]);
+    let (mut pages, mut code_cells) = (0, 0);
     loop {
         let buffer = draw(&mut app);
         for cell in &buffer.content {
             assert!(allowed.contains(&cell.fg), "unexpected fg {:?} for {}", cell.fg, cell.symbol());
             assert!(allowed.contains(&cell.bg), "unexpected bg {:?} for {}", cell.bg, cell.symbol());
+            code_cells += usize::from(cell.bg == surface);
         }
         pages += 1;
         let before = app.scroll;
@@ -181,43 +180,24 @@ fn vc_6_mocha_dialect_buffer_uses_only_palette_and_syntect_colours() {
         }
     }
     assert!(pages >= 4);
+    assert!(code_cells > 0);
 
     // Exercise specific role assignments too: palette membership alone misses swapped slots.
     std::fs::write(
-        fixture.root.join(".plan/mocha.md"),
-        "---\ntitle: Mocha roles\nstatus: accepted\n---\n# Mocha roles\n\n## Body\n# Mocha heading\n\nKD-1\n",
+        fixture.root.join(".plan/roles.md"),
+        "---\ntitle: Palette roles\nstatus: accepted\n---\n# Palette roles\n\n## Body\n# Palette heading\n\nKD-1\n",
     )
     .unwrap();
     app.reload();
-    app.open(".plan/mocha.md");
+    app.open(".plan/roles.md");
     app.focus = Focus::Sidebar;
     let buffer = draw(&mut app);
-    assert_eq!(buffer[(0, 0)].fg, Color::Rgb(0x89, 0xb4, 0xfa));
-    assert_eq!(buffer[(40, 0)].fg, Color::Rgb(0x58, 0x5b, 0x70));
+    assert_eq!(buffer[(0, 0)].fg, hex(4));
+    assert_eq!(buffer[(40, 0)].fg, hex(8));
     // The outline repeats this text in the rail; assert the body's heading cells only.
-    assert_text_fg_from_column(&buffer, "Mocha heading", Color::Rgb(0xf5, 0xc2, 0xe7), 66);
-    assert_eq!(assert_text_fg(&buffer, "[accepted]", Color::Rgb(0x89, 0xb4, 0xfa)), 2);
-    assert_text_fg(&buffer, "KD-1", Color::Rgb(0x89, 0xb4, 0xfa));
-}
-
-#[test]
-fn vc_6_code_theme_file_is_decoded_and_invalid_content_is_a_config_error() {
-    let root = tempfile::tempdir().unwrap();
-    std::fs::write(
-        root.path().join("custom.tmTheme"),
-        include_bytes!("../assets/themes/catppuccin-mocha.tmTheme"),
-    )
-    .unwrap();
-    std::fs::write(root.path().join(".spec-viewer.toml"), "[theme]\ncode_dark='custom.tmTheme'").unwrap();
-    let config = Config::load_layers(None, root.path(), None).unwrap();
-    let theme = Theme::from_config(&config, Some(Mode::Dark)).unwrap();
-    assert_eq!(theme.code.name.as_deref(), Some("Catppuccin Mocha"));
-    assert_eq!(theme.code.settings.foreground.unwrap().r, 0xcd);
-    std::fs::write(root.path().join("custom.tmTheme"), "not a plist").unwrap();
-    let error = Theme::from_config(&config, Some(Mode::Dark)).unwrap_err();
-    assert_eq!(error.file, root.path().join(".spec-viewer.toml"));
-    assert_eq!(error.key, "theme.code_dark");
-    assert_eq!(error.to_string().lines().count(), 1);
+    assert_text_fg_from_column(&buffer, "Palette heading", hex(5), 66);
+    assert_eq!(assert_text_fg(&buffer, "[accepted]", hex(4)), 2);
+    assert_text_fg(&buffer, "KD-1", hex(4));
 }
 
 #[test]

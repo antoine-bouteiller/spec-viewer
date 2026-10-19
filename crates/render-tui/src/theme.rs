@@ -1,4 +1,4 @@
-//! Resolve renderer-neutral configuration once, including syntect code themes.
+//! Resolve renderer-neutral configuration once.
 use ratatui::style::Color;
 use spec_viewer_config::{Ansi, Color as ConfigColor, Config, Error, Mode, ResolvedTheme, Roles};
 use spec_viewer_core::Status;
@@ -7,8 +7,9 @@ use std::collections::BTreeMap;
 #[derive(Clone, Debug)]
 pub struct Theme {
     pub mode: Mode,
-    pub code: syntect::highlighting::Theme,
     pub roles: Roles<Color>,
+    /// Palette colour per ANSI slot; code tokens are coloured through it.
+    pub ansi: [Color; 16],
     statuses: BTreeMap<String, Color>,
     auto_light: Option<Box<Theme>>,
 }
@@ -19,36 +20,21 @@ impl Default for Theme {
 }
 impl Theme {
     pub fn from_config(config: &Config, override_mode: Option<Mode>) -> Result<Self, Error> {
-        // Decode both configured code themes before terminal setup, including inactive paths.
-        let code = |mode| {
-            crate::highlight::load_theme(&config.code_theme(mode)).map_err(|error| {
-                config.error(
-                    if mode == Mode::Light {
-                        "theme.code_light"
-                    } else {
-                        "theme.code_dark"
-                    },
-                    error,
-                )
-            })
-        };
-        let light_code = code(Mode::Light)?;
-        let dark_code = code(Mode::Dark)?;
         match config.mode(override_mode) {
-            Mode::Light => Self::resolved(config, Mode::Light, light_code),
-            Mode::Dark => Self::resolved(config, Mode::Dark, dark_code),
+            Mode::Light => Self::resolved(config, Mode::Light),
+            Mode::Dark => Self::resolved(config, Mode::Dark),
             Mode::Auto => {
-                let mut dark = Self::resolved(config, Mode::Dark, dark_code)?;
-                dark.auto_light = Some(Box::new(Self::resolved(config, Mode::Light, light_code)?));
+                let mut dark = Self::resolved(config, Mode::Dark)?;
+                dark.auto_light = Some(Box::new(Self::resolved(config, Mode::Light)?));
                 Ok(dark)
             }
         }
     }
-    fn resolved(config: &Config, mode: Mode, code: syntect::highlighting::Theme) -> Result<Self, Error> {
-        let ResolvedTheme { roles, statuses, .. } = config.resolve(mode)?;
+    fn resolved(config: &Config, mode: Mode) -> Result<Self, Error> {
+        let ResolvedTheme { roles, ansi, statuses, .. } = config.resolve(mode)?;
         Ok(Self {
             mode,
-            code,
+            ansi: ansi.map(color_to_terminal),
             roles: roles
                 .try_map(|_, color| Ok::<_, std::convert::Infallible>(color_to_terminal(*color)))
                 .unwrap(),
@@ -214,11 +200,11 @@ mod tests {
     }
 
     #[test]
-    fn vc_6_modes_select_builtin_and_code_defaults_with_auto_fallback() {
+    fn vc_6_modes_select_mode_palettes_with_auto_fallback() {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(
             root.path().join(".spec-viewer.toml"),
-            "[theme]\nname='terminal'\nlight_name='catppuccin-latte'\nmode='auto'",
+            "[theme]\nmode='auto'\n[theme.palette.light]\nblue='#1e66f5'",
         )
         .unwrap();
         let config = Config::load_layers(None, root.path(), None).unwrap();
@@ -227,11 +213,13 @@ mod tests {
         let dark = auto.clone().resolve_auto(None);
         assert_eq!(dark.mode, Mode::Dark);
         assert_eq!(dark.roles.accent, Color::Blue);
-        assert_eq!(dark.code.name.as_deref(), Some("Catppuccin Mocha"));
+        assert_eq!(dark.roles.code_bg, Color::Rgb(0x1f, 0x1f, 0x22));
+        assert_eq!(dark.ansi[4], Color::Blue);
         let light = auto.resolve_auto(Some(Mode::Light));
         assert_eq!(light.mode, Mode::Light);
         assert_eq!(light.roles.accent, Color::Rgb(0x1e, 0x66, 0xf5));
-        assert_eq!(light.code.name.as_deref(), Some("Catppuccin Latte"));
+        assert_eq!(light.roles.code_bg, Color::Rgb(0xea, 0xea, 0xee));
+        assert_eq!(light.ansi[4], Color::Rgb(0x1e, 0x66, 0xf5));
         let forced = Theme::from_config(&config, Some(Mode::Light)).unwrap();
         assert!(!forced.is_auto());
         assert_eq!(forced.resolve_auto(Some(Mode::Dark)).mode, Mode::Light);

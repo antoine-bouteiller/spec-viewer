@@ -52,8 +52,6 @@ pub struct ThemeSettings {
     pub name: String,
     pub light_name: Option<String>,
     pub dark_name: Option<String>,
-    pub code_light: Option<String>,
-    pub code_dark: Option<String>,
     pub palette: Palette,
     pub roles: Roles<String>,
 }
@@ -72,6 +70,7 @@ pub struct Roles<T> {
     pub accent: T,
     pub muted: T,
     pub inline_code: T,
+    pub code_bg: T,
     pub annotation: T,
     pub warning: T,
     pub headings: Vec<T>,
@@ -103,6 +102,7 @@ impl<T> Roles<T> {
             accent: f("accent", &self.accent)?,
             muted: f("muted", &self.muted)?,
             inline_code: f("inline_code", &self.inline_code)?,
+            code_bg: f("code_bg", &self.code_bg)?,
             annotation: f("annotation", &self.annotation)?,
             warning: f("warning", &self.warning)?,
             headings: self
@@ -137,5 +137,7 @@ impl<T> Roles<T> {
 pub struct ResolvedTheme {
     pub mode: Mode,
     pub roles: Roles<Color>,
+    /// The palette's colour for each ANSI slot, in `ANSI_SLOTS` order.
+    pub ansi: [Color; 16],
     pub statuses: BTreeMap<String, Color>,
 }

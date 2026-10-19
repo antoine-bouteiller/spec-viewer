@@ -28,17 +28,17 @@ statuses and header chips. Discovery, metadata, the tree, and confinement live i
 - `[PI-3]` Colours name meanings, not values: every coloured element takes a role, a status, or an
   xref family, and each of those names a palette colour.
 
-| Decision                  | Choice                                                                                                                                                                                                                                               | Rationale                                                                               |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `[KD-1]` Stack            | `ratatui` on `crossterm`                                                                                                                                                                                                                             | `TestBackend` makes every frame snapshot-testable                                       |
-| `[KD-2]` Default worktree | The worktree containing `ROOT`, by longest path-prefix match                                                                                                                                                                                         | A terminal user starts where they are working                                           |
-| `[KD-3]` Clipboard        | OSC 52 (`ESC ]52;c;<base64> BEL`)                                                                                                                                                                                                                    | Works over SSH and inside tmux                                                          |
-| `[KD-4]` In-body actions  | Hint mode labels every visible doc link and xref; a label opens the target document or copies the ID                                                                                                                                                 | Reaches in-body targets without a pointer                                               |
-| `[KD-5]` Theme model      | A theme is a palette of named colours. Built-ins define the 16 ANSI slot names; `terminal` (default) maps each to the terminal's own colour, `catppuccin-latte` and `catppuccin-mocha` to Catppuccin's terminal palettes. Roles name palette colours | Changing one palette colour recolours every role naming it; the default emits ANSI only |
-| `[KD-6]` Mode             | `--theme`, else `theme.mode`; `auto` uses the OSC 11 background reply (120 ms), else dark. The mode picks `light_name` or `dark_name` and the code theme                                                                                             | The terminal background governs light and dark                                          |
-| `[KD-7]` Outline depth    | The rail outline lists the document `toc` (h1–h3); deeper headings are styled but not rail entries                                                                                                                                                   | Keeps the rail short                                                                    |
-| `[KD-8]` Config layers    | TOML, `deny_unknown_fields`: embedded default < user < worktree < `--config`. Tables merge key by key; arrays (`status`, `chip`, `theme.roles.headings`) replace the lower layer wholesale                                                           | Element-wise array merging would make removing a default status or chip impossible      |
-| `[KD-9]` Worktree config  | `.spec-viewer.toml` is read once at start-up from the worktree containing `ROOT`; switching worktree does not reload it                                                                                                                              | One config per session (`[NG-4]`)                                                       |
+| Decision                  | Choice                                                                                                                                                                                                    | Rationale                                                                                                 |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `[KD-1]` Stack            | `ratatui` on `crossterm`                                                                                                                                                                                  | `TestBackend` makes every frame snapshot-testable                                                         |
+| `[KD-2]` Default worktree | The worktree containing `ROOT`, by longest path-prefix match                                                                                                                                              | A terminal user starts where they are working                                                             |
+| `[KD-3]` Clipboard        | OSC 52 (`ESC ]52;c;<base64> BEL`)                                                                                                                                                                         | Works over SSH and inside tmux                                                                            |
+| `[KD-4]` In-body actions  | Hint mode labels every visible doc link and xref; a label opens the target document or copies the ID                                                                                                      | Reaches in-body targets without a pointer                                                                 |
+| `[KD-5]` Theme model      | A theme is a palette of named colours. The built-in `terminal` defines the 16 ANSI slot names, each the terminal's own colour. Roles name palette colours; code tokens take the colour of their ANSI slot | Changing one palette colour recolours every role naming it; the default emits ANSI only, except `surface` |
+| `[KD-6]` Mode             | `--theme`, else `theme.mode`; `auto` uses the OSC 11 background reply (120 ms), else dark. The mode picks `light_name` or `dark_name`                                                                     | The terminal background governs light and dark                                                            |
+| `[KD-7]` Outline depth    | The rail outline lists the document `toc` (h1–h3); deeper headings are styled but not rail entries                                                                                                        | Keeps the rail short                                                                                      |
+| `[KD-8]` Config layers    | TOML, `deny_unknown_fields`: embedded default < user < worktree < `--config`. Tables merge key by key; arrays (`status`, `chip`, `theme.roles.headings`) replace the lower layer wholesale                | Element-wise array merging would make removing a default status or chip impossible                        |
+| `[KD-9]` Worktree config  | `.spec-viewer.toml` is read once at start-up from the worktree containing `ROOT`; switching worktree does not reload it                                                                                   | One config per session (`[NG-4]`)                                                                         |
 
 ## Outcome
 
@@ -68,7 +68,7 @@ pub enum Target { Doc(String), Xref(String) }
 | Headings                       | Bold, coloured by `roles.headings[depth - 1]` (last entry reused) |
 | Paragraphs, lists, task lists  | Wrapped to width; `[x]`/`[ ]` markers                             |
 | GFM tables                     | Box-drawn, cells wrapped; stacked when columns cannot fit         |
-| Code fences                    | Boxed on the code theme background, label and border in `muted`   |
+| Code fences                    | Highlighted by ANSI slot, boxed on `code_bg`, border in `muted`   |
 | Mermaid fences                 | Box-drawn diagram labelled `mermaid`; source on error or overflow |
 | Inline code                    | `inline_code`                                                     |
 | Xref IDs                       | `roles.xref.<family>`, family `g ng pi kd so ct vc c oq ex other` |
@@ -148,15 +148,14 @@ Kind: config · Anchor: `crates/config/default.toml`
 first: default < `$XDG_CONFIG_HOME/spec-viewer/config.toml` (else `~/.config/spec-viewer/config.toml`)
 < `<worktree containing ROOT>/.spec-viewer.toml` < `--config PATH`.
 
-| Key                                     | Meaning                                                                                                                                                                                   |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `theme.mode`                            | `auto`, `light`, or `dark`                                                                                                                                                                |
-| `theme.name`, `light_name`, `dark_name` | Built-in theme, per mode when set: `terminal`, `catppuccin-latte`, `catppuccin-mocha`                                                                                                     |
-| `theme.code_light`, `code_dark`         | Bundled code theme name or `.tmTheme` path, relative to the defining file; default the theme's own                                                                                        |
-| `theme.palette`, `theme.palette.<mode>` | Name → colour: `#rrggbb`, `rgb(r,g,b)`, an ANSI slot name, or `reset`. New names allowed. Applied over the built-in, mode table last                                                      |
-| `theme.roles.*`, `theme.roles.xref.*`   | Palette names for `accent`, `muted`, `inline_code`, `annotation`, `warning`, `headings`, `meter_progress`, `meter_complete`, `hint_fg`, `hint_bg`, `status_unknown`, and each xref family |
-| `[[status]]`                            | `name`, optional `aliases`, `color` (palette name); names and aliases unique across entries                                                                                               |
-| `[[chip]]`                              | `label`, `kind` (`checklist` or `headings`), `sections` (`##` names, any case)                                                                                                            |
+| Key                                     | Meaning                                                                                                                                                                                              |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `theme.mode`                            | `auto`, `light`, or `dark`                                                                                                                                                                           |
+| `theme.name`, `light_name`, `dark_name` | Built-in theme, per mode when set: `terminal`                                                                                                                                                        |
+| `theme.palette`, `theme.palette.<mode>` | Name → colour: `#rrggbb`, `rgb(r,g,b)`, an ANSI slot name, or `reset`. New names allowed. Applied over the built-in, mode table last                                                                 |
+| `theme.roles.*`, `theme.roles.xref.*`   | Palette names for `accent`, `muted`, `inline_code`, `code_bg`, `annotation`, `warning`, `headings`, `meter_progress`, `meter_complete`, `hint_fg`, `hint_bg`, `status_unknown`, and each xref family |
+| `[[status]]`                            | `name`, optional `aliases`, `color` (palette name); names and aliases unique across entries                                                                                                          |
+| `[[chip]]`                              | `label`, `kind` (`checklist` or `headings`), `sections` (`##` names, any case)                                                                                                                       |
 
 A palette value that is an ANSI slot name means the terminal's own colour for that slot, not
 another palette entry: palette values do not chain. Under `mode = "auto"`, every role and status
@@ -164,8 +163,8 @@ must resolve in both the light and the dark palette, because the mode is known o
 
 A missing user or worktree file is skipped. A missing `--config` file, invalid TOML, an unknown
 key, an unknown theme, a malformed colour, a role or status naming no palette colour, an unknown
-`kind`, a duplicate status name or alias, or an unreadable code theme exits 1 with one stderr line
-naming the file and the key, or `line N` for a TOML syntax error.
+`kind`, or a duplicate status name or alias exits 1 with one stderr line naming the file and the
+key, or `line N` for a TOML syntax error.
 
 ### [CT-5] CLI
 
@@ -198,12 +197,12 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 - `[VC-5]` Given the single chip `{ label = "R", kind = "checklist", sections = ["risks"] }` and a
   `## Risks` checklist with one of two items checked, then the header shows `R 1/2` and no `AC`,
   `T`, or `phases`. — demonstrates `[SO-3]`
-- `[VC-6]` Given `name = "catppuccin-mocha"`, then the dialect document uses only that palette's
-  colours and the code theme's. Given `[theme.palette] blue = "#123456"` on `terminal`, then the
-  focused border, `kd` xrefs, and `[accepted]` render `#123456`. A `[theme.palette.light]` colour
-  applies under light mode only, and `--theme light` beats `mode = "dark"`. A new palette name used
-  by a role applies. A role naming no palette colour exits 1. A `.tmTheme` path is loaded.
-  — demonstrates `[SO-3]`
+- `[VC-6]` Given a palette setting every ANSI slot and `surface` to hex colours, then the dialect
+  document, code blocks included, uses only those colours. Given `[theme.palette] blue = "#123456"`
+  on `terminal`, then the focused border, `kd` xrefs, and `[accepted]` render `#123456`. A
+  `[theme.palette.light]` colour applies under light mode only, and `--theme light` beats
+  `mode = "dark"`. A new palette name used by a role applies. A role naming no palette colour exits
+  1. — demonstrates `[SO-3]`
 - `[VC-7]` Given user, worktree, and `--config` layers each setting `accent`, then `--config` wins.
   A worktree `[[status]]` list fully replaces the user's. Invalid TOML, an unknown key, or a missing
   `--config` path exits 1 with one stderr line naming the file. — demonstrates `[SO-3]`
@@ -212,14 +211,15 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 
 - `[C-1]` OSC 52 depends on the terminal; tmux needs `set-clipboard on`.
 - `[C-2]` The OSC 11 background query runs on Unix only; elsewhere `auto` resolves to dark.
-- `[C-3]` Catppuccin themes and hex palette colours need a truecolor terminal; otherwise the
-  terminal approximates them. The `terminal` theme emits only ANSI colours.
+- `[C-3]` Hex palette colours, including the default `surface`, need a truecolor terminal;
+  otherwise the terminal approximates them.
 
 ## Changelog
 
-| Date       | Amendment                                                                                     | Sections affected                    | Reason                                                           |
-| ---------- | --------------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------- |
-| 2026-10-18 | Moved out of spec-kit; dropped `parent-spec`; tree semantics stated in `[CT-2]`               | Why, Design, CT-2                    | `spec-viewer` became its own repository and owns this behaviour  |
-| 2026-10-18 | `to_terminal` takes the semantic `Document`; module paths follow the workspace crates         | CT-1, CT-3                           | The HTML-shaped tree existed only for parity with the Bun viewer |
-| 2026-10-18 | Layered config for theme, statuses, and header chips (`[KD-5]`, `[KD-8]`, `[KD-9]`, `[CT-4]`) | Design, CT-2, CT-4, CT-5, Acceptance | Projects use other statuses, header sections, and colours        |
-| 2026-10-19 | `o` opens the web app; the session also serves it                                             | CT-2, CT-5                           | The browser view moved into `spec-viewer` (spec/web-ui.spec.md)  |
+| Date       | Amendment                                                                                                                        | Sections affected                    | Reason                                                           |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------- |
+| 2026-10-18 | Moved out of spec-kit; dropped `parent-spec`; tree semantics stated in `[CT-2]`                                                  | Why, Design, CT-2                    | `spec-viewer` became its own repository and owns this behaviour  |
+| 2026-10-18 | `to_terminal` takes the semantic `Document`; module paths follow the workspace crates                                            | CT-1, CT-3                           | The HTML-shaped tree existed only for parity with the Bun viewer |
+| 2026-10-18 | Layered config for theme, statuses, and header chips (`[KD-5]`, `[KD-8]`, `[KD-9]`, `[CT-4]`)                                    | Design, CT-2, CT-4, CT-5, Acceptance | Projects use other statuses, header sections, and colours        |
+| 2026-10-19 | `o` opens the web app; the session also serves it                                                                                | CT-2, CT-5                           | The browser view moved into `spec-viewer` (spec/web-ui.spec.md)  |
+| 2026-10-19 | Code blocks boxed on `code_bg` and highlighted by ANSI slot; Mermaid drawn as text; Catppuccin built-ins and code themes removed | CT-1, CT-4, Design, VC-6, C-3        | Colours follow the configured palette                            |

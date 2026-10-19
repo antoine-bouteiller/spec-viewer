@@ -106,14 +106,22 @@ impl State {
         for (mode, dark) in [(Mode::Light, false), (Mode::Dark, true)] {
             let mut rules = String::new();
             // A mode whose palette lacks a status colour leaves those statuses at the unknown tone.
-            if let Ok(resolved) = config.resolve(mode) {
+            let resolved = config.resolve(mode).ok();
+            if let Some(resolved) = &resolved {
                 for (index, name) in statuses.iter().enumerate() {
                     if let Some(color) = resolved.statuses.get(name) {
                         rules.push_str(&format!("--tone-{index}: {};\n", css_color(*color)));
                     }
                 }
+                // The design tokens behind ANSI slots are foreground colours; only a hex surface applies.
+                if let Color::Rgb(..) = resolved.roles.code_bg {
+                    rules.push_str(&format!("--code-bg: {};\n", css_color(resolved.roles.code_bg)));
+                }
             }
-            rules.push_str(&crate::highlight::rules(dark));
+            let ansi = resolved.map_or(spec_viewer_config::ANSI_SLOTS.map(|(_, slot)| Color::Ansi(slot)), |resolved| {
+                resolved.ansi
+            });
+            rules.push_str(&crate::highlight::rules(&ansi.map(css_color)));
             let name = if dark { "dark" } else { "light" };
             theme_css.push_str(&format!(
                 "@media (prefers-color-scheme: {name}) {{ :root:not([data-theme]) {{\n{rules}}} }}\n:root[data-theme='{name}'] {{\n{rules}}}\n"

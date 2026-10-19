@@ -57,6 +57,9 @@ fn serves_client_api_and_confines_reads() {
     assert_eq!(status, 200);
     assert!(theme.contains("--tone-0: var(--ansi-yellow);"), "{theme}");
     assert!(theme.contains(":root[data-theme='dark']"));
+    assert!(theme.contains(".hl-keyword {\n color: var(--ansi-magenta);"), "{theme}");
+    assert!(!theme.contains("#abcd"), "{theme}");
+    assert!(theme.contains("--code-bg: #1f1f22;"), "{theme}");
 
     let (_, projects) = get(address, "/api/projects");
     let projects: serde_json::Value = serde_json::from_str(&projects).unwrap();

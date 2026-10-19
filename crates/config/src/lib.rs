@@ -154,31 +154,6 @@ impl Config {
         }
         .unwrap_or(&self.theme.name)
     }
-    pub fn code_theme(&self, mode: Mode) -> String {
-        let (value, key) = match mode {
-            Mode::Light => (&self.theme.code_light, "theme.code_light"),
-            _ => (&self.theme.code_dark, "theme.code_dark"),
-        };
-        if let Some(value) = value {
-            if value.ends_with(".tmTheme") {
-                let path = Path::new(value);
-                return if path.is_absolute() {
-                    path.to_owned()
-                } else {
-                    origin(&self.origins, key).parent().unwrap_or(Path::new(".")).join(path)
-                }
-                .to_string_lossy()
-                .into_owned();
-            }
-            return value.clone();
-        }
-        match (self.name(mode), mode) {
-            ("terminal", Mode::Light) => "catppuccin-latte",
-            ("terminal", _) => "catppuccin-mocha",
-            (name, _) => name,
-        }
-        .to_owned()
-    }
     fn palette(&self, mode: Mode) -> BTreeMap<String, Color> {
         let mut palette = builtin(self.name(mode)).expect("validated built-in theme");
         let specific = if mode == Mode::Light {
@@ -249,20 +224,6 @@ impl Config {
                 ));
             }
         }
-        for mode in [Mode::Light, Mode::Dark] {
-            let code = self.code_theme(mode);
-            if !matches!(code.as_str(), "catppuccin-latte" | "catppuccin-mocha") {
-                let key = if mode == Mode::Light {
-                    "theme.code_light"
-                } else {
-                    "theme.code_dark"
-                };
-                if !code.ends_with(".tmTheme") {
-                    return Err(self.error(key, format!("unknown code theme {code:?}")));
-                }
-                fs::File::open(&code).map_err(|error| self.error(key, format!("{code}: {error}")))?;
-            }
-        }
         Ok(())
     }
     pub fn resolve(&self, mode: Mode) -> Result<ResolvedTheme, Error> {
@@ -282,7 +243,13 @@ impl Config {
             .enumerate()
             .map(|(index, status)| Ok((status.name.clone(), colour(&format!("status[{index}].color"), &status.color)?)))
             .collect::<Result<_, Error>>()?;
-        Ok(ResolvedTheme { mode, roles, statuses })
+        let ansi = ANSI_SLOTS.map(|(name, slot)| palette.get(name).copied().unwrap_or(Color::Ansi(slot)));
+        Ok(ResolvedTheme {
+            mode,
+            roles,
+            ansi,
+            statuses,
+        })
     }
 }
 
@@ -327,31 +294,10 @@ fn merge(lower: &mut Value, upper: Value, key: &str, file: &Path, origins: &mut 
     }
 }
 fn builtin(name: &str) -> Option<BTreeMap<String, Color>> {
-    // Catppuccin's published terminal ANSI palettes, in slot order 0..15.
-    let hex = match name {
-        "terminal" => {
-            return Some(
-                ANSI_SLOTS
-                    .iter()
-                    .map(|(name, slot)| (name.to_string(), Color::Ansi(*slot)))
-                    .collect(),
-            );
-        }
-        "catppuccin-latte" => [
-            "#5c5f77", "#d20f39", "#40a02b", "#df8e1d", "#1e66f5", "#ea76cb", "#179299", "#acb0be", "#6c6f85", "#d20f39", "#40a02b",
-            "#df8e1d", "#1e66f5", "#ea76cb", "#179299", "#bcc0cc",
-        ],
-        "catppuccin-mocha" => [
-            "#45475a", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#bac2de", "#585b70", "#f38ba8", "#a6e3a1",
-            "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#a6adc8",
-        ],
-        _ => return None,
-    };
-    Some(
+    (name == "terminal").then(|| {
         ANSI_SLOTS
             .iter()
-            .zip(hex)
-            .map(|((name, _), hex)| (name.to_string(), Color::parse(hex).unwrap()))
-            .collect(),
-    )
+            .map(|(name, slot)| (name.to_string(), Color::Ansi(*slot)))
+            .collect()
+    })
 }

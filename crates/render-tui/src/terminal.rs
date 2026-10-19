@@ -1,6 +1,6 @@
 use super::highlight;
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
 };
 use spec_viewer_core::{Block, Component, Document, Inline, ListItem, TocEntry};
@@ -591,15 +591,17 @@ impl<'a> Renderer<'a> {
     }
 
     fn code(&mut self, language: &str, source: &str) {
-        let lines = if let Some(lines) = highlight::tokens(source, language, &self.theme.code) {
+        let lines = if let Some(lines) = highlight::tokens(source, language) {
             lines
                 .into_iter()
                 .map(|tokens| {
                     tokens
                         .into_iter()
                         .flat_map(|token| {
-                            let color = token.style.foreground;
-                            let mut style = Style::default().fg(Color::Rgb(color.r, color.g, color.b));
+                            let mut style = Style::default();
+                            if let Some(slot) = highlight::slot(token.style.foreground) {
+                                style = style.fg(self.theme.ansi[slot]);
+                            }
                             if token.style.font_style.contains(syntect::highlighting::FontStyle::BOLD) {
                                 style = style.add_modifier(Modifier::BOLD);
                             }
@@ -620,13 +622,9 @@ impl<'a> Renderer<'a> {
         self.framed(language, lines);
     }
 
-    /// Boxes preformatted lines under a label, filled with the code theme background.
+    /// Boxes preformatted lines under a label on the `code_bg` role.
     fn framed(&mut self, label: &str, lines: Vec<Vec<Glyph>>) {
-        let settings = &self.theme.code.settings;
-        let rgb = |color: syntect::highlighting::Color| Color::Rgb(color.r, color.g, color.b);
-        let base = Style::default()
-            .fg(settings.foreground.map_or(Color::Reset, rgb))
-            .bg(settings.background.map_or(Color::Reset, rgb));
+        let base = Style::default().bg(self.theme.roles.code_bg);
         let border = base.fg(self.theme.roles.muted);
         if self.width < 8 {
             self.paragraph(glyphs(label, border.add_modifier(Modifier::BOLD), None), "", "", false);
@@ -879,6 +877,7 @@ pub(crate) fn wrap(text: &str, width: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::style::Color;
 
     #[test]
     fn wrap_breaks_at_spaces_and_splits_long_words() {
@@ -1043,14 +1042,17 @@ mod tests {
         assert!(source.contains("│   Broken --> --> Syntax "), "{source}");
         assert!(document.lines.iter().all(|line| line.width() == 0 || line.width() == 60));
         let highlighted = document.lines.iter().find(|line| line.to_string().contains("const value")).unwrap();
-        let background = theme.code.settings.background.map(|color| Color::Rgb(color.r, color.g, color.b));
-        assert!(background.is_some());
-        assert!(highlighted.spans.iter().all(|span| span.style.bg == background));
         assert!(
             highlighted
                 .spans
                 .iter()
-                .any(|span| matches!(span.style.fg, Some(Color::Rgb(_, _, _))))
+                .all(|span| span.style.bg == Some(Color::Rgb(0xea, 0xea, 0xee)))
+        );
+        assert!(
+            highlighted
+                .spans
+                .iter()
+                .any(|span| span.style.fg.is_some_and(|color| theme.ansi.contains(&color)))
         );
         assert!(document.targets.is_empty());
     }

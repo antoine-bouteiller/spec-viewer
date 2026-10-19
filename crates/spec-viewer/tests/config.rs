@@ -50,15 +50,14 @@ fn vc_7_binary_config_errors_are_single_lines_with_file_and_key() {
 }
 
 #[test]
-fn vc_6_binary_rejects_missing_palette_role_and_bad_code_theme() {
+fn vc_6_binary_rejects_missing_palette_role_and_unknown_theme() {
     let root = tempfile::tempdir().unwrap();
     let user = tempfile::tempdir().unwrap();
     let file = root.path().join(".spec-viewer.toml");
     std::fs::write(&file, "[theme.roles]\naccent='missing'").unwrap();
     assert_error(run(root.path(), user.path(), &[]), &file, "theme.roles.accent");
-    std::fs::write(root.path().join("bad.tmTheme"), "not XML").unwrap();
-    std::fs::write(&file, "[theme]\ncode_dark='bad.tmTheme'").unwrap();
-    assert_error(run(root.path(), user.path(), &[]), &file, "theme.code_dark");
+    std::fs::write(&file, "[theme]\nname='catppuccin-mocha'").unwrap();
+    assert_error(run(root.path(), user.path(), &[]), &file, "theme.name");
 }
 
 #[test]
