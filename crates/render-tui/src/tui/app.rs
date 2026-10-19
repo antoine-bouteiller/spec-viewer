@@ -603,30 +603,35 @@ impl App {
                 } else {
                     "▸ "
                 };
+                let suffix = if row.node.archived == Some(true) {
+                    Some(Span::styled(" [archived]", Style::default().fg(self.theme.roles.status_unknown)))
+                } else {
+                    row.node.status.as_ref().map(|status| {
+                        Span::styled(
+                            format!(" [{}]", status.name),
+                            Style::default().fg(self.theme.status_color(Some(status))),
+                        )
+                    })
+                };
+                let width = usize::from(regions[1].width);
+                let label = truncate(
+                    &format!("{}{prefix}{}", "  ".repeat(row.depth), row.node.name),
+                    width.saturating_sub(suffix.as_ref().map_or(0, Span::width)),
+                );
                 let mut spans = vec![Span::styled(
-                    format!("{}{prefix}{}", "  ".repeat(row.depth), row.node.name),
+                    label,
                     if row.current {
                         Style::default().fg(self.theme.roles.accent).add_modifier(Modifier::BOLD)
                     } else {
                         Style::default()
                     },
                 )];
-                if row.node.archived == Some(true) {
-                    spans.push(Span::styled(" [archived]", Style::default().fg(self.theme.roles.status_unknown)));
-                } else if let Some(status) = &row.node.status {
-                    spans.push(Span::styled(
-                        format!(" [{}]", status.name),
-                        Style::default().fg(self.theme.status_color(Some(status))),
-                    ));
-                }
-                let mut lines = wrap_lines(vec![Line::from(spans)], regions[1].width);
+                spans.extend(suffix);
+                let mut lines = vec![Line::from(spans)];
                 if self.filtering() {
-                    lines.extend(wrap_lines(
-                        vec![Line::styled(
-                            row.node.path.clone().unwrap_or_default(),
-                            Style::default().fg(self.theme.roles.muted),
-                        )],
-                        regions[1].width,
+                    lines.push(Line::styled(
+                        truncate(row.node.path.as_deref().unwrap_or_default(), width),
+                        Style::default().fg(self.theme.roles.muted),
                     ));
                 }
                 ListItem::new(lines)
@@ -840,6 +845,27 @@ impl App {
 fn meter(label: &str, done: usize, total: usize) -> String {
     let filled = done.saturating_mul(5).checked_div(total).unwrap_or(0).min(5);
     format!("{label} {}/{} {}{}  ", done, total, "▮".repeat(filled), "▯".repeat(5 - filled))
+}
+
+fn truncate(text: &str, width: usize) -> String {
+    use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+    if text.width() <= width {
+        return text.to_owned();
+    }
+    let mut truncated = String::new();
+    let mut used = 0;
+    for character in text.chars() {
+        let length = character.width().unwrap_or(0);
+        if used + length + 1 > width {
+            break;
+        }
+        truncated.push(character);
+        used += length;
+    }
+    if width > 0 {
+        truncated.push('…');
+    }
+    truncated
 }
 
 fn wrap_lines(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'static>> {
