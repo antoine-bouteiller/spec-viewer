@@ -580,7 +580,9 @@ impl<'a> Renderer<'a> {
     fn mermaid(&mut self, source: &str) {
         let inner = self.width.saturating_sub(4);
         match mermaid_text::render_with_width(source, Some(inner)) {
-            Ok(diagram) if diagram.lines().all(|line| unicode_width::UnicodeWidthStr::width(line) <= inner) => {
+            Ok(diagram)
+                if flowchart_ids_valid(source) && diagram.lines().all(|line| unicode_width::UnicodeWidthStr::width(line) <= inner) =>
+            {
                 let lines = diagram.lines().map(|line| glyphs(line, Style::default(), None)).collect();
                 self.framed("mermaid", lines);
             }
@@ -781,6 +783,25 @@ impl<'a> Renderer<'a> {
         self.line(&glyphs(&border('└', '┴', '┘'), Style::default(), None));
         self.blank();
     }
+}
+
+/// mermaid-text keeps going on flowchart syntax errors, folding the bad text into node IDs.
+fn flowchart_ids_valid(source: &str) -> bool {
+    if !matches!(
+        mermaid_text::detect::detect(source),
+        Ok(mermaid_text::detect::DiagramKind::Flowchart)
+    ) {
+        return true;
+    }
+    mermaid_text::parser::parse(source).is_ok_and(|graph| {
+        graph.nodes.iter().all(|node| {
+            !node.id.is_empty()
+                && node
+                    .id
+                    .chars()
+                    .all(|character| !character.is_whitespace() && !"[](){}<>|\"".contains(character))
+        })
+    })
 }
 
 fn plain_inline(theme: &Theme, nodes: &[Inline]) -> String {
@@ -1005,7 +1026,7 @@ mod tests {
     #[test]
     fn code_preserves_source_and_highlights_only_supported_languages() {
         let parsed = parse(
-            "```ts\n  const value = 42\n```\n\n```brainfuck\n++[>++<-]>.\n```\n\n```mermaid\nflowchart TD\n  Source --> Render\n```\n\n```mermaid\nnotADiagram\n  Unknown --> Kind\n```",
+            "```ts\n  const value = 42\n```\n\n```brainfuck\n++[>++<-]>.\n```\n\n```mermaid\nflowchart TD\n  Source --> Render\n```\n\n```mermaid\nnotADiagram\n  Unknown --> Kind\n```\n\n```mermaid\nflowchart TD\n  Broken --> --> Syntax\n```",
             "spec/code.spec.md",
         );
         let theme = Theme::from_config(&spec_viewer_config::Config::default(), Some(spec_viewer_config::Mode::Light)).unwrap();
@@ -1019,6 +1040,7 @@ mod tests {
         assert!(source.contains("│ Render │"), "{source}");
         assert!(!source.contains("Source --> Render"));
         assert!(source.contains("│ notADiagram "), "{source}");
+        assert!(source.contains("│   Broken --> --> Syntax "), "{source}");
         assert!(document.lines.iter().all(|line| line.width() == 0 || line.width() == 60));
         let highlighted = document.lines.iter().find(|line| line.to_string().contains("const value")).unwrap();
         let background = theme.code.settings.background.map(|color| Color::Rgb(color.r, color.g, color.b));
