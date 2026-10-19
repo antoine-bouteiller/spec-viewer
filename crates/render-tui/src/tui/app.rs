@@ -841,17 +841,22 @@ impl App {
             frame.render_widget(Paragraph::new(self.message.as_deref().unwrap_or("Select a document.")), inner);
             return;
         };
+        let width = usize::from(inner.width);
+        let status = Span::styled(
+            doc.document
+                .meta
+                .status
+                .as_ref()
+                .map(|status| format!(" [{}]", status.name))
+                .unwrap_or_default(),
+            Style::default().fg(self.theme.status_color(doc.document.meta.status.as_ref())),
+        );
         let mut header = vec![Line::from(vec![
-            Span::styled(doc.document.meta.title.clone(), Style::default().add_modifier(Modifier::BOLD)),
             Span::styled(
-                doc.document
-                    .meta
-                    .status
-                    .as_ref()
-                    .map(|status| format!(" [{}]", status.name))
-                    .unwrap_or_default(),
-                Style::default().fg(self.theme.status_color(doc.document.meta.status.as_ref())),
+                truncate(&doc.document.meta.title, width.saturating_sub(status.width())),
+                Style::default().add_modifier(Modifier::BOLD),
             ),
+            status,
         ])];
         let mut metrics = Vec::new();
         for chip in &doc.document.meta.chips {
@@ -902,14 +907,16 @@ impl App {
         if !doc.document.meta.related.is_empty() {
             metadata.push(format!("related: {}", doc.document.meta.related.join(", ")));
         }
-        metadata.push(format!("{}  y path · Y name", doc.root_path));
+        let keys = "  y path · Y name";
+        metadata.push(format!(
+            "{}{keys}",
+            truncate(&doc.root_path, width.saturating_sub(unicode_width::UnicodeWidthStr::width(keys)))
+        ));
         for value in metadata {
-            for wrapped in wrap(&value, usize::from(inner.width.max(1))) {
-                header.push(Line::styled(wrapped, Style::default().fg(self.theme.roles.muted)));
-            }
+            header.push(Line::styled(value, Style::default().fg(self.theme.roles.muted)));
         }
-        header.push(Line::raw("─".repeat(usize::from(inner.width))));
-        let header = wrap_lines(header, inner.width);
+        header.push(Line::raw("─".repeat(width)));
+        let header: Vec<_> = header.into_iter().map(|line| truncate_line(line, width)).collect();
         let regions = Layout::vertical([Constraint::Length(header.len() as u16), Constraint::Min(0)]).split(inner);
         frame.render_widget(Paragraph::new(header), regions[0]);
         if self.viewport.width != regions[1].width {
@@ -1022,34 +1029,31 @@ fn fit_keys(keys: &[String], width: usize) -> String {
     footer
 }
 
-fn wrap_lines(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'static>> {
+/// Cuts a styled line to `width` columns, ending with `…` when it overflows.
+fn truncate_line(line: Line<'static>, width: usize) -> Line<'static> {
     use unicode_width::UnicodeWidthChar;
-    let capacity = usize::from(width.max(1));
-    let mut wrapped = Vec::new();
-    for line in lines {
-        let mut spans: Vec<Span<'static>> = Vec::new();
-        let mut used = 0;
-        for span in line.spans {
-            for character in span.content.chars() {
-                let length = character.width().unwrap_or(0);
-                if used + length > capacity && !spans.is_empty() {
-                    wrapped.push(Line::from(std::mem::take(&mut spans)));
-                    used = 0;
-                }
-                let character = if length > capacity { '�' } else { character };
-                if let Some(previous) = spans.last_mut()
-                    && previous.style == span.style
-                {
-                    previous.content.to_mut().push(character);
-                } else {
-                    spans.push(Span::styled(character.to_string(), span.style));
-                }
-                used += character.width().unwrap_or(0);
-            }
-        }
-        wrapped.push(Line::from(spans));
+    if line.width() <= width {
+        return line;
     }
-    wrapped
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut used = 0;
+    'spans: for span in line.spans {
+        let mut content = String::new();
+        for character in span.content.chars() {
+            let length = character.width().unwrap_or(0);
+            if used + length + 1 > width {
+                if width > 0 {
+                    content.push('…');
+                }
+                spans.push(Span::styled(content, span.style));
+                break 'spans;
+            }
+            content.push(character);
+            used += length;
+        }
+        spans.push(Span::styled(content, span.style));
+    }
+    Line::from(spans)
 }
 
 fn percent_encode(value: &str) -> String {
@@ -1193,6 +1197,33 @@ mod tests {
         std::fs::remove_dir_all(root.path().join(".plan")).unwrap();
         add_spec(&root);
         assert_eq!(app_at(&root).tab, Tab::Specs);
+    }
+
+    #[test]
+    fn header_lines_truncate_and_keep_the_copy_keys() {
+        let (root, _) = app();
+        let name = format!(".plan/{}.md", "long-name-".repeat(10));
+        std::fs::write(
+            root.path().join(&name),
+            "---\ntitle: A very long title that cannot fit\nstatus: done\n---\n## Body\n",
+        )
+        .unwrap();
+        let mut app = app_at(&root);
+        app.open(&name);
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 12)).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let rows: Vec<String> = (0..12).map(|y| (0..40).map(|x| buffer[(x, y)].symbol()).collect()).collect();
+        assert!(
+            rows[1].contains("A very long title") && rows[1].contains("…") && rows[1].contains("[done]"),
+            "{rows:#?}"
+        );
+        assert!(
+            rows[4].contains(".plan/long-name-") && rows[4].contains("…  y path · Y name"),
+            "{rows:#?}"
+        );
+        assert!(rows[5].contains("────"), "{rows:#?}");
     }
 
     #[test]

@@ -113,7 +113,9 @@ q / C-c       quit
 One pane left of the document shows either the sidebar (the corpus tree) or the rail, never both.
 Opening a document shows the rail; `e` swaps them, and `/`, `1`, `2`, or clearing the document
 shows the sidebar. `b` hides the pane so the document takes the full width; `e`, `/`, `1`, `2`, or
-clearing the document shows it again. The pane is at least 30 columns wide. The footer lists the
+clearing the document shows it again. The pane is at least 30 columns wide. Each header line is
+cut to the pane width with `…`; the title is cut before its status, and the path before
+`y path · Y name`. The footer lists the
 key hints that fit whole, ending with `…` when some are dropped. A live reload keeps the shown
 pane and focus.
 
@@ -241,3 +243,4 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 | 2026-10-19 | Inline expressions stay in the paragraph; comparison and node-detail cards side by side; step rail; `muted` table borders        | CT-1                                 | Closer to the web rendering                                      |
 | 2026-10-19 | Tab switches keep the open document; `b` hides the left pane; the pane is at least 30 columns; the footer drops whole hints      | CT-2, VC-2                           | Browsing the other tab lost the document; narrow terminals       |
 | 2026-10-19 | `tui.diff` sets the initial `Diff`; a tab without documents is hidden                                                            | CT-2, CT-4                           | Diff-first review; an empty tab is noise                         |
+| 2026-10-19 | Header lines truncate instead of wrapping, keeping the status and the copy keys                                                  | CT-2                                 | A wrapping header pushed the body down on narrow panes           |
