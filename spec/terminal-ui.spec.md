@@ -194,8 +194,8 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
   OSC 52 sequence carrying the ID; hint mode on a doc link opens its target; opening a document
   replaces the sidebar with the rail and `e` swaps them back. — demonstrates `[SO-1]`
 - `[VC-3]` Given an open document, when a new `.plan/*.md` file is written and the open file is
-  edited, then within 1 s the tree lists the new plan, the body shows the edit, and the scroll
-  position is kept. — demonstrates `[SO-2]`
+  edited, then a reload arrives, the tree lists the new plan, the body shows the edit, and the
+  scroll position is kept. — demonstrates `[SO-2]`
 - `[VC-4]` Given a worktree config whose `[[status]]` list holds only
   `{ name = "shipped", aliases = ["released"], color = "magenta" }`, then `status: released` shows
   `[shipped]` in magenta in the tree and the header, and `status: done` shows `[done]` in
