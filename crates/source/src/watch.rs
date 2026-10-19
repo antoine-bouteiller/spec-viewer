@@ -46,15 +46,13 @@ fn debounce(mut set: WatchSet, watcher: &Weak<Mutex<RecommendedWatcher>>, events
             events.recv().map_err(|_| RecvTimeoutError::Disconnected)
         };
         match next {
-            Ok(event) if set.relevant(&event) => {
-                if let Some(watcher) = watcher.upgrade() {
-                    set.watch_document_directories(&mut watcher.lock().expect("watcher"));
-                }
-                pending = true;
-            }
+            Ok(event) if set.relevant(&event) => pending = true,
             Ok(_) => {}
             Err(RecvTimeoutError::Timeout) => {
                 pending = false;
+                if let Some(watcher) = watcher.upgrade() {
+                    set.watch_document_directories(&mut watcher.lock().expect("watcher"));
+                }
                 if reloads.send(()).is_err() {
                     return;
                 }
@@ -95,7 +93,7 @@ impl WatchSet {
     }
 
     fn relevant(&self, event: &Event) -> bool {
-        // inotify reports opens, and the `git ls-files` run per relevant event opens the index.
+        // inotify reports opens, and the `git ls-files` run per burst opens the index.
         if event.kind.is_access() {
             return false;
         }
