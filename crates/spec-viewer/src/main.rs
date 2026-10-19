@@ -30,7 +30,7 @@ fn start() -> Result<ExitCode, String> {
     let web = Library::new(&root, config.parse.clone()).map_err(|error| error.to_string())?;
     let library = library.with_parse_config(config.parse.clone());
     let url = serve(web, &config, Ports::user())?;
-    Ok(spec_viewer_render_tui::run(library, theme, Some(url)))
+    Ok(spec_viewer_render_tui::run(library, theme, Some(url), config.tui.diff))
 }
 
 /// Serves the web app on the project's stored port, storing the first port the OS assigns.

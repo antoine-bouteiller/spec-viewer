@@ -149,3 +149,9 @@ pub struct WebSettings {
     pub cert: Option<PathBuf>,
     pub key: Option<PathBuf>,
 }
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TuiSettings {
+    pub diff: bool,
+}

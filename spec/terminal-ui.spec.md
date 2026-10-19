@@ -123,7 +123,8 @@ explains. Companions (`<stem>.discovery.*`, `<stem>.examples.*`) sit under their
 plans tab is flat, with a plan index owning its phase files. A non-empty filter or `Diff` shows a
 flat list with paths and omits attached examples. A document row never expands. A family member
 keeps its owner row current, and ancestors of the open document expand. Filter and `Diff` persist
-across tab and worktree switches. A worktree switch clears the document and expansion; a tab
+across tab and worktree switches; `tui.diff` sets `Diff` at start-up. A tab without documents is
+hidden and its key ignored, unless both are empty; start-up and a corpus change select a shown tab. A worktree switch clears the document and expansion; a tab
 switch keeps the open document and selects its row when the tab lists it. An archived document
 shows an `archived` chip in `status_unknown`. The header kind is the document's tree kind (`plan`,
 `phase`, `umbrella`, `leaf`, `discovery`, `examples`). The rail lists the nearest family's files
@@ -165,6 +166,7 @@ first: default < `$XDG_CONFIG_HOME/spec-viewer/config.toml` (else `~/.config/spe
 | `theme.roles.*`, `theme.roles.xref.*`   | Palette names for `accent`, `muted`, `inline_code`, `code_bg`, `annotation`, `warning`, `headings`, `meter_progress`, `meter_complete`, `hint_fg`, `hint_bg`, `status_unknown`, and each xref family |
 | `[[status]]`                            | `name`, optional `aliases`, `color` (palette name); names and aliases unique across entries                                                                                                          |
 | `[[chip]]`                              | `label`, `kind` (`checklist` or `headings`), `sections` (`##` names, any case)                                                                                                                       |
+| `tui.diff`                              | `true` starts with `Diff` on                                                                                                                                                                        |
 | `[web]`                                 | User config only: `bind`, `cert`, `key` per `spec/web-ui.spec.md` `[CT-6]`                                                                                                                          |
 
 A palette value that is an ANSI slot name means the terminal's own colour for that slot, not
@@ -238,3 +240,4 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 | 2026-10-19 | The sidebar and the rail share one pane; opening a document shows the rail, `e` swaps them; `surface` defaults to hex            | Design, CT-2, VC-1, VC-2, C-3        | Wider document; code blocks stand out on any terminal background |
 | 2026-10-19 | Inline expressions stay in the paragraph; comparison and node-detail cards side by side; step rail; `muted` table borders        | CT-1                                 | Closer to the web rendering                                      |
 | 2026-10-19 | Tab switches keep the open document; `b` hides the left pane; the pane is at least 30 columns; the footer drops whole hints      | CT-2, VC-2                           | Browsing the other tab lost the document; narrow terminals       |
+| 2026-10-19 | `tui.diff` sets the initial `Diff`; a tab without documents is hidden                                                            | CT-2, CT-4                           | Diff-first review; an empty tab is noise                         |

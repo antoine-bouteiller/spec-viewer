@@ -85,7 +85,7 @@ impl App {
             .get(worktree)
             .ok_or_else(|| io::Error::other("project has no accessible worktree"))?;
         let docs = library.corpus(&selected.path);
-        Ok(Self {
+        let mut app = Self {
             library,
             output: Box::new(output),
             project,
@@ -112,7 +112,26 @@ impl App {
             picker: None,
             hint_input: None,
             viewport: Rect::default(),
-        })
+        };
+        app.settle_tab();
+        Ok(app)
+    }
+
+    /// The tabs listing documents; both when neither does.
+    pub fn tabs(&self) -> Vec<Tab> {
+        let tabs: Vec<_> = [(Tab::Plans, &self.docs.plans), (Tab::Specs, &self.docs.specs)]
+            .into_iter()
+            .filter(|(_, docs)| !docs.is_empty())
+            .map(|(tab, _)| tab)
+            .collect();
+        if tabs.is_empty() { vec![Tab::Plans, Tab::Specs] } else { tabs }
+    }
+
+    fn settle_tab(&mut self) {
+        let tabs = self.tabs();
+        if !tabs.contains(&self.tab) {
+            self.tab = tabs[0];
+        }
     }
 
     pub fn worktree_path(&self) -> &Path {
@@ -229,6 +248,7 @@ impl App {
             self.project = project;
         }
         self.docs = self.library.corpus(self.worktree_path());
+        self.settle_tab();
         self.expanded.clear();
         if let Some(path) = self.doc.as_ref().map(|doc| doc.root_path.clone()) {
             let (scroll, navigator, focus) = (self.scroll, self.navigator, self.focus);
@@ -399,6 +419,7 @@ impl App {
                     self.picker = None;
                     self.clear_document();
                     self.docs = self.library.corpus(self.worktree_path());
+                    self.settle_tab();
                 }
                 _ => {}
             }
@@ -423,7 +444,11 @@ impl App {
         match key.code {
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char('1') | KeyCode::Char('2') => {
-                self.tab = if key.code == KeyCode::Char('1') { Tab::Plans } else { Tab::Specs };
+                let tab = if key.code == KeyCode::Char('1') { Tab::Plans } else { Tab::Specs };
+                if !self.tabs().contains(&tab) {
+                    return;
+                }
+                self.tab = tab;
                 self.navigator = true;
                 self.panel = true;
                 self.focus = Focus::Sidebar;
@@ -655,7 +680,15 @@ impl App {
         frame.render_widget(block, area);
         let regions = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(inner);
         let worktree = &self.project.worktrees[self.worktree];
-        let tabs = if self.tab == Tab::Plans { "[plans] specs" } else { "plans [specs]" };
+        let tabs = self
+            .tabs()
+            .into_iter()
+            .map(|tab| {
+                let name = if tab == Tab::Plans { "plans" } else { "specs" };
+                if tab == self.tab { format!("[{name}]") } else { name.to_owned() }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
         let diff = if self.tab != Tab::Specs {
             ""
         } else if self.docs.changed_specs.is_none() {
@@ -1046,13 +1079,29 @@ mod tests {
         std::fs::create_dir(root.path().join(".plan")).unwrap();
         std::fs::write(root.path().join(".plan/first.md"), "## First\n\nG-1 [next](second.md)\n").unwrap();
         std::fs::write(root.path().join(".plan/second.md"), "## Second\n").unwrap();
-        let app = App::new(
+        let app = app_at(&root);
+        (root, app)
+    }
+
+    fn add_spec(root: &tempfile::TempDir) {
+        let status = std::process::Command::new("git")
+            .arg("init")
+            .arg("-q")
+            .arg(root.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        std::fs::create_dir(root.path().join("spec")).unwrap();
+        std::fs::write(root.path().join("spec/a.spec.md"), "## A\n").unwrap();
+    }
+
+    fn app_at(root: &tempfile::TempDir) -> App {
+        App::new(
             Library::new(root.path(), core::ParseConfig::default()).unwrap(),
             Theme::default(),
             io::sink(),
         )
-        .unwrap();
-        (root, app)
+        .unwrap()
     }
 
     #[test]
@@ -1118,7 +1167,9 @@ mod tests {
 
     #[test]
     fn tab_switch_keeps_the_open_document() {
-        let (_root, mut app) = app();
+        let (root, _) = app();
+        add_spec(&root);
+        let mut app = app_at(&root);
         app.open(".plan/second.md");
         app.handle_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
         assert_eq!(app.tab, Tab::Specs);
@@ -1128,6 +1179,20 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
         assert_eq!(app.doc.as_ref().unwrap().root_path, ".plan/second.md");
         assert!(app.rows()[app.sidebar_selection].current);
+    }
+
+    #[test]
+    fn a_tab_without_documents_is_hidden() {
+        let (root, mut app) = app();
+        app.handle_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
+        assert_eq!(app.tab, Tab::Plans);
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let screen: String = terminal.backend().buffer().content.iter().map(|cell| cell.symbol()).collect();
+        assert!(screen.contains("[plans]") && !screen.contains("specs"), "{screen}");
+        std::fs::remove_dir_all(root.path().join(".plan")).unwrap();
+        add_spec(&root);
+        assert_eq!(app_at(&root).tab, Tab::Specs);
     }
 
     #[test]

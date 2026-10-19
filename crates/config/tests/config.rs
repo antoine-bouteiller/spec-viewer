@@ -178,3 +178,11 @@ fn web_is_user_only_with_paths_relative_to_the_user_file() {
         assert!(error.key.starts_with(key), "{source}: {error}");
     }
 }
+
+#[test]
+fn tui_diff_defaults_off_and_a_layer_turns_it_on() {
+    let root = tempfile::tempdir().unwrap();
+    assert!(!Config::load_layers(None, root.path(), None).unwrap().tui.diff);
+    std::fs::write(root.path().join(".spec-viewer.toml"), "[tui]\ndiff = true\n").unwrap();
+    assert!(Config::load_layers(None, root.path(), None).unwrap().tui.diff);
+}

@@ -5,6 +5,9 @@ bind = "127.0.0.1"             # an IP, or a hostname to bind all interfaces; un
 # cert = "cert.pem"            # with key: serve HTTPS; PEM paths, relative to the config file
 # key = "key.pem"
 
+[tui]
+diff = false                   # start with Diff on: the specs tab lists only changed specs
+
 [theme]
 mode = "auto"                  # auto | light | dark; auto = OSC 11 reply, else dark; --theme overrides
 name = "terminal"              # built-ins: terminal

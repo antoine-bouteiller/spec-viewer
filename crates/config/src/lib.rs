@@ -49,6 +49,7 @@ impl std::error::Error for Error {}
 #[serde(deny_unknown_fields)]
 struct Raw {
     web: WebSettings,
+    tui: TuiSettings,
     theme: ThemeSettings,
     status: Vec<StatusConfig>,
     chip: Vec<ChipConfig>,
@@ -57,6 +58,7 @@ struct Raw {
 #[derive(Clone, Debug)]
 pub struct Config {
     pub web: WebSettings,
+    pub tui: TuiSettings,
     pub theme: ThemeSettings,
     pub parse: ParseConfig,
     origins: BTreeMap<String, PathBuf>,
@@ -142,6 +144,7 @@ impl Config {
         }
         let config = Self {
             web,
+            tui: raw.tui,
             theme: raw.theme,
             parse: ParseConfig {
                 statuses: raw.status,
