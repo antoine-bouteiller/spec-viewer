@@ -1,5 +1,5 @@
 # crates/config/default.toml; lower layers first:
-# default < $XDG_CONFIG_HOME/plan-viewer/config.toml (else ~/.config/…) < <ROOT worktree>/.plan-viewer.toml < --config PATH
+# default < $XDG_CONFIG_HOME/spec-viewer/config.toml (else ~/.config/…) < <ROOT worktree>/.spec-viewer.toml < --config PATH
 [theme]
 mode = "auto"                  # auto | light | dark; auto = OSC 11 reply, else dark; --theme overrides
 name = "terminal"              # built-ins: terminal | catppuccin-latte | catppuccin-mocha

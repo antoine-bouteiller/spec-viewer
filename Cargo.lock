@@ -1285,72 +1285,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
-name = "plan-viewer"
-version = "0.1.0"
-dependencies = [
- "plan-viewer-config",
- "plan-viewer-core",
- "plan-viewer-render-tui",
- "tempfile",
-]
-
-[[package]]
-name = "plan-viewer-config"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_path_to_error",
- "tempfile",
- "toml",
-]
-
-[[package]]
-name = "plan-viewer-core"
-version = "0.1.0"
-dependencies = [
- "icu_collator",
- "plan-viewer-config",
- "plan-viewer-parser",
- "plan-viewer-source",
- "tempfile",
-]
-
-[[package]]
-name = "plan-viewer-parser"
-version = "0.1.0"
-dependencies = [
- "markdown",
- "plan-viewer-config",
-]
-
-[[package]]
-name = "plan-viewer-render-tui"
-version = "0.1.0"
-dependencies = [
- "base64 0.23.1",
- "crossterm",
- "insta",
- "libc",
- "plan-viewer-config",
- "plan-viewer-core",
- "ratatui",
- "syntect",
- "tempfile",
- "textwrap",
- "two-face",
- "unicode-width",
-]
-
-[[package]]
-name = "plan-viewer-source"
-version = "0.1.0"
-dependencies = [
- "icu_collator",
- "notify",
- "tempfile",
-]
-
-[[package]]
 name = "plist"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1789,6 +1723,72 @@ name = "smawk"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e8e2fb0f499abb4d162f2bedad68f5ef91a1682b5a03596ddb67efd37768d100"
+
+[[package]]
+name = "spec-viewer"
+version = "0.1.0"
+dependencies = [
+ "spec-viewer-config",
+ "spec-viewer-core",
+ "spec-viewer-render-tui",
+ "tempfile",
+]
+
+[[package]]
+name = "spec-viewer-config"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_path_to_error",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
+name = "spec-viewer-core"
+version = "0.1.0"
+dependencies = [
+ "icu_collator",
+ "spec-viewer-config",
+ "spec-viewer-parser",
+ "spec-viewer-source",
+ "tempfile",
+]
+
+[[package]]
+name = "spec-viewer-parser"
+version = "0.1.0"
+dependencies = [
+ "markdown",
+ "spec-viewer-config",
+]
+
+[[package]]
+name = "spec-viewer-render-tui"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "crossterm",
+ "insta",
+ "libc",
+ "ratatui",
+ "spec-viewer-config",
+ "spec-viewer-core",
+ "syntect",
+ "tempfile",
+ "textwrap",
+ "two-face",
+ "unicode-width",
+]
+
+[[package]]
+name = "spec-viewer-source"
+version = "0.1.0"
+dependencies = [
+ "icu_collator",
+ "notify",
+ "tempfile",
+]
 
 [[package]]
 name = "stable_deref_trait"

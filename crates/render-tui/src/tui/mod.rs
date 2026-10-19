@@ -32,17 +32,17 @@ fn restore() {
     let _ = execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen, crossterm::cursor::Show);
 }
 
-pub fn run(library: plan_viewer_core::Library, theme: Theme) -> ExitCode {
+pub fn run(library: spec_viewer_core::Library, theme: Theme) -> ExitCode {
     match start(library, theme) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("plan-viewer: {error}");
+            eprintln!("spec-viewer: {error}");
             ExitCode::from(1)
         }
     }
 }
 
-fn start(library: plan_viewer_core::Library, theme: Theme) -> io::Result<()> {
+fn start(library: spec_viewer_core::Library, theme: Theme) -> io::Result<()> {
     let previous_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |information| {
         restore();

@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::cache::Cache;
 use crate::{DocError, Document, ParseConfig, parse};
-use plan_viewer_source::{read, resolve};
+use spec_viewer_source::{read, resolve};
 
 #[derive(Debug, Clone)]
 pub struct Opened {

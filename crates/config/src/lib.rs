@@ -69,11 +69,11 @@ impl Config {
             .filter(|value| !value.is_empty())
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
-            .map(|dir| dir.join("plan-viewer/config.toml"));
+            .map(|dir| dir.join("spec-viewer/config.toml"));
         Self::load_layers(user.as_deref(), worktree, explicit)
     }
     pub fn load_layers(user: Option<&Path>, worktree: &Path, explicit: Option<&Path>) -> Result<Self, Error> {
-        let local = worktree.join(".plan-viewer.toml");
+        let local = worktree.join(".spec-viewer.toml");
         let mut layers = Vec::new();
         for (path, required) in user
             .into_iter()

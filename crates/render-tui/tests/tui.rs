@@ -7,8 +7,8 @@ use std::{
 };
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use plan_viewer_core::{Library, ParseConfig, watch};
-use plan_viewer_render_tui::{
+use spec_viewer_core::{Library, ParseConfig, watch};
+use spec_viewer_render_tui::{
     terminal::{Target, Theme},
     tui::{App, Focus, RailEntry, Tab},
 };

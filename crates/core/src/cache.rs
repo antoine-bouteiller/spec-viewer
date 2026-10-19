@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub use plan_viewer_source::Stamp;
+pub use spec_viewer_source::Stamp;
 #[derive(Debug)]
 pub struct Cache<Value> {
     entries: VecDeque<(PathBuf, Stamp, Value)>,

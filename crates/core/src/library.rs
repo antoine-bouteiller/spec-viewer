@@ -3,7 +3,7 @@ use std::{io, path::Path};
 
 use crate::document::Documents;
 use crate::{Corpus, DocError, Opened, ParseConfig, Project, Watch, WatchResult, Worktree, docs};
-use plan_viewer_source::Viewer;
+use spec_viewer_source::Viewer;
 
 #[derive(Debug)]
 pub struct Library {
@@ -60,6 +60,6 @@ impl Library {
     }
 
     pub fn watch(&self, worktree: &Path) -> WatchResult<Watch> {
-        plan_viewer_source::watch(worktree)
+        spec_viewer_source::watch(worktree)
     }
 }

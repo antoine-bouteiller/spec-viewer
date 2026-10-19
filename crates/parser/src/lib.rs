@@ -9,7 +9,7 @@ mod types;
 
 pub use ast::*;
 pub use metadata::{body_below_header, parse_meta};
-pub use plan_viewer_config::ParseConfig;
+pub use spec_viewer_config::ParseConfig;
 pub use types::{Chip, ChipValue, Meta, Status};
 
 #[derive(Clone, Debug, PartialEq, Eq)]

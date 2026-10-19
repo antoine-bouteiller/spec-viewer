@@ -1,6 +1,6 @@
 //! Resolve renderer-neutral configuration once, including syntect code themes.
-use plan_viewer_config::{Ansi, Color as ConfigColor, Config, Error, Mode, ResolvedTheme, Roles};
-use plan_viewer_core::Status;
+use spec_viewer_config::{Ansi, Color as ConfigColor, Config, Error, Mode, ResolvedTheme, Roles};
+use spec_viewer_core::Status;
 use ratatui::style::Color;
 use std::collections::BTreeMap;
 
@@ -217,7 +217,7 @@ mod tests {
     fn vc_6_modes_select_builtin_and_code_defaults_with_auto_fallback() {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(
-            root.path().join(".plan-viewer.toml"),
+            root.path().join(".spec-viewer.toml"),
             "[theme]\nname='terminal'\nlight_name='catppuccin-latte'\nmode='auto'",
         )
         .unwrap();

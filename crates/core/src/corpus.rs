@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use plan_viewer_source::{Entry, changed_specs, list};
+use spec_viewer_source::{Entry, changed_specs, list};
 
 use crate::js::label;
 use crate::{DocMeta, Docs, ParseConfig, build_tree, parse_meta};
@@ -48,7 +48,7 @@ pub fn docs(worktree: &Path, project_name: &str, config: &ParseConfig) -> Docs {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use plan_viewer_source::spec_paths;
+    use spec_viewer_source::spec_paths;
     use std::fs;
 
     fn git(root: &Path, args: &[&str]) -> std::io::Result<()> {

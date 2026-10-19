@@ -1,5 +1,5 @@
 use super::highlight;
-use plan_viewer_core::{Block, Component, Document, Inline, ListItem, TocEntry};
+use spec_viewer_core::{Block, Component, Document, Inline, ListItem, TocEntry};
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -768,7 +768,7 @@ fn plain_blocks(theme: &Theme, blocks: &[Block]) -> String {
 mod tests {
     use super::*;
     fn parse(source: &str, path: &str) -> Document {
-        plan_viewer_core::parse(source, path, &plan_viewer_config::ParseConfig::default())
+        spec_viewer_core::parse(source, path, &spec_viewer_config::ParseConfig::default())
     }
 
     #[test]
@@ -909,7 +909,7 @@ mod tests {
         let document = to_terminal(
             &parsed,
             60,
-            &Theme::from_config(&plan_viewer_config::Config::default(), Some(plan_viewer_config::Mode::Light)).unwrap(),
+            &Theme::from_config(&spec_viewer_config::Config::default(), Some(spec_viewer_config::Mode::Light)).unwrap(),
         );
         let source = document.lines.iter().map(Line::to_string).collect::<Vec<_>>().join("\n");
         assert!(source.contains("── ts ──\n  const value = 42"));

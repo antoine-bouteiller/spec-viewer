@@ -3,13 +3,13 @@ title: Terminal UI
 status: amended
 author: Antoine Bouteiller
 date: 2026-10-16
-module: [crates/render-tui, crates/config, crates/plan-viewer]
+module: [crates/render-tui, crates/config, crates/spec-viewer]
 related: []
 ---
 
 ## Why
 
-`plan-viewer [ROOT]` shows a worktree's plans and specs in a terminal: from an SSH session, in a
+`spec-viewer [ROOT]` shows a worktree's plans and specs in a terminal: from an SSH session, in a
 pane beside an agent, or anywhere a browser is out of reach. This spec owns that surface: the
 screen, the keys, the terminal rendering of the semantic document, the theme, and the configured
 statuses and header chips. Discovery, metadata, the tree, and confinement live in the `source`,
@@ -23,7 +23,7 @@ statuses and header chips. Discovery, metadata, the tree, and confinement live i
 ## Design
 
 - `[PI-1]` Keyboard first: every action has a key, and the screen shows a worktree's whole corpus.
-- `[PI-2]` One core: the terminal reads `plan_viewer_core::Library` and never re-derives corpus,
+- `[PI-2]` One core: the terminal reads `spec_viewer_core::Library` and never re-derives corpus,
   metadata, tree, or confinement logic.
 - `[PI-3]` Colours name meanings, not values: every coloured element takes a role, a status, or an
   xref family, and each of those names a palette colour.
@@ -38,11 +38,11 @@ statuses and header chips. Discovery, metadata, the tree, and confinement live i
 | `[KD-6]` Mode             | `--theme`, else `theme.mode`; `auto` uses the OSC 11 background reply (120 ms), else dark. The mode picks `light_name` or `dark_name` and the code theme                                                                                             | The terminal background governs light and dark                                          |
 | `[KD-7]` Outline depth    | The rail outline lists the document `toc` (h1–h3); deeper headings are styled but not rail entries                                                                                                                                                   | Keeps the rail short                                                                    |
 | `[KD-8]` Config layers    | TOML, `deny_unknown_fields`: embedded default < user < worktree < `--config`. Tables merge key by key; arrays (`status`, `chip`, `theme.roles.headings`) replace the lower layer wholesale                                                           | Element-wise array merging would make removing a default status or chip impossible      |
-| `[KD-9]` Worktree config  | `.plan-viewer.toml` is read once at start-up from the worktree containing `ROOT`; switching worktree does not reload it                                                                                                                              | One config per session (`[NG-4]`)                                                       |
+| `[KD-9]` Worktree config  | `.spec-viewer.toml` is read once at start-up from the worktree containing `ROOT`; switching worktree does not reload it                                                                                                                              | One config per session (`[NG-4]`)                                                       |
 
 ## Outcome
 
-- `[SO-1]` `plan-viewer` in any worktree shows, navigable by keyboard, the worktree picker, tabs,
+- `[SO-1]` `spec-viewer` in any worktree shows, navigable by keyboard, the worktree picker, tabs,
   corpus tree with status chips, filter, `Diff`, structure rail, document header, and rendered
   body. — demonstrated by `[VC-1]`, `[VC-2]`
 - `[SO-2]` A corpus change refreshes the tree and the open document, keeping its scroll position.
@@ -57,7 +57,7 @@ statuses and header chips. Discovery, metadata, the tree, and confinement live i
 Kind: api · Anchor: `crates/render-tui/src/terminal.rs#to_terminal`
 
 ```rust
-pub fn to_terminal(document: &plan_viewer_core::Document, width: u16, theme: &Theme) -> TermDoc;
+pub fn to_terminal(document: &spec_viewer_core::Document, width: u16, theme: &Theme) -> TermDoc;
 pub struct TermDoc { lines: Vec<Line<'static>>, toc: Vec<(TocEntry, usize)>, targets: Vec<TargetSpan> }
 pub struct TargetSpan { target: Target, line: usize, column: usize, length: usize } // terminal columns
 pub enum Target { Doc(String), Xref(String) }
@@ -135,7 +135,7 @@ rail entry use `accent`. Unfocused borders, the filter, paths, header details, a
 
 Kind: invariant · Anchor: `crates/render-tui/src/tui/mod.rs#start`
 
-Each debounced burst of `plan_viewer_core::Library::watch` refreshes the corpus and reopens the
+Each debounced burst of `spec_viewer_core::Library::watch` refreshes the corpus and reopens the
 current document at its scroll position. The watch follows the selected worktree. Raw mode, mouse
 capture, and the alternate screen are restored on exit and on panic.
 
@@ -144,8 +144,8 @@ capture, and the alternate screen are restored on exit and on panic.
 Kind: config · Anchor: `crates/config/default.toml`
 
 `crates/config/default.toml` is the default layer and the reference for every key. Lower layers
-first: default < `$XDG_CONFIG_HOME/plan-viewer/config.toml` (else `~/.config/plan-viewer/config.toml`)
-< `<worktree containing ROOT>/.plan-viewer.toml` < `--config PATH`.
+first: default < `$XDG_CONFIG_HOME/spec-viewer/config.toml` (else `~/.config/spec-viewer/config.toml`)
+< `<worktree containing ROOT>/.spec-viewer.toml` < `--config PATH`.
 
 | Key                                     | Meaning                                                                                                                                                                                   |
 | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -168,10 +168,10 @@ naming the file and the key, or `line N` for a TOML syntax error.
 
 ### [CT-5] CLI
 
-Kind: api · Anchor: `crates/plan-viewer/src/cli.rs#parse`
+Kind: api · Anchor: `crates/spec-viewer/src/cli.rs#parse`
 
 ```text
-plan-viewer [ROOT] [--theme light|dark] [--config PATH]
+spec-viewer [ROOT] [--theme light|dark] [--config PATH]
 exit 1: unresolvable or non-directory ROOT, invalid --theme, config error per [CT-4]; one stderr line
 ```
 
@@ -216,6 +216,6 @@ exit 1: unresolvable or non-directory ROOT, invalid --theme, config error per [C
 
 | Date       | Amendment                                                                                     | Sections affected                    | Reason                                                           |
 | ---------- | --------------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------- |
-| 2026-10-18 | Moved out of spec-kit; dropped `parent-spec`; tree semantics stated in `[CT-2]`               | Why, Design, CT-2                    | `plan-viewer` became its own repository and owns this behaviour  |
+| 2026-10-18 | Moved out of spec-kit; dropped `parent-spec`; tree semantics stated in `[CT-2]`               | Why, Design, CT-2                    | `spec-viewer` became its own repository and owns this behaviour  |
 | 2026-10-18 | `to_terminal` takes the semantic `Document`; module paths follow the workspace crates         | CT-1, CT-3                           | The HTML-shaped tree existed only for parity with the Bun viewer |
 | 2026-10-18 | Layered config for theme, statuses, and header chips (`[KD-5]`, `[KD-8]`, `[KD-9]`, `[CT-4]`) | Design, CT-2, CT-4, CT-5, Acceptance | Projects use other statuses, header sections, and colours        |

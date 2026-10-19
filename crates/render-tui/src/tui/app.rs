@@ -16,7 +16,7 @@ use ratatui::{
 
 use super::navigation::{self, Row};
 use crate::terminal::{Target, TargetSpan, TermDoc, Theme, to_terminal};
-use plan_viewer_core::{self as core, ChipValue, Docs, Library, Opened, Project};
+use spec_viewer_core::{self as core, ChipValue, Docs, Library, Opened, Project};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {

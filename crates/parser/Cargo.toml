@@ -1,12 +1,12 @@
 [package]
-name = "plan-viewer-parser"
+name = "spec-viewer-parser"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-plan-viewer-config = { path = "../config" }
+spec-viewer-config = { path = "../config" }
 markdown.workspace = true
 
 [lints]

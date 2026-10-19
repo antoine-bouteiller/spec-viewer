@@ -1,14 +1,14 @@
 [package]
-name = "plan-viewer-core"
+name = "spec-viewer-core"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-plan-viewer-source = { path = "../source" }
-plan-viewer-parser = { path = "../parser" }
-plan-viewer-config = { path = "../config" }
+spec-viewer-source = { path = "../source" }
+spec-viewer-parser = { path = "../parser" }
+spec-viewer-config = { path = "../config" }
 icu_collator.workspace = true
 
 [dev-dependencies]

@@ -1,13 +1,13 @@
 [package]
-name = "plan-viewer-render-tui"
+name = "spec-viewer-render-tui"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-plan-viewer-core = { path = "../core" }
-plan-viewer-config = { path = "../config" }
+spec-viewer-core = { path = "../core" }
+spec-viewer-config = { path = "../config" }
 ratatui.workspace = true
 crossterm.workspace = true
 syntect.workspace = true

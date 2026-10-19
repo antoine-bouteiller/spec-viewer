@@ -141,8 +141,8 @@ mod tests {
     fn repository() -> tempfile::TempDir {
         let root = tempfile::tempdir().unwrap();
         run(root.path(), &["init", "-qb", "main"]);
-        run(root.path(), &["config", "user.email", "plan-viewer@example.test"]);
-        run(root.path(), &["config", "user.name", "Plan Viewer Test"]);
+        run(root.path(), &["config", "user.email", "spec-viewer@example.test"]);
+        run(root.path(), &["config", "user.name", "Spec Viewer Test"]);
         root
     }
     #[test]

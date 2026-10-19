@@ -4,7 +4,7 @@ use std::{
 };
 
 fn run(root: &Path, user: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_plan-viewer"))
+    Command::new(env!("CARGO_BIN_EXE_spec-viewer"))
         .arg(root)
         .args(args)
         .env("XDG_CONFIG_HOME", user)
@@ -16,7 +16,7 @@ fn assert_error(output: Output, file: &Path, key: &str) {
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert_eq!(stderr.lines().count(), 1, "{stderr}");
-    assert!(stderr.starts_with("plan-viewer: "), "{stderr}");
+    assert!(stderr.starts_with("spec-viewer: "), "{stderr}");
     assert!(stderr.contains(&file.display().to_string()), "{stderr}");
     assert!(stderr.contains(key), "{stderr}");
 }
@@ -25,12 +25,12 @@ fn assert_error(output: Output, file: &Path, key: &str) {
 fn vc_7_binary_config_errors_are_single_lines_with_file_and_key() {
     let root = tempfile::tempdir().unwrap();
     let user = tempfile::tempdir().unwrap();
-    std::fs::create_dir(user.path().join("plan-viewer")).unwrap();
-    let user_file = user.path().join("plan-viewer/config.toml");
+    std::fs::create_dir(user.path().join("spec-viewer")).unwrap();
+    let user_file = user.path().join("spec-viewer/config.toml");
     std::fs::write(&user_file, "[theme\naccent='red'").unwrap();
     assert_error(run(root.path(), user.path(), &[]), &user_file, "line 1");
     std::fs::remove_file(&user_file).unwrap();
-    let worktree_file = root.path().join(".plan-viewer.toml");
+    let worktree_file = root.path().join(".spec-viewer.toml");
     std::fs::write(&worktree_file, "[theme]\nunknown='red'").unwrap();
     assert_error(run(root.path(), user.path(), &[]), &worktree_file, "theme.unknown");
     std::fs::remove_file(&worktree_file).unwrap();
@@ -53,7 +53,7 @@ fn vc_7_binary_config_errors_are_single_lines_with_file_and_key() {
 fn vc_6_binary_rejects_missing_palette_role_and_bad_code_theme() {
     let root = tempfile::tempdir().unwrap();
     let user = tempfile::tempdir().unwrap();
-    let file = root.path().join(".plan-viewer.toml");
+    let file = root.path().join(".spec-viewer.toml");
     std::fs::write(&file, "[theme.roles]\naccent='missing'").unwrap();
     assert_error(run(root.path(), user.path(), &[]), &file, "theme.roles.accent");
     std::fs::write(root.path().join("bad.tmTheme"), "not XML").unwrap();
@@ -84,9 +84,9 @@ fn vc_7_binary_loads_the_worktree_containing_nested_root() {
     git(&["worktree", "add", "-qb", "second", sibling.to_str().unwrap()]);
     let nested = sibling.join("nested");
     std::fs::create_dir(&nested).unwrap();
-    let file = sibling.join(".plan-viewer.toml");
+    let file = sibling.join(".spec-viewer.toml");
     // A different main-worktree error would expose choosing project.path instead.
-    std::fs::write(root.path().join(".plan-viewer.toml"), "[theme]\nunknown=true").unwrap();
+    std::fs::write(root.path().join(".spec-viewer.toml"), "[theme]\nunknown=true").unwrap();
     std::fs::write(&file, "[theme]\nname='missing'").unwrap();
     assert_error(run(&nested, user.path(), &[]), &file, "theme.name");
 }

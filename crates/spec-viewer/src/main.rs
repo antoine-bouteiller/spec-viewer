@@ -3,16 +3,16 @@ use std::process::ExitCode;
 mod cli;
 
 use cli::Command;
-use plan_viewer_config::Config;
-use plan_viewer_core::{Library, ParseConfig};
-use plan_viewer_render_tui::Theme;
+use spec_viewer_config::Config;
+use spec_viewer_core::{Library, ParseConfig};
+use spec_viewer_render_tui::Theme;
 
 fn main() -> ExitCode {
     match start() {
         Ok(code) => code,
         Err(message) => {
             let message = message.split_whitespace().collect::<Vec<_>>().join(" ");
-            eprintln!("plan-viewer: {message}");
+            eprintln!("spec-viewer: {message}");
             ExitCode::from(1)
         }
     }
@@ -25,5 +25,5 @@ fn start() -> Result<ExitCode, String> {
     let config = Config::load(&library.containing_worktree().path, config.as_deref()).map_err(|error| error.to_string())?;
     let theme = Theme::from_config(&config, theme).map_err(|error| error.to_string())?;
     let library = library.with_parse_config(config.parse);
-    Ok(plan_viewer_render_tui::run(library, theme))
+    Ok(spec_viewer_render_tui::run(library, theme))
 }

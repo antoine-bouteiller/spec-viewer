@@ -2,9 +2,9 @@
 mod support;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use plan_viewer_config::{Config, Mode};
-use plan_viewer_core::Library;
-use plan_viewer_render_tui::{
+use spec_viewer_config::{Config, Mode};
+use spec_viewer_core::Library;
+use spec_viewer_render_tui::{
     Theme,
     tui::{App, Focus},
 };
@@ -13,7 +13,7 @@ use std::{io, path::Path};
 use support::fixture::Fixture;
 
 fn configured(root: &Path, source: &str, override_mode: Option<Mode>) -> App {
-    std::fs::write(root.join(".plan-viewer.toml"), source).unwrap();
+    std::fs::write(root.join(".spec-viewer.toml"), source).unwrap();
     let config = Config::load_layers(None, root, None).unwrap();
     let theme = Theme::from_config(&config, override_mode).unwrap();
     App::new(Library::new(root, config.parse).unwrap(), theme, io::sink()).unwrap()
@@ -208,14 +208,14 @@ fn vc_6_code_theme_file_is_decoded_and_invalid_content_is_a_config_error() {
         include_bytes!("../assets/themes/catppuccin-mocha.tmTheme"),
     )
     .unwrap();
-    std::fs::write(root.path().join(".plan-viewer.toml"), "[theme]\ncode_dark='custom.tmTheme'").unwrap();
+    std::fs::write(root.path().join(".spec-viewer.toml"), "[theme]\ncode_dark='custom.tmTheme'").unwrap();
     let config = Config::load_layers(None, root.path(), None).unwrap();
     let theme = Theme::from_config(&config, Some(Mode::Dark)).unwrap();
     assert_eq!(theme.code.name.as_deref(), Some("Catppuccin Mocha"));
     assert_eq!(theme.code.settings.foreground.unwrap().r, 0xcd);
     std::fs::write(root.path().join("custom.tmTheme"), "not a plist").unwrap();
     let error = Theme::from_config(&config, Some(Mode::Dark)).unwrap_err();
-    assert_eq!(error.file, root.path().join(".plan-viewer.toml"));
+    assert_eq!(error.file, root.path().join(".spec-viewer.toml"));
     assert_eq!(error.key, "theme.code_dark");
     assert_eq!(error.to_string().lines().count(), 1);
 }
@@ -228,8 +228,8 @@ fn vc_7_session_keeps_startup_config_on_reload_and_worktree_switch() {
         "[theme.roles]\naccent='magenta'\n[[status]]\nname='shipped'\naliases=['in-progress']\ncolor='magenta'",
         Some(Mode::Dark),
     );
-    std::fs::write(fixture.root.join(".plan-viewer.toml"), "[theme.roles]\naccent='red'").unwrap();
-    std::fs::write(fixture.sibling.join(".plan-viewer.toml"), "[theme.roles]\naccent='green'").unwrap();
+    std::fs::write(fixture.root.join(".spec-viewer.toml"), "[theme.roles]\naccent='red'").unwrap();
+    std::fs::write(fixture.sibling.join(".spec-viewer.toml"), "[theme.roles]\naccent='green'").unwrap();
     app.open(".plan/rollout/index.md");
     app.reload();
     assert_text_fg(&draw(&mut app), "[shipped]", Color::Magenta);

@@ -4,7 +4,7 @@ use std::path::Path;
 use super::js::{horizontal, label, starts, take_while, terminator, trim, whitespace};
 use super::types::Counts;
 use super::{Chip, ChipValue, Meta, ParseConfig, Status};
-use plan_viewer_config::ChipKind;
+use spec_viewer_config::ChipKind;
 
 #[derive(Clone)]
 enum Value {

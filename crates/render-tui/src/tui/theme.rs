@@ -1,4 +1,4 @@
-use plan_viewer_config::Mode;
+use spec_viewer_config::Mode;
 
 fn background(response: &str) -> Option<Mode> {
     let remaining = response.split("11;rgb:").nth(1)?;

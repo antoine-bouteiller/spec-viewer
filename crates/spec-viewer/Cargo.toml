@@ -1,18 +1,18 @@
 [package]
-name = "plan-viewer"
+name = "spec-viewer"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "plan-viewer"
+name = "spec-viewer"
 path = "src/main.rs"
 
 [dependencies]
-plan-viewer-render-tui = { path = "../render-tui" }
-plan-viewer-core = { path = "../core" }
-plan-viewer-config = { path = "../config" }
+spec-viewer-render-tui = { path = "../render-tui" }
+spec-viewer-core = { path = "../core" }
+spec-viewer-config = { path = "../config" }
 
 [dev-dependencies]
 tempfile.workspace = true

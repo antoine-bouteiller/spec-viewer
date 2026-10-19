@@ -425,11 +425,11 @@ fn mdx_failure_keeps_native_message_and_location() {
 fn relative_doc_links_resolve_and_reject_escaping_targets() {
     let document = parse(
         "[leaf](document-render.spec.md) [up](../../other/x.spec.mdx#s) [web](https://example.com/a.md)",
-        "plan-viewer/spec/viewer.spec.md",
+        "spec-viewer/spec/viewer.spec.md",
     );
     assert_eq!(
         Nodes::document(&document).docs(),
-        ["plan-viewer/spec/document-render.spec.md", "other/x.spec.mdx"]
+        ["spec-viewer/spec/document-render.spec.md", "other/x.spec.mdx"]
     );
     let document = parse(
         "[abs](/x.md) [escape](../../x.md) [query](x.md?x=1) [anchor](x.mdx#x) [dot](./a/../b.md) [scheme](ftp://a.md) [encoded](x%20y.md)",
@@ -597,7 +597,7 @@ fn footnotes_keep_visible_numbers_heading_and_return_labels() {
 
 #[test]
 fn vc_5_configured_chips_follow_order_and_first_present_section() {
-    use plan_viewer_config::{ChipConfig, ChipKind};
+    use spec_viewer_config::{ChipConfig, ChipKind};
     let config = ParseConfig {
         statuses: vec![],
         chips: vec![

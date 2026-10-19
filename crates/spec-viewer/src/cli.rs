@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use plan_viewer_config::Mode as Theme;
+use spec_viewer_config::Mode as Theme;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {

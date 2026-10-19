@@ -1,10 +1,10 @@
-use plan_viewer_config::{Color, Config, Mode};
+use spec_viewer_config::{Color, Config, Mode};
 
 #[test]
 fn vc_7_layers_merge_tables_and_replace_arrays() {
     let root = tempfile::tempdir().unwrap();
     let user = root.path().join("user.toml");
-    let worktree = root.path().join(".plan-viewer.toml");
+    let worktree = root.path().join(".spec-viewer.toml");
     let explicit = root.path().join("explicit.toml");
     std::fs::write(&user, "[theme.roles]\naccent='red'\n[[status]]\nname='custom'\ncolor='red'\n").unwrap();
     std::fs::write(
@@ -15,7 +15,7 @@ fn vc_7_layers_merge_tables_and_replace_arrays() {
     std::fs::write(&explicit, "[theme.roles]\naccent='cyan'\n").unwrap();
     let config = Config::load_layers(Some(&user), root.path(), Some(&explicit)).unwrap();
     let theme = config.resolve(Mode::Dark).unwrap();
-    assert_eq!(theme.roles.accent, Color::Ansi(plan_viewer_config::Ansi::Cyan));
+    assert_eq!(theme.roles.accent, Color::Ansi(spec_viewer_config::Ansi::Cyan));
     assert_eq!(theme.roles.headings.len(), 1);
     assert_eq!(config.parse.statuses.len(), 1);
     assert_eq!(config.parse.statuses[0].name, "shipped");
@@ -25,7 +25,7 @@ fn vc_7_layers_merge_tables_and_replace_arrays() {
 #[test]
 fn vc_7_validation_errors_name_the_defining_file_and_key() {
     let root = tempfile::tempdir().unwrap();
-    let file = root.path().join(".plan-viewer.toml");
+    let file = root.path().join(".spec-viewer.toml");
     for (source, key) in [
         ("[theme]\nmode='rainbow'", "theme.mode"),
         ("[theme\naccent='red'", "line 1"),
@@ -77,7 +77,7 @@ fn vc_7_validation_errors_name_the_defining_file_and_key() {
 
 #[test]
 fn colour_syntax_and_palette_validation() {
-    use plan_viewer_config::Ansi;
+    use spec_viewer_config::Ansi;
     for (source, expected) in [
         ("#123aBC", Color::Rgb(0x12, 0x3a, 0xbc)),
         ("rgb(1, 2, 255)", Color::Rgb(1, 2, 255)),
@@ -102,7 +102,7 @@ fn colour_syntax_and_palette_validation() {
     }
     let root = tempfile::tempdir().unwrap();
     std::fs::write(
-        root.path().join(".plan-viewer.toml"),
+        root.path().join(".spec-viewer.toml"),
         "[theme.palette]\nbrand='reset'\n[theme.roles]\naccent='brand'",
     )
     .unwrap();
@@ -120,7 +120,7 @@ fn colour_syntax_and_palette_validation() {
 #[test]
 fn vc_7_empty_unknown_table_errors_name_the_file() {
     let root = tempfile::tempdir().unwrap();
-    let file = root.path().join(".plan-viewer.toml");
+    let file = root.path().join(".spec-viewer.toml");
     std::fs::write(&file, "[theme.unknown]\n").unwrap();
     let error = Config::load_layers(None, root.path(), None).unwrap_err();
     assert_eq!(error.file, file);
@@ -130,7 +130,7 @@ fn vc_7_empty_unknown_table_errors_name_the_file() {
 #[test]
 fn vc_7_palette_shape_errors_identify_the_exact_key_and_layer() {
     let root = tempfile::tempdir().unwrap();
-    let file = root.path().join(".plan-viewer.toml");
+    let file = root.path().join(".spec-viewer.toml");
     for (source, key) in [
         ("[theme.palette]\nblue=123", "theme.palette.blue"),
         ("[theme.palette.autumn]\nblue='#123456'", "theme.palette.autumn"),
