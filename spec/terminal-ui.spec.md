@@ -16,7 +16,7 @@ statuses and header chips. Discovery, metadata, the tree, and confinement live i
 `parser`, and `core` crates; this spec states the behaviour the screen relies on.
 
 - `[NG-1]` No image diagrams: Mermaid renders as box-drawing text, or as source when it fails.
-- `[NG-2]` No mouse interaction beyond wheel scrolling.
+- `[NG-2]` No mouse interaction beyond wheel scrolling and left clicks on the panes and the left pane.
 - `[NG-3]` No editing: the viewer never writes to the worktree.
 - `[NG-4]` No config hot reload: the config is read once per session.
 
@@ -108,6 +108,8 @@ y / Y         copy absolute path / file name   e        sidebar / rail (open doc
 o             open the current view in the web app (spec/web-ui.spec.md)
 b             hide / show the left pane (open document only)
 q / C-c       quit
+click         focus a pane; in the left pane, activate the worktree line (w), a tab (1 / 2),
+              Diff (d), the filter (/), or a row or rail entry (select + Enter)
 ```
 
 One pane left of the document shows either the sidebar (the corpus tree) or the rail, never both.
@@ -201,7 +203,8 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
   without attached examples; `d` restricts specs to the changed set; `w` switches worktree and
   clears the document; `1` and `2` keep the open document; `b` hides the left pane; opening a phase
   keeps its plan row current; hint mode on an xref writes an OSC 52 sequence carrying the ID; hint
-  mode on a doc link opens its target; opening a document replaces the sidebar with the rail and `e`
+  mode on a doc link opens its target; clicking a pane focuses it and clicking a left-pane row or
+  tab activates it; opening a document replaces the sidebar with the rail and `e`
   swaps them back. — demonstrates `[SO-1]`
 - `[VC-3]` Given an open document, when a new `.plan/*.md` file is written and the open file is
   edited, then a reload arrives, the tree lists the new plan, the body shows the edit, and the
@@ -244,3 +247,4 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 | 2026-10-19 | Tab switches keep the open document; `b` hides the left pane; the pane is at least 30 columns; the footer drops whole hints      | CT-2, VC-2                           | Browsing the other tab lost the document; narrow terminals       |
 | 2026-10-19 | `tui.diff` sets the initial `Diff`; a tab without documents is hidden                                                            | CT-2, CT-4                           | Diff-first review; an empty tab is noise                         |
 | 2026-10-19 | Header lines truncate instead of wrapping, keeping the status and the copy keys                                                  | CT-2                                 | A wrapping header pushed the body down on narrow panes           |
+| 2026-10-19 | Left clicks focus panes and activate left-pane rows, tabs, `Diff`, the filter, and the worktree line                             | NG-2, CT-2, VC-2                     | Pointer users expect the panes to respond to clicks              |

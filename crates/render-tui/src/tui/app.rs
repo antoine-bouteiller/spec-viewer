@@ -4,10 +4,10 @@ use std::{
     path::Path,
 };
 
-use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Position, Rect},
     style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
@@ -33,6 +33,17 @@ pub enum Focus {
 pub struct Hint {
     pub label: String,
     pub span: TargetSpan,
+}
+
+/// A clickable region of the left pane, recorded by the last draw.
+#[derive(Clone, Copy, Debug)]
+enum Click {
+    Worktree,
+    Tab(Tab),
+    Diff,
+    Filter,
+    Row(usize),
+    Entry(usize),
 }
 
 #[derive(Clone, Debug)]
@@ -70,6 +81,9 @@ pub struct App {
     picker: Option<usize>,
     hint_input: Option<String>,
     viewport: Rect,
+    panel_area: Rect,
+    document_area: Rect,
+    clicks: Vec<(Rect, Click)>,
 }
 
 impl App {
@@ -112,6 +126,9 @@ impl App {
             picker: None,
             hint_input: None,
             viewport: Rect::default(),
+            panel_area: Rect::default(),
+            document_area: Rect::default(),
+            clicks: Vec::new(),
         };
         app.settle_tab();
         Ok(app)
@@ -525,6 +542,46 @@ impl App {
         }
     }
 
+    pub fn handle_mouse(&mut self, mouse: MouseEvent) {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => self.scroll_by(-3),
+            MouseEventKind::ScrollDown => self.scroll_by(3),
+            MouseEventKind::Down(MouseButton::Left) if self.picker.is_none() => self.click(Position::new(mouse.column, mouse.row)),
+            _ => {}
+        }
+    }
+
+    fn click(&mut self, position: Position) {
+        self.cancel_hints();
+        self.filter_editing = false;
+        let press = |app: &mut Self, character| app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+        if self.document_area.contains(position) {
+            self.focus = Focus::Document;
+            return;
+        }
+        if !self.panel || !self.panel_area.contains(position) {
+            return;
+        }
+        self.focus = if self.navigator { Focus::Sidebar } else { Focus::Rail };
+        let Some((_, click)) = self.clicks.iter().find(|(area, _)| area.contains(position)).copied() else {
+            return;
+        };
+        match click {
+            Click::Worktree => press(self, 'w'),
+            Click::Tab(tab) => press(self, if tab == Tab::Plans { '1' } else { '2' }),
+            Click::Diff => press(self, 'd'),
+            Click::Filter => press(self, '/'),
+            Click::Row(index) => {
+                self.sidebar_selection = index;
+                self.activate();
+            }
+            Click::Entry(index) => {
+                self.rail_selection = index;
+                self.activate();
+            }
+        }
+    }
+
     fn max_scroll(&self) -> usize {
         self.rendered.lines.len().saturating_sub(usize::from(self.viewport.height))
     }
@@ -611,6 +668,8 @@ impl App {
             0
         };
         let panes = Layout::horizontal([Constraint::Length(side_width), Constraint::Min(0)]).split(vertical[0]);
+        self.clicks.clear();
+        (self.panel_area, self.document_area) = (panes[0], panes[1]);
         match (self.panel, self.navigator) {
             (false, _) => {}
             (true, true) => self.draw_sidebar(frame, panes[0]),
@@ -674,21 +733,28 @@ impl App {
             .border_style(Style::default().fg(if focused { self.theme.roles.accent } else { self.theme.roles.muted }))
     }
 
-    fn draw_sidebar(&self, frame: &mut Frame, area: Rect) {
+    fn draw_sidebar(&mut self, frame: &mut Frame, area: Rect) {
         let block = self.pane(&format!("{} · Plans", self.project.name), self.focus == Focus::Sidebar);
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let regions = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(inner);
         let worktree = &self.project.worktrees[self.worktree];
-        let tabs = self
-            .tabs()
-            .into_iter()
-            .map(|tab| {
-                let name = if tab == Tab::Plans { "plans" } else { "specs" };
-                if tab == self.tab { format!("[{name}]") } else { name.to_owned() }
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
+        let header = regions[0];
+        let row = |line: u16, x: u16, width: usize| Rect::new(header.x + x, header.y + line, width as u16, 1).intersection(header);
+        let mut clicks = vec![
+            (row(0, 0, usize::from(header.width)), Click::Worktree),
+            (row(2, 0, usize::from(header.width)), Click::Filter),
+        ];
+        let mut tabs = String::new();
+        for tab in self.tabs() {
+            if !tabs.is_empty() {
+                tabs.push(' ');
+            }
+            let name = if tab == Tab::Plans { "plans" } else { "specs" };
+            let label = if tab == self.tab { format!("[{name}]") } else { name.to_owned() };
+            clicks.push((row(1, tabs.len() as u16, label.len()), Click::Tab(tab)));
+            tabs.push_str(&label);
+        }
         let diff = if self.tab != Tab::Specs {
             ""
         } else if self.docs.changed_specs.is_none() {
@@ -698,6 +764,9 @@ impl App {
         } else {
             " Diff"
         };
+        if self.tab == Tab::Specs && self.docs.changed_specs.is_some() {
+            clicks.push((row(1, tabs.len() as u16 + 1, diff.len() - 1), Click::Diff));
+        }
         let heading = vec![
             Line::raw(format!("{}{} ▾", worktree.name, if worktree.main { " (main)" } else { "" })),
             Line::raw(format!("{tabs}{diff}")),
@@ -752,6 +821,7 @@ impl App {
                 ListItem::new(lines)
             })
             .collect();
+        let heights: Vec<_> = items.iter().map(ListItem::height).collect();
         if items.is_empty() {
             frame.render_widget(
                 Paragraph::new(if self.filtering() {
@@ -762,6 +832,7 @@ impl App {
                 regions[1],
             );
         } else {
+            let mut state = ListState::default().with_selected(Some(self.sidebar_selection));
             frame.render_stateful_widget(
                 List::new(items).highlight_style(if self.focus == Focus::Sidebar {
                     Style::default().add_modifier(Modifier::REVERSED)
@@ -769,12 +840,14 @@ impl App {
                     Style::default()
                 }),
                 regions[1],
-                &mut ListState::default().with_selected(Some(self.sidebar_selection)),
+                &mut state,
             );
+            clicks.extend(list_clicks(regions[1], state.offset(), &heights, Click::Row));
         }
+        self.clicks = clicks;
     }
 
-    fn draw_rail(&self, frame: &mut Frame, area: Rect) {
+    fn draw_rail(&mut self, frame: &mut Frame, area: Rect) {
         let entries = self.rail_entries();
         let family = entries.iter().any(|entry| matches!(entry, RailEntry::File { .. }));
         let block = self.pane(if family { "Files" } else { "Sections" }, self.focus == Focus::Rail);
@@ -821,6 +894,8 @@ impl App {
                 })
             })
             .collect();
+        let heights: Vec<_> = items.iter().map(ListItem::height).collect();
+        let mut state = ListState::default().with_selected(Some(self.rail_selection));
         frame.render_stateful_widget(
             List::new(items).highlight_style(if self.focus == Focus::Rail {
                 Style::default().add_modifier(Modifier::REVERSED)
@@ -828,8 +903,9 @@ impl App {
                 Style::default()
             }),
             inner,
-            &mut ListState::default().with_selected(Some(self.rail_selection)),
+            &mut state,
         );
+        self.clicks = list_clicks(inner, state.offset(), &heights, Click::Entry);
     }
 
     fn draw_document(&mut self, frame: &mut Frame, area: Rect) {
@@ -962,6 +1038,21 @@ impl App {
             }
         }
     }
+}
+
+/// The rows each visible list item occupies, from the list's scroll offset.
+fn list_clicks(area: Rect, offset: usize, heights: &[usize], click: fn(usize) -> Click) -> Vec<(Rect, Click)> {
+    let mut y = 0;
+    let mut clicks = Vec::new();
+    for (index, height) in heights.iter().enumerate().skip(offset) {
+        if y >= area.height {
+            break;
+        }
+        let height = (*height as u16).min(area.height - y);
+        clicks.push((Rect::new(area.x, area.y + y, area.width, height), click(index)));
+        y += height;
+    }
+    clicks
 }
 
 fn meter(label: &str, done: usize, total: usize) -> String {
@@ -1224,6 +1315,61 @@ mod tests {
             "{rows:#?}"
         );
         assert!(rows[5].contains("────"), "{rows:#?}");
+    }
+
+    #[test]
+    fn clicks_focus_panes_and_activate_left_pane_entries() {
+        let (_root, mut app) = app();
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
+        let click = |app: &mut App, column, row| {
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column,
+                row,
+                modifiers: KeyModifiers::NONE,
+            })
+        };
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let second = app.rows()[1].node.path.clone().unwrap();
+        click(&mut app, 3, 5);
+        assert_eq!(app.doc.as_ref().unwrap().root_path, second);
+        assert_eq!(app.focus, Focus::Document);
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        click(&mut app, 3, 20);
+        assert_eq!(app.focus, Focus::Rail);
+        click(&mut app, 50, 10);
+        assert_eq!(app.focus, Focus::Document);
+        app.scroll = 3;
+        click(&mut app, 3, 1);
+        assert_eq!(app.focus, Focus::Rail);
+        assert_eq!(app.scroll, 0);
+        app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        click(&mut app, 3, 3);
+        assert!(app.filter_editing);
+        click(&mut app, 3, 1);
+        assert!(!app.filter_editing);
+        assert_eq!(app.picker, Some(app.worktree));
+    }
+
+    #[test]
+    fn clicking_a_tab_label_switches_tab() {
+        let (root, _) = app();
+        add_spec(&root);
+        let mut app = app_at(&root);
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let down = |column| MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(down(10));
+        assert_eq!(app.tab, Tab::Specs);
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        app.handle_mouse(down(2));
+        assert_eq!(app.tab, Tab::Plans);
     }
 
     #[test]

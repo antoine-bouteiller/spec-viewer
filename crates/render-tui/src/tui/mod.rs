@@ -11,7 +11,7 @@ use std::{
 };
 
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, MouseEventKind},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -85,11 +85,7 @@ fn start(library: spec_viewer_core::Library, theme: Theme, web_url: Option<Strin
         if event::poll(Duration::from_millis(25))? {
             match event::read()? {
                 Event::Key(key) => app.handle_key(key),
-                Event::Mouse(mouse) => match mouse.kind {
-                    MouseEventKind::ScrollUp => app.scroll_by(-3),
-                    MouseEventKind::ScrollDown => app.scroll_by(3),
-                    _ => {}
-                },
+                Event::Mouse(mouse) => app.handle_mouse(mouse),
                 _ => {}
             }
         }
