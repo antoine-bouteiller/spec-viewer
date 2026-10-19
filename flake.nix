@@ -15,6 +15,7 @@
 
   outputs =
     {
+      self,
       nixpkgs,
       rust-overlay,
       git-hooks,
@@ -42,6 +43,40 @@
         );
     in
     {
+      homeManagerModules.default =
+        {
+          config,
+          lib,
+          pkgs,
+          ...
+        }:
+        let
+          cfg = config.programs.spec-viewer;
+          tomlFormat = pkgs.formats.toml { };
+        in
+        {
+          options.programs.spec-viewer = {
+            enable = lib.mkEnableOption "spec-viewer";
+            package = lib.mkOption {
+              type = lib.types.package;
+              default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
+              description = "The spec-viewer package to install.";
+            };
+            settings = lib.mkOption {
+              inherit (tomlFormat) type;
+              default = { };
+              description = "Written to {file}`$XDG_CONFIG_HOME/spec-viewer/config.toml`.";
+            };
+          };
+
+          config = lib.mkIf cfg.enable {
+            home.packages = [ cfg.package ];
+            xdg.configFile."spec-viewer/config.toml" = lib.mkIf (cfg.settings != { }) {
+              source = tomlFormat.generate "spec-viewer-config.toml" cfg.settings;
+            };
+          };
+        };
+
       packages = forAllSystems (
         { pkgs, toolchain, ... }:
         let
