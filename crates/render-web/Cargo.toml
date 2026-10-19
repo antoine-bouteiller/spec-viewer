@@ -11,7 +11,6 @@ spec-viewer-config = { path = "../config" }
 serde.workspace = true
 serde_json.workspace = true
 syntect.workspace = true
-tiny_http.workspace = true
 two-face.workspace = true
 
 [dev-dependencies]

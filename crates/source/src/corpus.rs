@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use super::js::{locale_compare, spec_path};
+use super::js::{name_order, spec_path};
 use super::project::{SPEC_PATHS, git};
 use super::{DocError, ResolvedDoc};
 
@@ -76,7 +76,7 @@ pub fn resolve(worktree: &Path, rel: &str) -> Result<ResolvedDoc, DocError> {
 fn list_plans(dir: &Path, root: &Path, kind: &str) -> Vec<Entry> {
     let Ok(entries) = std::fs::read_dir(dir) else { return vec![] };
     let mut entries: Vec<_> = entries.filter_map(Result::ok).map(|entry| entry.file_name()).collect();
-    entries.sort_by(|left, right| locale_compare(&left.to_string_lossy(), &right.to_string_lossy()));
+    entries.sort_by(|left, right| name_order(&left.to_string_lossy(), &right.to_string_lossy()));
     let mut plans = vec![];
     for entry in entries {
         let full = dir.join(&entry);
@@ -108,7 +108,7 @@ pub fn spec_paths(worktree: &Path) -> Vec<String> {
     args.extend(SPEC_PATHS);
     let Ok(output) = git(worktree, &args) else { return vec![] };
     let mut paths: Vec<_> = output.split('\n').filter(|path| !path.is_empty()).map(str::to_owned).collect();
-    paths.sort_by(|left, right| locale_compare(left, right));
+    paths.sort_by(|left, right| name_order(left, right));
     paths
 }
 

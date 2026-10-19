@@ -7,7 +7,6 @@ publish.workspace = true
 
 [dependencies]
 notify.workspace = true
-icu_collator.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use super::js::{locale_compare, spec_stem};
+use super::js::{name_order, spec_stem};
 use super::sort::adaptive_sort;
 use super::{DocMeta, DocNode};
 
@@ -73,7 +73,7 @@ fn compare(first: &Node, second: &Node) -> Ordering {
             return order;
         }
     }
-    locale_compare(&first.wire.name.to_lowercase(), &second.wire.name.to_lowercase()).then(first.order.cmp(&second.order))
+    name_order(&first.wire.name.to_lowercase(), &second.wire.name.to_lowercase()).then(first.order.cmp(&second.order))
 }
 
 impl<'a> Tree<'a> {
@@ -195,7 +195,7 @@ impl<'a> Tree<'a> {
                 })
                 .collect();
             umbrellas.sort_by(|&left, &right| {
-                locale_compare(
+                name_order(
                     self.nodes[left].wire.path.as_deref().unwrap_or(""),
                     self.nodes[right].wire.path.as_deref().unwrap_or(""),
                 )

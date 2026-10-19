@@ -9,7 +9,6 @@ publish.workspace = true
 spec-viewer-source = { path = "../source" }
 spec-viewer-parser = { path = "../parser" }
 spec-viewer-config = { path = "../config" }
-icu_collator.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

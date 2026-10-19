@@ -4,7 +4,6 @@ use std::{
     path::Path,
 };
 
-use base64::{Engine, engine::general_purpose::STANDARD};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::{
     Frame,
@@ -15,7 +14,7 @@ use ratatui::{
 };
 
 use super::navigation::{self, Row};
-use crate::terminal::{Target, TargetSpan, TermDoc, Theme, to_terminal};
+use crate::terminal::{Target, TargetSpan, TermDoc, Theme, to_terminal, wrap};
 use spec_viewer_core::{self as core, ChipValue, Docs, Library, Opened, Project};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -247,7 +246,7 @@ impl App {
     }
 
     fn copy(&mut self, value: &str) {
-        let sequence = format!("\x1b]52;c;{}\x07", STANDARD.encode(value));
+        let sequence = format!("\x1b]52;c;{}\x07", base64(value.as_bytes()));
         if let Err(error) = self.output.write_all(sequence.as_bytes()).and_then(|()| self.output.flush()) {
             self.message = Some(format!("Clipboard failed: {error}"));
         } else {
@@ -744,9 +743,9 @@ impl App {
                     ),
                 };
                 ListItem::new(
-                    textwrap::wrap(&label, usize::from(inner.width.max(1)))
+                    wrap(&label, usize::from(inner.width.max(1)))
                         .into_iter()
-                        .map(|line| Line::raw(line.into_owned()))
+                        .map(Line::raw)
                         .collect::<Vec<_>>(),
                 )
                 .style(if current {
@@ -839,8 +838,8 @@ impl App {
         }
         metadata.push(format!("{}  y path · Y name", doc.root_path));
         for value in metadata {
-            for wrapped in textwrap::wrap(&value, usize::from(inner.width.max(1))) {
-                header.push(Line::styled(wrapped.into_owned(), Style::default().fg(self.theme.roles.muted)));
+            for wrapped in wrap(&value, usize::from(inner.width.max(1))) {
+                header.push(Line::styled(wrapped, Style::default().fg(self.theme.roles.muted)));
             }
         }
         header.push(Line::raw("─".repeat(usize::from(inner.width))));
@@ -895,6 +894,26 @@ impl App {
 fn meter(label: &str, done: usize, total: usize) -> String {
     let filled = done.saturating_mul(5).checked_div(total).unwrap_or(0).min(5);
     format!("{label} {}/{} {}{}  ", done, total, "▮".repeat(filled), "▯".repeat(5 - filled))
+}
+
+/// Standard padded base64.
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let group = chunk
+            .iter()
+            .enumerate()
+            .fold(0_u32, |group, (index, byte)| group | u32::from(*byte) << (16 - 8 * index));
+        for index in 0..4 {
+            encoded.push(if index <= chunk.len() {
+                char::from(ALPHABET[(group >> (18 - 6 * index) & 63) as usize])
+            } else {
+                '='
+            });
+        }
+    }
+    encoded
 }
 
 fn truncate(text: &str, width: usize) -> String {
@@ -961,6 +980,14 @@ fn percent_encode(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn base64_matches_rfc_4648_vectors() {
+        for (input, encoded) in [("", ""), ("f", "Zg=="), ("fo", "Zm8="), ("foo", "Zm9v"), ("foobar", "Zm9vYmFy")] {
+            assert_eq!(base64(input.as_bytes()), encoded);
+        }
+        assert_eq!(base64(&[0xfb, 0xff]), "+/8=");
+    }
 
     fn app() -> (tempfile::TempDir, App) {
         let root = tempfile::tempdir().unwrap();

@@ -356,10 +356,7 @@ impl<'a> Renderer<'a> {
             self.blocks_context(children, compact);
             return;
         }
-        let label = textwrap::wrap(label, self.width - 4)
-            .first()
-            .map(|value| value.to_string())
-            .unwrap_or_default();
+        let label = wrap(label, self.width - 4).into_iter().next().unwrap_or_default();
         self.line(&glyphs(
             &format!(
                 "┌─ {label}{}┐",
@@ -764,9 +761,62 @@ fn plain_blocks(theme: &Theme, blocks: &[Block]) -> String {
         .collect()
 }
 
+/// Greedy word wrap by display width; words wider than a line are split.
+pub(crate) fn wrap(text: &str, width: usize) -> Vec<String> {
+    use unicode_width::UnicodeWidthStr;
+    let width = width.max(1);
+    let mut lines = Vec::new();
+    for paragraph in text.split('\n') {
+        let mut line = String::new();
+        let mut used = 0;
+        let mut fresh = true;
+        let mut rest = paragraph;
+        loop {
+            let gap = &rest[..rest.len() - rest.trim_start_matches(' ').len()];
+            rest = &rest[gap.len()..];
+            let (word, tail) = rest.split_at(rest.find(' ').unwrap_or(rest.len()));
+            rest = tail;
+            if word.is_empty() {
+                break;
+            }
+            // A line break swallows the gap; the first gap is the paragraph's indentation.
+            if !fresh && used + gap.width() + word.width() > width {
+                lines.push(std::mem::take(&mut line));
+                used = 0;
+            } else {
+                line.push_str(gap);
+                used += gap.width();
+            }
+            for character in word.chars() {
+                let length = character.width().unwrap_or(0);
+                if used + length > width && used > 0 {
+                    lines.push(std::mem::take(&mut line));
+                    used = 0;
+                }
+                line.push(character);
+                used += length;
+            }
+            fresh = false;
+        }
+        lines.push(line);
+    }
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wrap_breaks_at_spaces_and_splits_long_words() {
+        assert_eq!(wrap("alpha beta  gamma", 11), ["alpha beta", "gamma"]);
+        assert_eq!(wrap("  a.md  y path", 20), ["  a.md  y path"]);
+        assert_eq!(wrap("ab abcdefgh", 4), ["ab", "abcd", "efgh"]);
+        assert_eq!(wrap("一二三 x", 4), ["一二", "三 x"]);
+        assert_eq!(wrap("one\ntwo ", 10), ["one", "two"]);
+        assert_eq!(wrap("", 10), [""]);
+    }
+
     fn parse(source: &str, path: &str) -> Document {
         spec_viewer_core::parse(source, path, &spec_viewer_config::ParseConfig::default())
     }

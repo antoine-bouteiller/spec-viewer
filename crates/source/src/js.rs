@@ -1,14 +1,9 @@
 //! String and regular-expression primitives with JavaScript whitespace and line-terminator rules.
 use std::cmp::Ordering;
-use std::sync::OnceLock;
 
-use icu_collator::{Collator, CollatorBorrowed};
-
-pub(super) fn locale_compare(first: &str, second: &str) -> Ordering {
-    static COLLATOR: OnceLock<CollatorBorrowed<'static>> = OnceLock::new();
-    COLLATOR
-        .get_or_init(|| Collator::try_new(Default::default(), Default::default()).expect("compiled ICU root collation"))
-        .compare(first, second)
+/// Case-insensitive order, with byte order breaking ties so sorting stays deterministic.
+pub(super) fn name_order(first: &str, second: &str) -> Ordering {
+    first.to_lowercase().cmp(&second.to_lowercase()).then_with(|| first.cmp(second))
 }
 
 // ECMAScript WhiteSpace + LineTerminator, not Rust's Unicode White_Space (which includes NEL).

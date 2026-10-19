@@ -1,8 +1,8 @@
 //! Loopback HTTP server: the embedded client, the JSON API, and server-sent reload events.
 use std::{
     collections::HashMap,
-    io::{self, Cursor, Write},
-    net::SocketAddr,
+    io::{self, BufRead, BufReader, Read, Write},
+    net::{SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, mpsc::RecvTimeoutError},
     time::Duration,
@@ -11,7 +11,6 @@ use std::{
 use serde::Serialize;
 use spec_viewer_config::{Color, Config, Mode};
 use spec_viewer_core::{ChipValue, DocError, DocNode, Document, Library, Status, TocEntry};
-use tiny_http::{Header, Request, Response, Server};
 
 use crate::html::{Html, to_html};
 
@@ -19,28 +18,77 @@ const INDEX: &str = include_str!("../assets/index.html");
 const APP_JS: &str = include_str!("../assets/app.js");
 const APP_CSS: &str = include_str!("../assets/app.css");
 const HEARTBEAT: Duration = Duration::from_secs(15);
+const HEAD_LIMIT: u64 = 16 * 1024;
 
 /// Binds `127.0.0.1:<preferred>`, else any free port, and serves on background threads until exit.
 pub fn start(library: Library, config: &Config, preferred: Option<u16>) -> io::Result<SocketAddr> {
-    let server = preferred
-        .and_then(|port| Server::http(("127.0.0.1", port)).ok())
-        .map_or_else(|| Server::http(("127.0.0.1", 0)), Ok)
-        .map_err(io::Error::other)?;
-    let address = server
-        .server_addr()
-        .to_ip()
-        .ok_or_else(|| io::Error::other("server has no IP address"))?;
+    let listener = preferred
+        .and_then(|port| TcpListener::bind(("127.0.0.1", port)).ok())
+        .map_or_else(|| TcpListener::bind(("127.0.0.1", 0)), Ok)?;
+    let address = listener.local_addr()?;
     let state = Arc::new(State::new(library, config));
     std::thread::spawn(move || {
-        for request in server.incoming_requests() {
+        for stream in listener.incoming().flatten() {
             let state = Arc::clone(&state);
-            std::thread::spawn(move || state.handle(request));
+            std::thread::spawn(move || {
+                if let Some(target) = request_target(&stream) {
+                    state.handle(stream, &target);
+                }
+            });
         }
     });
     Ok(address)
 }
 
-type Reply = Response<Cursor<Vec<u8>>>;
+/// Reads the request head and returns its target. Any method is served as GET and every response
+/// closes the connection, so request bodies and keep-alive never need handling.
+fn request_target(stream: &TcpStream) -> Option<String> {
+    stream.set_read_timeout(Some(Duration::from_secs(5))).ok()?;
+    let mut reader = BufReader::new(stream.take(HEAD_LIMIT));
+    let mut line = String::new();
+    reader.read_line(&mut line).ok()?;
+    let target = line.split(' ').nth(1)?.to_owned();
+    loop {
+        line.clear();
+        if reader.read_line(&mut line).ok()? == 0 {
+            return None;
+        }
+        if line == "\r\n" || line == "\n" {
+            return Some(target);
+        }
+    }
+}
+
+struct Reply {
+    status: u16,
+    headers: Vec<(&'static str, &'static str)>,
+    body: Vec<u8>,
+}
+
+impl Reply {
+    fn send(self, mut stream: &TcpStream) {
+        let reason = match self.status {
+            200 => "OK",
+            403 => "Forbidden",
+            404 => "Not Found",
+            _ => "Internal Server Error",
+        };
+        let mut head = format!(
+            "HTTP/1.1 {} {reason}\r\nContent-Length: {}\r\nConnection: close\r\n",
+            self.status,
+            self.body.len()
+        );
+        for (name, value) in self.headers {
+            head.push_str(&format!("{name}: {value}\r\n"));
+        }
+        head.push_str("\r\n");
+        let _ = stream
+            .write_all(head.as_bytes())
+            .and_then(|()| stream.write_all(&self.body))
+            .and_then(|()| stream.flush());
+    }
+}
+
 /// HTML per document file, reused while the core cache returns the same parse.
 type Rendered = HashMap<PathBuf, (Arc<Document>, Arc<Html>)>;
 
@@ -79,14 +127,13 @@ impl State {
         }
     }
 
-    fn handle(&self, request: Request) {
-        let url = request.url().to_owned();
-        let (path, query) = url.split_once('?').unwrap_or((&url, ""));
+    fn handle(&self, stream: TcpStream, target: &str) {
+        let (path, query) = target.split_once('?').unwrap_or((target, ""));
         let query = Query(query);
         if path == "/api/events" {
             return match self.worktree(&query) {
-                Some(worktree) => self.events(request, &worktree),
-                None => drop(request.respond(text(403, "forbidden"))),
+                Some(worktree) => self.events(&stream, &worktree),
+                None => text(403, "forbidden").send(&stream),
             };
         }
         let reply = match path {
@@ -104,7 +151,7 @@ impl State {
             ),
             _ => text(404, "not found"),
         };
-        let _ = request.respond(reply);
+        reply.send(&stream);
     }
 
     /// Only a worktree the project currently lists may be read.
@@ -197,13 +244,12 @@ impl State {
         })
     }
 
-    fn events(&self, request: Request, worktree: &Path) {
+    fn events(&self, mut stream: &TcpStream, worktree: &Path) {
         let watch = match self.library.watch(worktree) {
             Ok(watch) => watch,
-            Err(error) => return drop(request.respond(text(500, &error.to_string()))),
+            Err(error) => return text(500, &error.to_string()).send(stream),
         };
-        let mut writer = request.into_writer();
-        let mut send = |chunk: &str| writer.write_all(chunk.as_bytes()).and_then(|()| writer.flush());
+        let mut send = |chunk: &str| stream.write_all(chunk.as_bytes()).and_then(|()| stream.flush());
         if send("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n").is_err() {
             return;
         }
@@ -295,26 +341,28 @@ fn decode(value: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-fn header(name: &str, value: &str) -> Header {
-    Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("ASCII header")
-}
-
-fn asset(body: &str, content_type: &str) -> Reply {
-    Response::from_data(body.as_bytes().to_vec())
-        .with_header(header("Content-Type", content_type))
-        .with_header(header("Cache-Control", "no-cache"))
+fn asset(body: &str, content_type: &'static str) -> Reply {
+    Reply {
+        status: 200,
+        headers: vec![("Content-Type", content_type), ("Cache-Control", "no-cache")],
+        body: body.as_bytes().to_vec(),
+    }
 }
 
 fn text(status: u16, body: &str) -> Reply {
-    Response::from_data(body.as_bytes().to_vec())
-        .with_status_code(status)
-        .with_header(header("Content-Type", "text/plain; charset=utf-8"))
+    Reply {
+        status,
+        headers: vec![("Content-Type", "text/plain; charset=utf-8")],
+        body: body.as_bytes().to_vec(),
+    }
 }
 
 fn json(value: &impl Serialize) -> Reply {
-    Response::from_data(serde_json::to_vec(value).expect("serializable response"))
-        .with_header(header("Content-Type", "application/json"))
-        .with_header(header("Cache-Control", "no-store"))
+    Reply {
+        status: 200,
+        headers: vec![("Content-Type", "application/json"), ("Cache-Control", "no-store")],
+        body: serde_json::to_vec(value).expect("serializable response"),
+    }
 }
 
 #[derive(Serialize)]
