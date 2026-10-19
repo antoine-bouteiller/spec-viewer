@@ -95,6 +95,10 @@ impl WatchSet {
     }
 
     fn relevant(&self, event: &Event) -> bool {
+        // inotify reports opens, and the `git ls-files` run per relevant event opens the index.
+        if event.kind.is_access() {
+            return false;
+        }
         event.paths.iter().any(|path| {
             if path.starts_with(&self.plan_dir) {
                 return true;
