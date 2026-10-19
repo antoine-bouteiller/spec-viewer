@@ -398,7 +398,7 @@ impl<'a> Renderer<'a> {
             Block::Heading { depth, id, content } => self.heading(*depth, id, content),
             Block::Paragraph(content) => self.prose(content, false),
             Block::Code { lang, source } => self.code(lang.as_deref().unwrap_or("text"), source),
-            Block::Mermaid { source } => self.code("mermaid", source),
+            Block::Mermaid { source } => self.mermaid(source),
             Block::List {
                 ordered,
                 start,
@@ -544,7 +544,7 @@ impl<'a> Renderer<'a> {
                 self.blank();
             }
             Component::Flowchart { source, details } => {
-                self.code("mermaid", source);
+                self.mermaid(source);
                 for detail in details {
                     self.heading(3, "", &[Inline::Text(detail.name.clone())]);
                     self.blocks_context(&detail.body.blocks, detail.body.inline);
@@ -577,43 +577,95 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    fn code(&mut self, language: &str, source: &str) {
-        self.paragraph(
-            glyphs(
-                &format!("── {language} ──"),
-                Style::default().fg(self.theme.roles.muted).add_modifier(Modifier::BOLD),
-                None,
-            ),
-            "",
-            "",
-            false,
-        );
-        if let Some(lines) = highlight::tokens(source, language, &self.theme.code) {
-            for tokens in lines {
-                let values = tokens
-                    .into_iter()
-                    .flat_map(|token| {
-                        let color = token.style.foreground;
-                        let mut style = Style::default().fg(Color::Rgb(color.r, color.g, color.b));
-                        if token.style.font_style.contains(syntect::highlighting::FontStyle::BOLD) {
-                            style = style.add_modifier(Modifier::BOLD);
-                        }
-                        if token.style.font_style.contains(syntect::highlighting::FontStyle::ITALIC) {
-                            style = style.add_modifier(Modifier::ITALIC);
-                        }
-                        if token.style.font_style.contains(syntect::highlighting::FontStyle::UNDERLINE) {
-                            style = style.add_modifier(Modifier::UNDERLINED);
-                        }
-                        glyphs(&token.text, style, None)
-                    })
-                    .collect();
-                self.paragraph(values, "", "", true);
+    fn mermaid(&mut self, source: &str) {
+        let inner = self.width.saturating_sub(4);
+        match mermaid_text::render_with_width(source, Some(inner)) {
+            Ok(diagram) if diagram.lines().all(|line| unicode_width::UnicodeWidthStr::width(line) <= inner) => {
+                let lines = diagram.lines().map(|line| glyphs(line, Style::default(), None)).collect();
+                self.framed("mermaid", lines);
             }
-        } else {
-            for line in source.split('\n') {
-                self.paragraph(glyphs(line, Style::default(), None), "", "", true);
-            }
+            _ => self.code("mermaid", source),
         }
+    }
+
+    fn code(&mut self, language: &str, source: &str) {
+        let lines = if let Some(lines) = highlight::tokens(source, language, &self.theme.code) {
+            lines
+                .into_iter()
+                .map(|tokens| {
+                    tokens
+                        .into_iter()
+                        .flat_map(|token| {
+                            let color = token.style.foreground;
+                            let mut style = Style::default().fg(Color::Rgb(color.r, color.g, color.b));
+                            if token.style.font_style.contains(syntect::highlighting::FontStyle::BOLD) {
+                                style = style.add_modifier(Modifier::BOLD);
+                            }
+                            if token.style.font_style.contains(syntect::highlighting::FontStyle::ITALIC) {
+                                style = style.add_modifier(Modifier::ITALIC);
+                            }
+                            if token.style.font_style.contains(syntect::highlighting::FontStyle::UNDERLINE) {
+                                style = style.add_modifier(Modifier::UNDERLINED);
+                            }
+                            glyphs(&token.text, style, None)
+                        })
+                        .collect()
+                })
+                .collect()
+        } else {
+            source.split('\n').map(|line| glyphs(line, Style::default(), None)).collect()
+        };
+        self.framed(language, lines);
+    }
+
+    /// Boxes preformatted lines under a label, filled with the code theme background.
+    fn framed(&mut self, label: &str, lines: Vec<Vec<Glyph>>) {
+        let settings = &self.theme.code.settings;
+        let rgb = |color: syntect::highlighting::Color| Color::Rgb(color.r, color.g, color.b);
+        let base = Style::default()
+            .fg(settings.foreground.map_or(Color::Reset, rgb))
+            .bg(settings.background.map_or(Color::Reset, rgb));
+        let border = base.fg(self.theme.roles.muted);
+        if self.width < 8 {
+            self.paragraph(glyphs(label, border.add_modifier(Modifier::BOLD), None), "", "", false);
+            for line in lines {
+                self.paragraph(line, "", "", true);
+            }
+            self.blank();
+            return;
+        }
+        let inner = self.width - 4;
+        let label = wrap(label, inner.saturating_sub(2)).into_iter().next().unwrap_or_default();
+        let mut top = glyphs("┌─ ", border, None);
+        top.extend(glyphs(&label, border.add_modifier(Modifier::BOLD), None));
+        top.extend(glyphs(
+            &format!(
+                " {}┐",
+                "─".repeat(inner - unicode_width::UnicodeWidthStr::width(label.as_str()) - 1)
+            ),
+            border,
+            None,
+        ));
+        self.line(&top);
+        let mut lines = lines;
+        while lines.last().is_some_and(Vec::is_empty) {
+            lines.pop();
+        }
+        let mut child = Self::new(inner, self.theme);
+        for line in lines {
+            child.paragraph(line, "", "", true);
+        }
+        for line in child.document.lines {
+            let padding = inner.saturating_sub(line.width());
+            let mut row = glyphs("│ ", border, None);
+            for span in line.spans {
+                row.extend(glyphs(&span.content, base.patch(span.style), None));
+            }
+            row.extend(glyphs(&" ".repeat(padding), base, None));
+            row.extend(glyphs(" │", border, None));
+            self.line(&row);
+        }
+        self.line(&glyphs(&format!("└{}┘", "─".repeat(self.width - 2)), border, None));
         self.blank();
     }
 
@@ -922,7 +974,7 @@ mod tests {
 
     #[test]
     fn nested_lists_tables_and_unknowns_fit_narrow_viewports() {
-        let source = "- [x] finished task with a long label\n- [ ] pending\n  - nested G-1\n\n> Quoted paragraph with unicode 界.\n\n| Name | Value |\n| --- | --- |\n| 界 | [a long link](target.spec.md) |\n\n<FeatureViewer>\n\nRetained child G-2.\n\n</FeatureViewer>";
+        let source = "- [x] finished task with a long label\n- [ ] pending\n  - nested G-1\n\n> Quoted paragraph with unicode 界.\n\n| Name | Value |\n| --- | --- |\n| 界 | [a long link](target.spec.md) |\n\n<FeatureViewer>\n\nRetained child G-2.\n\n</FeatureViewer>\n\n```ts\nconst wide = '界界界界界界界界界界界界'\n```\n\n```mermaid\ngraph LR; A[Build] --> B[Test] --> C[Deploy]\n```";
         let parsed = parse(source, "spec/narrow.spec.mdx");
         for width in 1..=30 {
             let document = to_terminal(&parsed, width, &Theme::default());
@@ -953,19 +1005,25 @@ mod tests {
     #[test]
     fn code_preserves_source_and_highlights_only_supported_languages() {
         let parsed = parse(
-            "```ts\n  const value = 42\n```\n\n```brainfuck\n++[>++<-]>.\n```\n\n```mermaid\nflowchart TD\n  Source --> Render\n```",
+            "```ts\n  const value = 42\n```\n\n```brainfuck\n++[>++<-]>.\n```\n\n```mermaid\nflowchart TD\n  Source --> Render\n```\n\n```mermaid\nnotADiagram\n  Unknown --> Kind\n```",
             "spec/code.spec.md",
         );
-        let document = to_terminal(
-            &parsed,
-            60,
-            &Theme::from_config(&spec_viewer_config::Config::default(), Some(spec_viewer_config::Mode::Light)).unwrap(),
-        );
+        let theme = Theme::from_config(&spec_viewer_config::Config::default(), Some(spec_viewer_config::Mode::Light)).unwrap();
+        let document = to_terminal(&parsed, 60, &theme);
         let source = document.lines.iter().map(Line::to_string).collect::<Vec<_>>().join("\n");
-        assert!(source.contains("── ts ──\n  const value = 42"));
-        assert!(source.contains("── brainfuck ──\n++[>++<-]>."));
-        assert!(source.contains("── mermaid ──\nflowchart TD\n  Source --> Render"));
-        let highlighted = document.lines.iter().find(|line| line.to_string() == "  const value = 42").unwrap();
+        assert!(source.contains("┌─ ts ─"));
+        assert!(source.contains("│   const value = 42 "));
+        assert!(source.contains("┌─ brainfuck ─"));
+        assert!(source.contains("│ ++[>++<-]>."));
+        assert!(source.contains("┌─ mermaid ─"));
+        assert!(source.contains("│ Render │"), "{source}");
+        assert!(!source.contains("Source --> Render"));
+        assert!(source.contains("│ notADiagram "), "{source}");
+        assert!(document.lines.iter().all(|line| line.width() == 0 || line.width() == 60));
+        let highlighted = document.lines.iter().find(|line| line.to_string().contains("const value")).unwrap();
+        let background = theme.code.settings.background.map(|color| Color::Rgb(color.r, color.g, color.b));
+        assert!(background.is_some());
+        assert!(highlighted.spans.iter().all(|span| span.style.bg == background));
         assert!(
             highlighted
                 .spans
@@ -986,7 +1044,7 @@ mod tests {
             "Keep source visible",
             "Enhance in browser",
             "Score: 4",
-            "── diff ──",
+            "┌─ diff ─",
             "1. line 1",
             "2. line 2",
             "Draft",
@@ -995,8 +1053,9 @@ mod tests {
             "2. Render",
             "3. Review",
             "<FeatureViewer>",
-            "── mermaid ──",
-            "── brainfuck ──",
+            "┌─ mermaid ─",
+            "│ Accepted │",
+            "┌─ brainfuck ─",
         ] {
             assert!(body.contains(required), "missing {required}: {body}");
         }

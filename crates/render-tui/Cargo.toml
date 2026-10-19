@@ -13,6 +13,7 @@ crossterm.workspace = true
 syntect.workspace = true
 two-face.workspace = true
 libc.workspace = true
+mermaid-text.workspace = true
 unicode-width.workspace = true
 
 [dev-dependencies]

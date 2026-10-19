@@ -15,7 +15,7 @@ screen, the keys, the terminal rendering of the semantic document, the theme, an
 statuses and header chips. Discovery, metadata, the tree, and confinement live in the `source`,
 `parser`, and `core` crates; this spec states the behaviour the screen relies on.
 
-- `[NG-1]` No diagram layout: Mermaid fences show as source.
+- `[NG-1]` No image diagrams: Mermaid renders as box-drawing text, or as source when it fails.
 - `[NG-2]` No mouse interaction beyond wheel scrolling.
 - `[NG-3]` No editing: the viewer never writes to the worktree.
 - `[NG-4]` No config hot reload: the config is read once per session.
@@ -68,8 +68,8 @@ pub enum Target { Doc(String), Xref(String) }
 | Headings                       | Bold, coloured by `roles.headings[depth - 1]` (last entry reused) |
 | Paragraphs, lists, task lists  | Wrapped to width; `[x]`/`[ ]` markers                             |
 | GFM tables                     | Box-drawn, cells wrapped; stacked when columns cannot fit         |
-| Code fences                    | Highlighted with the code theme, label in `muted`                 |
-| Mermaid fences                 | Source block labelled `mermaid`                                   |
+| Code fences                    | Boxed on the code theme background, label and border in `muted`   |
+| Mermaid fences                 | Box-drawn diagram labelled `mermaid`; source on error or overflow |
 | Inline code                    | `inline_code`                                                     |
 | Xref IDs                       | `roles.xref.<family>`, family `g ng pi kd so ct vc c oq ex other` |
 | Doc links                      | Underlined hint targets                                           |
@@ -77,7 +77,7 @@ pub enum Target { Doc(String), Xref(String) }
 | `Comparison` / `Option`        | One headed block per option                                       |
 | `DecisionMatrix`               | Table carrying the score                                          |
 | `AnnotatedDiff` / `MarginNote` | Diff block followed by numbered notes, line labels `annotation`   |
-| `Flowchart` / `NodeDetail`     | Mermaid source, then the node details                             |
+| `Flowchart` / `NodeDetail`     | Mermaid diagram, then the node details                            |
 | `StepRail` / `Step`            | Numbered steps                                                    |
 | Unknown component              | Bordered block labelled `<Name>`, children rendered               |
 | Raw HTML                       | Dimmed source text                                                |
