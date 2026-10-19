@@ -73,7 +73,7 @@ pub struct Html { pub html: String, pub has_mermaid: bool }
 | Headings                          | `<hN id="<parser id>">`                                                                                 |
 | Lists, task lists                 | Tight items without `<p>`; `<li class="task-list-item"><input type="checkbox" disabled [checked]>`      |
 | GFM tables                        | `<table>` with `text-align` per column                                                                  |
-| Code fences                       | `<pre class="hl"><code class="language-<lang>">` with `hl-` spans; unsupported languages escaped source |
+| Code fences                       | `div.md-code[data-lang]` > `<pre class="hl">` with `hl-` spans; lang on the border; else escaped        |
 | Mermaid fences                    | `<pre class="mermaid">` holding escaped source; sets `has_mermaid`                                      |
 | Xref IDs                          | `<button class="xref-chip" data-kind="<family>" data-ref="<ID>">`                                       |
 | Doc links                         | `<a href="…" data-doc="<worktree-relative path>">`                                                      |
@@ -82,7 +82,7 @@ pub struct Html { pub html: String, pub has_mermaid: bool }
 | `DecisionMatrix`                  | `table.md-matrix` with one `td[data-score]`                                                             |
 | `AnnotatedDiff` / `MarginNote`    | `figure.md-annotated-diff` with `ol.md-margin-notes` > `li.md-margin-note[data-line]`                   |
 | `Flowchart` / `NodeDetail`        | `.md-flowchart` with a Mermaid `<pre>`, then `section.md-node-detail[data-name]`                        |
-| `StepRail` / `Step`               | `ol.md-steprail` > `li.md-step[data-title]`                                                             |
+| `StepRail` / `Step`               | `ol.md-steprail` > `li.md-step[data-title]`, unnumbered, a dot on the rail per step                     |
 | Unknown component, `{expression}` | `div.md-unknown[data-component]` (`span` inline), children rendered                                     |
 | Lowercase JSX element             | Children rendered without a wrapper                                                                     |
 | Raw HTML                          | Passed through unescaped                                                                                |

@@ -11,12 +11,7 @@ expression: first
 │                                      ││1. Overview                                                                                                           │
 │                                      ││                                                                                                                      │
 │                                      ││This checked-in fixture exercises the document dialect for AC-001 and T-010. It keeps ordinary prose alongside an     │
-│                                      ││inline type, List<String>, and the expression                                                                         │
-│                                      ││┌─ <expression>──────────────────────────────────────────────────────────────────────────────────────────────────────┐│
-│                                      │││ someValue                                                                                                          ││
-│                                      ││└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│
-│                                      ││                                                                                                                      │
-│                                      ││so degradation remains local.                                                                                         │
+│                                      ││inline type, List<String>, and the expression {someValue} so degradation remains local.                               │
 │                                      ││                                                                                                                      │
 │                                      ││• A reader can compare source examples.                                                                               │
 │                                      ││• A reviewer can follow the rendering path.                                                                           │
@@ -48,5 +43,10 @@ expression: first
 │                                      ││└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│
 │                                      ││                                                                                                                      │
 │                                      ││JSON                                                                                                                  │
+│                                      ││                                                                                                                      │
+│                                      ││┌─ json ─────────────────────────────────────────────────────────────────────────────────────────────────────────────┐│
+│                                      │││ {                                                                                                                  ││
+│                                      │││   "title": "Spec Dialect Fixture",                                                                                 ││
+│                                      │││   "status": "accepted",                                                                                            ││
 └──────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · e files · q quit

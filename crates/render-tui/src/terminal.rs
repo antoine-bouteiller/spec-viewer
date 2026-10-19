@@ -3,7 +3,7 @@ use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
 };
-use spec_viewer_core::{Block, Component, Document, Inline, ListItem, TocEntry};
+use spec_viewer_core::{Block, Component, ComponentBody, Document, Inline, ListItem, TocEntry};
 use unicode_width::UnicodeWidthChar;
 
 pub use crate::Theme;
@@ -119,9 +119,33 @@ fn inline_blocks(theme: &Theme, blocks: &[Block], style: Style, target: Option<T
         })
         .collect()
 }
+fn placeholder(name: &str) -> bool {
+    name.as_bytes().first().is_some_and(u8::is_ascii_uppercase) || matches!(name, "expression" | "module")
+}
+
+/// Inline-able nodes stay in the paragraph; other components and raw HTML break it.
+fn breaks_prose(node: &Inline) -> bool {
+    match node {
+        Inline::Raw(_) => true,
+        Inline::Component(component) => !matches!(&**component, Component::Unknown { name, .. } if placeholder(name)),
+        _ => false,
+    }
+}
+
 fn inline_component(theme: &Theme, component: &Component, style: Style, target: Option<Target>, compact: bool) -> Vec<Glyph> {
     let mut out = Vec::new();
     match component {
+        Component::Unknown { name, blocks } if placeholder(name) => {
+            let style = style.fg(theme.roles.warning);
+            let (open, close) = if name == "expression" {
+                ("{".to_string(), "}".to_string())
+            } else {
+                (format!("<{name}>"), format!("</{name}>"))
+            };
+            out.extend(glyphs(&open, style, None));
+            out.extend(inline_blocks(theme, blocks, style, target, true));
+            out.extend(glyphs(&close, style, None));
+        }
         Component::CodeTabs { tabs, blocks } => {
             for tab in tabs {
                 out.extend(glyphs(&tab.label, style, target.clone()));
@@ -163,9 +187,9 @@ fn inline_component(theme: &Theme, component: &Component, style: Style, target: 
     out
 }
 
-struct Cell<'a> {
+struct Cell {
     blocks: Vec<Block>,
-    score: Option<&'a str>,
+    title: Option<String>,
     heading: bool,
     compact: bool,
 }
@@ -301,10 +325,10 @@ impl<'a> Renderer<'a> {
     }
 
     fn prose(&mut self, content: &[Inline], compact: bool) {
-        if compact || content.iter().any(|node| matches!(node, Inline::Component(_) | Inline::Raw(_))) {
+        if compact || content.iter().any(breaks_prose) {
             let mut pending = Vec::new();
             for node in content {
-                if matches!(node, Inline::Component(_) | Inline::Raw(_)) {
+                if breaks_prose(node) {
                     if !pending.is_empty() {
                         self.paragraph(inline(self.theme, &pending, Style::default(), None, true), "", "", false);
                         pending.clear();
@@ -329,15 +353,16 @@ impl<'a> Renderer<'a> {
         }
     }
 
-    fn embed(&mut self, child: Renderer<'_>, prefix: &str, suffix: &str) {
+    fn embed(&mut self, child: Renderer<'_>, prefix: &str, suffix: &str, style: Style) {
         let line_offset = self.document.lines.len();
         let column_offset = unicode_width::UnicodeWidthStr::width(prefix);
         for line in child.document.lines {
             let padding = child.width.saturating_sub(line.width());
-            let mut spans = vec![Span::raw(prefix.to_string())];
+            let mut spans = vec![Span::styled(prefix.to_string(), style)];
             spans.extend(line.spans);
             if !suffix.is_empty() {
-                spans.push(Span::raw(format!("{}{suffix}", " ".repeat(padding))));
+                spans.push(Span::raw(" ".repeat(padding)));
+                spans.push(Span::styled(suffix.to_string(), style));
             }
             self.document.lines.push(Line::from(spans));
         }
@@ -350,26 +375,55 @@ impl<'a> Renderer<'a> {
             .extend(child.anchors.into_iter().map(|(id, line)| (id, line + line_offset)));
     }
 
-    fn bordered(&mut self, label: &str, children: &[Block], compact: bool) {
-        if self.width < 5 {
-            self.paragraph(glyphs(label, Style::default().add_modifier(Modifier::BOLD), None), "", "", false);
+    fn bordered(&mut self, label: &str, children: &[Block], compact: bool, border: Style) {
+        if self.width < 6 {
+            self.paragraph(glyphs(label, border.add_modifier(Modifier::BOLD), None), "", "", false);
             self.blocks_context(children, compact);
             return;
         }
-        let label = wrap(label, self.width - 4).into_iter().next().unwrap_or_default();
-        self.line(&glyphs(
+        let label = wrap(label, self.width - 5).into_iter().next().unwrap_or_default();
+        let mut top = glyphs("┌─ ", border, None);
+        top.extend(glyphs(&label, border.add_modifier(Modifier::BOLD), None));
+        top.extend(glyphs(
             &format!(
-                "┌─ {label}{}┐",
-                "─".repeat(self.width - 4 - unicode_width::UnicodeWidthStr::width(label.as_str()))
+                " {}┐",
+                "─".repeat(self.width - 5 - unicode_width::UnicodeWidthStr::width(label.as_str()))
             ),
-            Style::default(),
+            border,
             None,
         ));
+        self.line(&top);
         let mut child = Self::new(self.width - 4, self.theme);
         child.blocks_context(children, compact);
-        self.embed(child, "│ ", " │");
-        self.line(&glyphs(&format!("└{}┘", "─".repeat(self.width - 2)), Style::default(), None));
+        while child.document.lines.last().is_some_and(|line| line.width() == 0) {
+            child.document.lines.pop();
+        }
+        self.embed(child, "│ ", " │", border);
+        self.line(&glyphs(&format!("└{}┘", "─".repeat(self.width - 2)), border, None));
         self.blank();
+    }
+
+    /// Titled cards side by side, stacked as bordered blocks when the columns cannot fit.
+    fn cards(&mut self, cards: &[(&str, &ComponentBody)]) {
+        if cards.is_empty() {
+            return;
+        }
+        if self.width > cards.len() * 24 {
+            let row = cards
+                .iter()
+                .map(|(title, body)| Cell {
+                    blocks: body.blocks.clone(),
+                    title: Some((*title).to_string()),
+                    heading: false,
+                    compact: body.inline,
+                })
+                .collect();
+            self.table(&[row]);
+        } else {
+            for (title, body) in cards {
+                self.bordered(title, &body.blocks, body.inline, Style::default().fg(self.theme.roles.muted));
+            }
+        }
     }
 
     fn heading(&mut self, depth: u8, id: &str, content: &[Inline]) {
@@ -412,7 +466,7 @@ impl<'a> Renderer<'a> {
                         row.iter()
                             .map(|content| Cell {
                                 blocks: vec![Block::Paragraph(content.clone())],
-                                score: None,
+                                title: None,
                                 heading: std::ptr::eq(row, head),
                                 compact: true,
                             })
@@ -425,7 +479,7 @@ impl<'a> Renderer<'a> {
                 let prefix = if self.width > 2 { "│ " } else { "" };
                 let mut child = Self::new(self.width.saturating_sub(unicode_width::UnicodeWidthStr::width(prefix)), self.theme);
                 child.blocks(blocks);
-                self.embed(child, prefix, "");
+                self.embed(child, prefix, "", Style::default());
                 self.blank();
             }
             Block::Rule => {
@@ -468,7 +522,7 @@ impl<'a> Renderer<'a> {
         }
         let line_start = self.document.lines.len();
         let indentation = " ".repeat(unicode_width::UnicodeWidthStr::width(marker.as_str()));
-        self.embed(child, &indentation, "");
+        self.embed(child, &indentation, "", Style::default());
         if let Some(line) = self.document.lines.get_mut(line_start) {
             line.spans[0] = Span::raw(marker);
         }
@@ -508,15 +562,13 @@ impl<'a> Renderer<'a> {
                 self.blocks_context(blocks, compact);
             }
             Component::Comparison { options, blocks } => {
-                for option in options {
-                    self.heading(3, "", &[Inline::Text(option.name.clone())]);
-                    self.blocks_context(&option.body.blocks, option.body.inline);
-                }
+                let cards: Vec<_> = options.iter().map(|option| (option.name.as_str(), &option.body)).collect();
+                self.cards(&cards);
                 self.blocks_context(blocks, compact);
             }
             Component::DecisionMatrix { score, blocks } => self.table(&[vec![Cell {
                 blocks: blocks.clone(),
-                score: Some(score),
+                title: (!score.is_empty()).then(|| format!("Score: {score}")),
                 heading: false,
                 compact,
             }]]),
@@ -545,30 +597,40 @@ impl<'a> Renderer<'a> {
             }
             Component::Flowchart { source, details } => {
                 self.mermaid(source);
-                for detail in details {
-                    self.heading(3, "", &[Inline::Text(detail.name.clone())]);
-                    self.blocks_context(&detail.body.blocks, detail.body.inline);
-                }
+                let cards: Vec<_> = details.iter().map(|detail| (detail.name.as_str(), &detail.body)).collect();
+                self.cards(&cards);
             }
             Component::StepRail { steps, .. } => {
+                let rail = Style::default().fg(self.theme.roles.muted);
+                let title = Style::default().add_modifier(Modifier::BOLD);
                 for (index, step) in steps.iter().enumerate() {
-                    let marker = self.marker(Some(index + 1));
-                    let mut child = Self::new(
-                        self.width.saturating_sub(unicode_width::UnicodeWidthStr::width(marker.as_str())),
-                        self.theme,
-                    );
-                    child.heading(3, "", &[Inline::Text(step.title.clone())]);
+                    if self.width < 4 {
+                        self.paragraph(glyphs(&step.title, title, None), "", "", false);
+                        self.blocks_context(&step.body.blocks, step.body.inline);
+                        continue;
+                    }
+                    if index > 0 {
+                        self.line(&glyphs("│", rail, None));
+                    }
+                    let mut child = Self::new(self.width - 2, self.theme);
+                    child.paragraph(glyphs(&step.title, title, None), "", "", false);
                     child.blocks_context(&step.body.blocks, step.body.inline);
-                    self.list_child(child, marker);
+                    while child.document.lines.last().is_some_and(|line| line.width() == 0) {
+                        child.document.lines.pop();
+                    }
+                    let start = self.document.lines.len();
+                    self.embed(child, "│ ", "", rail);
+                    self.document.lines[start].spans[0] = Span::styled("○ ", Style::default().fg(self.theme.roles.accent));
                 }
                 self.blank();
             }
             Component::Unknown { name, blocks } => {
-                if name.as_bytes().first().is_some_and(u8::is_ascii_uppercase) || matches!(name.as_str(), "expression" | "module") {
+                if placeholder(name) {
                     self.bordered(
-                        &format!("<{name}>"),
+                        &format!("Unsupported {name}"),
                         blocks,
                         compact || matches!(name.as_str(), "expression" | "module"),
+                        Style::default().fg(self.theme.roles.warning),
                     );
                 } else {
                     self.blocks_context(blocks, compact);
@@ -669,7 +731,7 @@ impl<'a> Renderer<'a> {
         self.blank();
     }
 
-    fn table(&mut self, table_rows: &[Vec<Cell<'_>>]) {
+    fn table(&mut self, table_rows: &[Vec<Cell>]) {
         let count = table_rows.iter().map(Vec::len).max().unwrap_or(0);
         if count == 0 {
             return;
@@ -677,17 +739,10 @@ impl<'a> Renderer<'a> {
         if self.width < count * 4 + 1 {
             for row in table_rows {
                 for cell in row {
-                    if let Some(score) = cell.score
-                        && !score.is_empty()
-                    {
-                        self.paragraph(
-                            glyphs(&format!("Score: {score}"), Style::default().add_modifier(Modifier::BOLD), None),
-                            "",
-                            "",
-                            false,
-                        );
+                    if let Some(title) = &cell.title {
+                        self.paragraph(glyphs(title, Style::default().add_modifier(Modifier::BOLD), None), "", "", false);
                     }
-                    self.bordered("cell", &cell.blocks, cell.compact);
+                    self.bordered("cell", &cell.blocks, cell.compact, Style::default().fg(self.theme.roles.muted));
                 }
             }
             return;
@@ -697,7 +752,9 @@ impl<'a> Renderer<'a> {
         for row in table_rows {
             for (index, cell) in row.iter().enumerate() {
                 let value = plain_blocks(self.theme, &cell.blocks);
-                widths[index] = widths[index].max(unicode_width::UnicodeWidthStr::width(value.as_str()).min(available));
+                let title = cell.title.as_deref().unwrap_or_default();
+                let width = unicode_width::UnicodeWidthStr::width(value.as_str()).max(unicode_width::UnicodeWidthStr::width(title));
+                widths[index] = widths[index].max(width.min(available));
             }
         }
         while widths.iter().sum::<usize>() > available {
@@ -714,7 +771,8 @@ impl<'a> Renderer<'a> {
                     .join(&middle.to_string())
             )
         };
-        self.line(&glyphs(&border('┌', '┬', '┐'), Style::default(), None));
+        let rule = Style::default().fg(self.theme.roles.muted);
+        self.line(&glyphs(&border('┌', '┬', '┐'), rule, None));
         for (row_index, row) in table_rows.iter().enumerate() {
             let cells: Vec<_> = widths
                 .iter()
@@ -722,15 +780,8 @@ impl<'a> Renderer<'a> {
                 .map(|(index, width)| {
                     let mut child = Self::new(*width, self.theme);
                     if let Some(cell) = row.get(index) {
-                        if let Some(score) = cell.score
-                            && !score.is_empty()
-                        {
-                            child.paragraph(
-                                glyphs(&format!("Score: {score}"), Style::default().add_modifier(Modifier::BOLD), None),
-                                "",
-                                "",
-                                false,
-                            );
+                        if let Some(title) = &cell.title {
+                            child.paragraph(glyphs(title, Style::default().add_modifier(Modifier::BOLD), None), "", "", false);
                         }
                         child.blocks_context(&cell.blocks, cell.compact);
                         if cell.heading {
@@ -750,16 +801,16 @@ impl<'a> Renderer<'a> {
             let height = cells.iter().map(|cell| cell.document.lines.len()).max().unwrap_or(1);
             let line_offset = self.document.lines.len();
             for inner_index in 0..height {
-                let mut spans = vec![Span::raw("│ ")];
+                let mut spans = vec![Span::styled("│", rule), Span::raw(" ")];
                 for (cell_index, cell) in cells.iter().enumerate() {
                     let content = cell.document.lines.get(inner_index).cloned().unwrap_or_default();
                     let padding = widths[cell_index].saturating_sub(content.width());
                     spans.extend(content.spans);
-                    spans.push(Span::raw(format!(
-                        "{} │{}",
-                        " ".repeat(padding),
-                        if cell_index + 1 < count { " " } else { "" }
-                    )));
+                    spans.push(Span::raw(" ".repeat(padding + 1)));
+                    spans.push(Span::styled("│", rule));
+                    if cell_index + 1 < count {
+                        spans.push(Span::raw(" "));
+                    }
                 }
                 self.document.lines.push(Line::from(spans));
             }
@@ -775,10 +826,10 @@ impl<'a> Renderer<'a> {
                 column_offset += widths[cell_index] + 3;
             }
             if row_index + 1 < table_rows.len() {
-                self.line(&glyphs(&border('├', '┼', '┤'), Style::default(), None));
+                self.line(&glyphs(&border('├', '┼', '┤'), rule, None));
             }
         }
-        self.line(&glyphs(&border('└', '┴', '┘'), Style::default(), None));
+        self.line(&glyphs(&border('└', '┴', '┘'), rule, None));
         self.blank();
     }
 }
@@ -1018,7 +1069,7 @@ mod tests {
         let body = document.lines.iter().map(Line::to_string).collect::<Vec<_>>().join("\n");
         assert!(body.contains("• [x] finished"), "{body}");
         assert!(body.contains("• [ ] pending"));
-        assert!(body.contains("<FeatureViewer>"));
+        assert!(body.contains("Unsupported FeatureViewer"));
         assert!(body.contains("Retained child G-2."));
     }
 
@@ -1058,25 +1109,25 @@ mod tests {
     }
 
     #[test]
-    fn dialect_components_retain_labels_scores_notes_and_step_numbers() {
+    fn dialect_components_retain_labels_scores_notes_and_steps() {
         let parsed = parse(include_str!("../../../fixtures/dialect.spec.mdx"), "spec/dialect.spec.mdx");
         let document = to_terminal(&parsed, 78, &Theme::default());
         let body = document.lines.iter().map(Line::to_string).collect::<Vec<_>>().join("\n");
         for required in [
-            "TypeScript",
-            "JSON",
-            "Keep source visible",
-            "Enhance in browser",
+            "expression {someValue} so",
+            "TypeScript\n\n┌─ ts ─",
+            "JSON\n\n┌─ json ─",
+            "│ Keep source visible ",
             "Score: 4",
             "┌─ diff ─",
             "1. line 1",
             "2. line 2",
             "Draft",
             "Accepted",
-            "1. Author",
-            "2. Render",
-            "3. Review",
-            "<FeatureViewer>",
+            "○ Author\n│ Write realistic",
+            "○ Render",
+            "○ Review",
+            "┌─ Unsupported FeatureViewer ─",
             "┌─ mermaid ─",
             "│ Accepted │",
             "┌─ brainfuck ─",
@@ -1084,6 +1135,21 @@ mod tests {
             assert!(body.contains(required), "missing {required}: {body}");
         }
         assert!(document.lines.iter().all(|line| line.width() <= 78));
+        assert!(
+            body.lines()
+                .any(|line| line.contains("Keep source visible") && line.contains("Enhance in browser")),
+            "{body}"
+        );
+        assert!(
+            body.lines().any(|line| line.contains("│ Draft ") && line.contains("│ Accepted ")),
+            "{body}"
+        );
+        let muted = Theme::default().roles.muted;
+        for card in ["Keep source visible", "An author starts"] {
+            let line = document.lines.iter().find(|line| line.to_string().contains(card)).unwrap();
+            assert_eq!(line.spans[0].content, "│");
+            assert_eq!(line.spans[0].style.fg, Some(muted), "{card}");
+        }
     }
 
     #[test]

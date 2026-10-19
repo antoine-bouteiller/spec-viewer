@@ -1032,6 +1032,35 @@ select {
   font-weight: 400;
 }
 
+.prose .md-code {
+  position: relative;
+  margin-block: 1.42857em;
+}
+
+.prose .md-code > pre {
+  margin-block: 0;
+  padding-top: 1em;
+}
+
+/* Sits on the top border, as the terminal labels its code boxes. */
+.md-code::before {
+  content: attr(data-lang);
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0.75rem;
+  transform: translateY(-50%);
+  padding: 0 0.375rem;
+  border-width: 1px;
+  border-radius: 0.25rem;
+  background-color: var(--code-bg);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
 .prose pre code {
   padding: 0;
   border-width: 0;
@@ -1265,31 +1294,38 @@ select {
   font-weight: 600;
 }
 
-.md-steprail {
+.prose .md-steprail {
+  padding-inline-start: 0;
   border-left: 2px solid var(--border-strong);
+  list-style: none;
 }
 
-.md-step {
-  position: relative;
-  margin-left: 1rem;
+.prose .md-step {
+  margin: 0 0 0 1.25rem;
   padding: 1rem 0;
   border-bottom-width: 1px;
 }
 
-.md-step:first-child {
+.prose .md-step:first-child {
   padding-top: 0;
 }
 
-.md-step:last-child {
+.prose .md-step:last-child {
   padding-bottom: 0;
   border-bottom-width: 0;
 }
 
-.md-step::before {
+.prose .md-step > h3 {
+  position: relative;
+  margin-top: 0;
+}
+
+/* Centred on the rail: the step's left margin plus half the rail and half the dot. */
+.md-step > h3::before {
   content: '';
   position: absolute;
-  top: 0.25rem;
-  left: -23px;
+  top: calc(0.5lh - 0.3125rem);
+  left: calc(-1.25rem - 1px - 0.3125rem);
   width: 0.625rem;
   height: 0.625rem;
   border: 2px solid var(--accent);

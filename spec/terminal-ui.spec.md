@@ -67,19 +67,19 @@ pub enum Target { Doc(String), Xref(String) }
 | ------------------------------ | ----------------------------------------------------------------- |
 | Headings                       | Bold, coloured by `roles.headings[depth - 1]` (last entry reused) |
 | Paragraphs, lists, task lists  | Wrapped to width; `[x]`/`[ ]` markers                             |
-| GFM tables                     | Box-drawn, cells wrapped; stacked when columns cannot fit         |
+| GFM tables                     | Box-drawn in `muted`, cells wrapped; stacked when too narrow      |
 | Code fences                    | Highlighted by ANSI slot, boxed on `code_bg`, border in `muted`   |
 | Mermaid fences                 | Box-drawn diagram labelled `mermaid`; source on error or overflow |
 | Inline code                    | `inline_code`                                                     |
 | Xref IDs                       | `roles.xref.<family>`, family `g ng pi kd so ct vc c oq ex other` |
 | Doc links                      | Underlined hint targets                                           |
 | `CodeTabs`                     | Each tab as a labelled code block                                 |
-| `Comparison` / `Option`        | One headed block per option                                       |
+| `Comparison` / `Option`        | Titled cards side by side; bordered blocks when too narrow        |
 | `DecisionMatrix`               | Table carrying the score                                          |
 | `AnnotatedDiff` / `MarginNote` | Diff block followed by numbered notes, line labels `annotation`   |
-| `Flowchart` / `NodeDetail`     | Mermaid diagram, then the node details                            |
-| `StepRail` / `Step`            | Numbered steps                                                    |
-| Unknown component              | Bordered block labelled `<Name>`, children rendered               |
+| `Flowchart` / `NodeDetail`     | Mermaid diagram, then the node details as cards                   |
+| `StepRail` / `Step`            | `○` title per step on a `│` rail                                  |
+| Unknown component              | `warning` box `Unsupported <Name>`; inline `{expr}`, `<Name>…`    |
 | Raw HTML                       | Dimmed source text                                                |
 | Degraded document              | `warning` banner line above the plain-markdown fallback           |
 
@@ -229,3 +229,4 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 | 2026-10-19 | `o` opens the web app; the session also serves it                                                                                | CT-2, CT-5                           | The browser view moved into `spec-viewer` (spec/web-ui.spec.md)  |
 | 2026-10-19 | Code blocks boxed on `code_bg` and highlighted by ANSI slot; Mermaid drawn as text; Catppuccin built-ins and code themes removed | CT-1, CT-4, Design, VC-6, C-3        | Colours follow the configured palette                            |
 | 2026-10-19 | The sidebar and the rail share one pane; opening a document shows the rail, `e` swaps them; `surface` defaults to hex            | Design, CT-2, VC-1, VC-2, C-3        | Wider document; code blocks stand out on any terminal background |
+| 2026-10-19 | Inline expressions stay in the paragraph; comparison and node-detail cards side by side; step rail; `muted` table borders        | CT-1                                 | Closer to the web rendering                                      |

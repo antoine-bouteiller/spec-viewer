@@ -323,7 +323,7 @@ mod tests {
             "<span class=\"md-unknown\" data-component=\"expression\">someValue</span>",
             "<pre class=\"mermaid\">flowchart TD\n  Broken --&gt; --&gt; Syntax",
             "<code class=\"language-brainfuck\">++[&gt;++&lt;-]&gt;.",
-            "<pre class=\"hl\"><code class=\"language-bash\"><span class=\"hl-",
+            "<div class=\"md-code\" data-lang=\"bash\"><pre class=\"hl\"><code class=\"language-bash\"><span class=\"hl-",
         ] {
             assert!(html.contains(expected), "missing {expected:?} in {html}");
         }

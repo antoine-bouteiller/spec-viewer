@@ -35,13 +35,18 @@ fn syntax(lang: &str) -> Option<&'static SyntaxReference> {
     SYNTAXES.find_syntax_by_extension(ext)
 }
 
-/// A `<pre>` block; unsupported languages and highlighter failures fall back to escaped source.
+/// A `<pre>` block, wrapped in `div.md-code[data-lang]` when labelled; unsupported languages and
+/// highlighter failures fall back to escaped source.
 pub(crate) fn code(lang: Option<&str>, source: &str) -> String {
     let class = lang.map(|lang| format!(" class=\"language-{}\"", escape(lang))).unwrap_or_default();
-    if let Some(highlighted) = lang.and_then(syntax).and_then(|syntax| highlighted(syntax, source)) {
-        return format!("<pre class=\"hl\"><code{class}>{highlighted}</code></pre>");
+    let pre = match lang.and_then(syntax).and_then(|syntax| highlighted(syntax, source)) {
+        Some(highlighted) => format!("<pre class=\"hl\"><code{class}>{highlighted}</code></pre>"),
+        None => format!("<pre><code{class}>{}</code></pre>", escape(source)),
+    };
+    match lang {
+        Some(lang) => format!("<div class=\"md-code\" data-lang=\"{}\">{pre}</div>", escape(lang)),
+        None => pre,
     }
-    format!("<pre><code{class}>{}</code></pre>", escape(source))
 }
 
 fn highlighted(syntax: &SyntaxReference, source: &str) -> Option<String> {
@@ -90,7 +95,7 @@ mod tests {
     #[test]
     fn rust_fences_are_highlighted() {
         for lang in ["rust", "rs"] {
-            assert!(super::code(Some(lang), "fn main() {}").starts_with("<pre class=\"hl\">"), "{lang}");
+            assert!(super::code(Some(lang), "fn main() {}").contains("\"><pre class=\"hl\">"), "{lang}");
         }
     }
 }

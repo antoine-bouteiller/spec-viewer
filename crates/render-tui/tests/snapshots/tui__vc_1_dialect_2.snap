@@ -11,42 +11,42 @@ expression: draw(&mut app)
 │                                      │││         │                                                                                                          ││
 │                                      │││         │                                                                                                          ││
 │                                      │││         │                                                                                                          ││
-│                                      │││    ┌────▾───┐                                                                                                      ││
-│                                      │││    │ Review │                                                                                                      ││
-│                                      │││    └────────┘                                                                                                      ││
-│                                      │││         │                                                                                                          ││
-│                                      │││         │                                                                                                          ││
-│                                      │││         │                                                                                                          ││
-│                                      │││         │                                                                                                          ││
 │                                      │││         │                                                                                                          ││
 │                                      │││   ┌─────▾────┐                                                                                                     ││
 │                                      │││   │ Accepted │                                                                                                     ││
 │                                      │││   └──────────┘                                                                                                     ││
 │                                      ││└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│
 │                                      ││                                                                                                                      │
-│                                      ││Draft                                                                                                                 │
+│                                      ││┌────────────────────────────────────────────────────┬──────────────────────────────────────────────┐                 │
+│                                      │││ Draft                                              │ Accepted                                     │                 │
+│                                      │││ An author starts with ordinary prose and examples. │ A reviewer confirms all required constructs. │                 │
+│                                      ││└────────────────────────────────────────────────────┴──────────────────────────────────────────────┘                 │
 │                                      ││                                                                                                                      │
-│                                      ││An author starts with ordinary prose and examples.                                                                    │
+│                                      ││○ Author                                                                                                              │
+│                                      │││ Write realistic source content and component children.                                                              │
+│                                      │││                                                                                                                     │
+│                                      ││○ Render                                                                                                              │
+│                                      │││ Convert MDX bridge elements into their documented markup.                                                           │
+│                                      │││                                                                                                                     │
+│                                      ││○ Review                                                                                                              │
+│                                      │││ Check both enhanced diagrams and visible fallback source.                                                           │
 │                                      ││                                                                                                                      │
-│                                      ││Accepted                                                                                                              │
-│                                      ││                                                                                                                      │
-│                                      ││A reviewer confirms all required constructs.                                                                          │
-│                                      ││1. Author                                                                                                             │
-│                                      ││                                                                                                                      │
-│                                      ││   Write realistic source content and component children.                                                             │
-│                                      ││                                                                                                                      │
-│                                      ││2. Render                                                                                                             │
-│                                      ││                                                                                                                      │
-│                                      ││   Convert MDX bridge elements into their documented markup.                                                          │
-│                                      ││                                                                                                                      │
-│                                      ││3. Review                                                                                                             │
-│                                      ││                                                                                                                      │
-│                                      ││   Check both enhanced diagrams and visible fallback source.                                                          │
-│                                      ││                                                                                                                      │
-│                                      ││                                                                                                                      │
-│                                      ││┌─ <FeatureViewer>───────────────────────────────────────────────────────────────────────────────────────────────────┐│
+│                                      ││┌─ Unsupported FeatureViewer ────────────────────────────────────────────────────────────────────────────────────────┐│
 │                                      │││ This unsupported component deliberately retains child content in its placeholder.                                  ││
-│                                      │││                                                                                                                    ││
 │                                      ││└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│
+│                                      ││                                                                                                                      │
+│                                      ││3. Code and diagrams                                                                                                  │
+│                                      ││                                                                                                                      │
+│                                      ││A shell command remains ordinary highlighted content:                                                                 │
+│                                      ││                                                                                                                      │
+│                                      ││┌─ bash ─────────────────────────────────────────────────────────────────────────────────────────────────────────────┐│
+│                                      │││ bun run check                                                                                                      ││
+│                                      │││ curl -s http://localhost:3000/api/doc                                                                              ││
+│                                      ││└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│
+│                                      ││                                                                                                                      │
+│                                      ││An unknown lexer must remain escaped source rather than failing the render:                                           │
+│                                      ││                                                                                                                      │
+│                                      ││┌─ brainfuck ────────────────────────────────────────────────────────────────────────────────────────────────────────┐│
+│                                      │││ ++[>++<-]>.                                                                                                        ││
 └──────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · e files · q quit
