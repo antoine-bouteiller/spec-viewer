@@ -66,6 +66,9 @@ pub fn project_of(root: &Path) -> io::Result<Project> {
         .enumerate()
         .filter_map(|(index, block)| {
             let block = block.replace('\0', "\n");
+            if starts(&block).into_iter().any(|start| block[start..].starts_with("prunable")) {
+                return None;
+            }
             let path = std::fs::canonicalize(porcelain_field(&block, "worktree ")?).ok()?;
             let branch = porcelain_field(&block, "branch refs/heads/");
             Some(Worktree {
@@ -118,12 +121,9 @@ impl Viewer {
 
     pub fn current(&self) -> Project {
         for root in std::iter::once(&self.root).chain(self.project.worktrees.iter().map(|wt| &wt.path)) {
-            if let Ok(mut project) = project_of(root)
+            if let Ok(project) = project_of(root)
                 && project.key == self.project.key
             {
-                project
-                    .worktrees
-                    .retain(|wt| project_of(&wt.path).is_ok_and(|project| project.key == self.project.key));
                 return project;
             }
         }
@@ -180,6 +180,18 @@ mod tests {
         );
         let viewer = Viewer::new(second.path()).unwrap();
         run(root.path(), &["worktree", "remove", "--force", second.path().to_str().unwrap()]);
+        assert_eq!(viewer.current().worktrees.len(), 1);
+    }
+
+    #[test]
+    fn a_recreated_worktree_directory_is_not_listed() {
+        let root = repository();
+        run(root.path(), &["commit", "--allow-empty", "-qm", "base"]);
+        let second = tempfile::tempdir().unwrap();
+        run(root.path(), &["worktree", "add", "-qb", "feature", second.path().to_str().unwrap()]);
+        let viewer = Viewer::new(root.path()).unwrap();
+        fs::remove_dir_all(second.path()).unwrap();
+        fs::create_dir(second.path()).unwrap();
         assert_eq!(viewer.current().worktrees.len(), 1);
     }
 
