@@ -1,9 +1,9 @@
 use super::highlight;
-use spec_viewer_core::{Block, Component, Document, Inline, ListItem, TocEntry};
 use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
+use spec_viewer_core::{Block, Component, Document, Inline, ListItem, TocEntry};
 use unicode_width::UnicodeWidthChar;
 
 pub use crate::Theme;

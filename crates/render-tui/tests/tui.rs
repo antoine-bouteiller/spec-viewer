@@ -7,12 +7,12 @@ use std::{
 };
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::{Terminal, backend::TestBackend};
 use spec_viewer_core::{Library, ParseConfig, watch};
 use spec_viewer_render_tui::{
     terminal::{Target, Theme},
     tui::{App, Focus, RailEntry, Tab},
 };
-use ratatui::{Terminal, backend::TestBackend};
 use support::fixture::{Fixture, write};
 
 #[derive(Clone, Default)]

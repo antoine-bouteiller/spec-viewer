@@ -2,13 +2,13 @@
 mod support;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, style::Color};
 use spec_viewer_config::{Config, Mode};
 use spec_viewer_core::Library;
 use spec_viewer_render_tui::{
     Theme,
     tui::{App, Focus},
 };
-use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, style::Color};
 use std::{io, path::Path};
 use support::fixture::Fixture;
 

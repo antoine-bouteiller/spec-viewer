@@ -1,7 +1,7 @@
 //! Resolve renderer-neutral configuration once, including syntect code themes.
+use ratatui::style::Color;
 use spec_viewer_config::{Ansi, Color as ConfigColor, Config, Error, Mode, ResolvedTheme, Roles};
 use spec_viewer_core::Status;
-use ratatui::style::Color;
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
