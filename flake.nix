@@ -7,10 +7,19 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    git-hooks = {
+      url = "github:cachix/git-hooks.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { nixpkgs, rust-overlay, ... }:
+    {
+      nixpkgs,
+      rust-overlay,
+      git-hooks,
+      ...
+    }:
     let
       systems = [
         "aarch64-darwin"
@@ -29,12 +38,12 @@
             };
             toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
           in
-          f { inherit pkgs toolchain; }
+          f { inherit system pkgs toolchain; }
         );
     in
     {
       packages = forAllSystems (
-        { pkgs, toolchain }:
+        { pkgs, toolchain, ... }:
         let
           rustPlatform = pkgs.makeRustPlatform {
             cargo = toolchain;
@@ -57,9 +66,41 @@
       );
 
       devShells = forAllSystems (
-        { pkgs, toolchain }:
         {
-          default = pkgs.mkShell { packages = [ toolchain ]; };
+          system,
+          pkgs,
+          toolchain,
+        }:
+        let
+          hooks = git-hooks.lib.${system}.run {
+            src = ./.;
+            hooks = {
+              rustfmt = {
+                enable = true;
+                packageOverrides = {
+                  cargo = toolchain;
+                  rustfmt = toolchain;
+                };
+              };
+              clippy = {
+                enable = true;
+                packageOverrides = {
+                  cargo = toolchain;
+                  clippy = toolchain;
+                };
+                settings = {
+                  denyWarnings = true;
+                  extraArgs = "--workspace --all-targets";
+                };
+              };
+            };
+          };
+        in
+        {
+          default = pkgs.mkShell {
+            packages = [ toolchain ];
+            inherit (hooks) shellHook;
+          };
         }
       );
     };
