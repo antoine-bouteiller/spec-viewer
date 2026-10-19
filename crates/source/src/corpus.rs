@@ -104,7 +104,7 @@ fn list_plans(dir: &Path, root: &Path, kind: &str) -> Vec<Entry> {
 }
 
 pub fn spec_paths(worktree: &Path) -> Vec<String> {
-    let mut args = vec!["ls-files", "--"];
+    let mut args = vec!["ls-files", "--cached", "--others", "--exclude-standard", "--"];
     args.extend(SPEC_PATHS);
     let Ok(output) = git(worktree, &args) else { return vec![] };
     let mut paths: Vec<_> = output.split('\n').filter(|path| !path.is_empty()).map(str::to_owned).collect();

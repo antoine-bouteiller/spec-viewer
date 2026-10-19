@@ -59,7 +59,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn corpus_scan_folder_plans_tracked_specs_and_wire_null() {
+    fn corpus_scan_folder_plans_unignored_specs_and_wire_null() {
         let root = tempfile::tempdir().unwrap();
         git(root.path(), &["init", "-qb", "main"]).unwrap();
         fs::create_dir_all(root.path().join(".plan/folder")).unwrap();
@@ -69,7 +69,9 @@ mod tests {
             (".plan/folder/2.md", "# A phase"),
             (".plan/folder/index.examples.md", "# Examples"),
             ("tracked.spec.mdx", "---\nkind: unknown\n---\n# Spec"),
-            ("untracked.spec.md", "# Invisible"),
+            ("untracked.spec.md", "# Untracked"),
+            ("ignored.spec.md", "# Ignored"),
+            (".gitignore", "ignored.spec.md\n"),
         ] {
             fs::write(root.path().join(rel), source).unwrap();
         }
@@ -96,9 +98,9 @@ mod tests {
                 .collect::<Vec<_>>(),
             [("Z phase", "phase"), ("A phase", "phase"), ("Examples", "examples")]
         );
-        assert_eq!(result.specs.len(), 1);
+        assert_eq!(result.specs.len(), 2);
         assert_eq!((&*result.specs[0].name, &*result.specs[0].kind), ("Spec", "unknown"));
         assert_eq!(result.changed_specs, None);
-        assert_eq!(spec_paths(root.path()), ["tracked.spec.mdx"]);
+        assert_eq!(spec_paths(root.path()), ["tracked.spec.mdx", "untracked.spec.md"]);
     }
 }
