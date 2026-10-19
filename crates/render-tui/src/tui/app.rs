@@ -57,6 +57,8 @@ pub struct App {
     pub quit: bool,
     /// The file navigator and the rail share one pane; an open document shows the rail.
     pub navigator: bool,
+    /// Whether the left pane (sidebar or rail) is shown at all.
+    pub panel: bool,
     pub rendered: TermDoc,
     pub hints: Vec<Hint>,
     pub message: Option<String>,
@@ -98,6 +100,7 @@ impl App {
             scroll: 0,
             quit: false,
             navigator: true,
+            panel: true,
             rendered: TermDoc::default(),
             hints: Vec::new(),
             message: None,
@@ -243,6 +246,7 @@ impl App {
         self.expanded.clear();
         self.message = None;
         self.navigator = true;
+        self.panel = true;
         if self.focus == Focus::Rail {
             self.focus = Focus::Sidebar;
         }
@@ -420,7 +424,10 @@ impl App {
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char('1') | KeyCode::Char('2') => {
                 self.tab = if key.code == KeyCode::Char('1') { Tab::Plans } else { Tab::Specs };
-                self.clear_document();
+                self.navigator = true;
+                self.panel = true;
+                self.focus = Focus::Sidebar;
+                self.sidebar_selection = self.rows().iter().position(|row| row.current).unwrap_or(0);
             }
             KeyCode::Char('w') => {
                 let path = self.worktree_path().to_path_buf();
@@ -435,6 +442,7 @@ impl App {
             KeyCode::Char('/') => {
                 self.filter_editing = true;
                 self.navigator = true;
+                self.panel = true;
                 self.focus = Focus::Sidebar;
             }
             KeyCode::Esc => {
@@ -449,8 +457,18 @@ impl App {
             KeyCode::Char('o') => self.open_browser(),
             KeyCode::Char('e') if self.doc.is_some() => {
                 self.navigator = !self.navigator;
+                self.panel = true;
                 self.focus = if self.navigator { Focus::Sidebar } else { Focus::Document };
             }
+            KeyCode::Char('b') if self.doc.is_some() => {
+                self.panel = !self.panel;
+                self.focus = match (self.panel, self.navigator) {
+                    (false, _) => Focus::Document,
+                    (true, true) => Focus::Sidebar,
+                    (true, false) => Focus::Rail,
+                };
+            }
+            KeyCode::Tab | KeyCode::BackTab if !self.panel => {}
             KeyCode::Tab | KeyCode::BackTab => {
                 self.focus = match self.focus {
                     Focus::Document if self.navigator => Focus::Sidebar,
@@ -562,27 +580,40 @@ impl App {
         let area = frame.area();
         let footer_height = u16::from(area.height > 1);
         let vertical = Layout::vertical([Constraint::Min(0), Constraint::Length(footer_height)]).split(area);
-        let side_width = (area.width / 4).clamp(18, 42).min(area.width);
-        let panes = Layout::horizontal([Constraint::Length(side_width), Constraint::Min(0)]).split(vertical[0]);
-        if self.navigator {
-            self.draw_sidebar(frame, panes[0]);
+        let side_width = if self.panel {
+            (area.width / 4).clamp(30, 42).min(area.width)
         } else {
-            self.draw_rail(frame, panes[0]);
+            0
+        };
+        let panes = Layout::horizontal([Constraint::Length(side_width), Constraint::Min(0)]).split(vertical[0]);
+        match (self.panel, self.navigator) {
+            (false, _) => {}
+            (true, true) => self.draw_sidebar(frame, panes[0]),
+            (true, false) => self.draw_rail(frame, panes[0]),
         }
         self.draw_document(frame, panes[1]);
         let footer = if let Some(input) = &self.hint_input {
             format!("Hint: {input}  Esc cancel")
         } else {
             self.message.clone().unwrap_or_else(|| {
-                let keys = "Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · e files · q quit";
-                match &self.web_url {
-                    Some(url) => format!("{keys} · o {url}"),
-                    None => keys.into(),
-                }
+                let mut keys = vec![
+                    "Tab focus".to_owned(),
+                    "1/2 tabs".into(),
+                    "w worktree".into(),
+                    "/ filter".into(),
+                    "d Diff".into(),
+                    "f links".into(),
+                    "y/Y copy".into(),
+                    "e files".into(),
+                    "b panel".into(),
+                    "q quit".into(),
+                ];
+                keys.extend(self.web_url.as_ref().map(|url| format!("o {url}")));
+                fit_keys(&keys, usize::from(area.width))
             })
         };
         frame.render_widget(
-            Paragraph::new(footer).style(Style::default().fg(self.theme.roles.muted)),
+            Paragraph::new(truncate(&footer, usize::from(area.width))).style(Style::default().fg(self.theme.roles.muted)),
             vertical[1],
         );
         if let Some(selection) = self.picker {
@@ -939,6 +970,25 @@ fn truncate(text: &str, width: usize) -> String {
     truncated
 }
 
+/// Joins whole key hints that fit in `width`, ending with `…` when some are dropped.
+fn fit_keys(keys: &[String], width: usize) -> String {
+    use unicode_width::UnicodeWidthStr;
+    let mut footer = String::new();
+    for (index, key) in keys.iter().enumerate() {
+        let separator = if footer.is_empty() { "" } else { " · " };
+        let reserve = if index + 1 < keys.len() { " …".width() } else { 0 };
+        if footer.width() + separator.width() + key.width() + reserve > width {
+            if !footer.is_empty() {
+                footer.push_str(" …");
+            }
+            break;
+        }
+        footer.push_str(separator);
+        footer.push_str(key);
+    }
+    footer
+}
+
 fn wrap_lines(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'static>> {
     use unicode_width::UnicodeWidthChar;
     let capacity = usize::from(width.max(1));
@@ -1056,6 +1106,45 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
         assert!(app.navigator);
         assert_eq!(app.focus, Focus::Sidebar);
+    }
+
+    #[test]
+    fn footer_keeps_whole_key_hints_that_fit() {
+        let keys = ["Tab focus".to_owned(), "1/2 tabs".into(), "q quit".into()];
+        assert_eq!(fit_keys(&keys, 80), "Tab focus · 1/2 tabs · q quit");
+        assert_eq!(fit_keys(&keys, 24), "Tab focus · 1/2 tabs …");
+        assert_eq!(fit_keys(&keys, 5), "");
+    }
+
+    #[test]
+    fn tab_switch_keeps_the_open_document() {
+        let (_root, mut app) = app();
+        app.open(".plan/second.md");
+        app.handle_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
+        assert_eq!(app.tab, Tab::Specs);
+        assert_eq!(app.doc.as_ref().unwrap().root_path, ".plan/second.md");
+        assert!(app.navigator);
+        assert_eq!(app.focus, Focus::Sidebar);
+        app.handle_key(KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE));
+        assert_eq!(app.doc.as_ref().unwrap().root_path, ".plan/second.md");
+        assert!(app.rows()[app.sidebar_selection].current);
+    }
+
+    #[test]
+    fn hidden_panel_gives_the_document_the_full_width() {
+        let (_root, mut app) = app();
+        app.open(".plan/first.md");
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
+        assert!(!app.panel);
+        assert_eq!(app.focus, Focus::Document);
+        app.handle_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.focus, Focus::Document);
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        assert_eq!(app.viewport.width, 78);
+        app.handle_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
+        assert!(app.panel);
+        assert_eq!(app.focus, Focus::Rail);
     }
 
     #[test]

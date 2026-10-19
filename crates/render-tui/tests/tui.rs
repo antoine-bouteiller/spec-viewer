@@ -176,7 +176,7 @@ fn vc_2_diff_is_specs_only_and_restricts_to_changed_paths() {
 }
 
 #[test]
-fn vc_2_worktree_and_tabs_clear_documents_but_keep_filter_and_diff() {
+fn vc_2_worktree_switch_clears_document_and_tabs_keep_it_with_filter_and_diff() {
     let fixture = Fixture::new();
     let mut app = App::new(
         Library::new(&fixture.root.join(".plan/rollout"), ParseConfig::default()).unwrap(),
@@ -202,7 +202,7 @@ fn vc_2_worktree_and_tabs_clear_documents_but_keep_filter_and_diff() {
     app.open("spec/standalone.spec.md");
     key(&mut app, KeyCode::Char('1'));
     assert_eq!(app.tab, Tab::Plans);
-    assert!(app.doc.is_none());
+    assert_eq!(app.doc.as_ref().unwrap().root_path, "spec/standalone.spec.md");
     assert_eq!(app.filter, "standalone");
     assert!(app.diff);
     let sibling = App::new(

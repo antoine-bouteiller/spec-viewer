@@ -98,20 +98,24 @@ Kind: type · Anchor: `crates/render-tui/src/tui/app.rs#App`
 ```
 
 ```text
-state: worktree, tab, doc, filter, diff, expanded, navigator, focus (sidebar|rail|document), scroll
-Tab / S-Tab   toggle focus           1 / 2    plans / specs (clears doc)
+state: worktree, tab, doc, filter, diff, expanded, navigator, panel, focus (sidebar|rail|document), scroll
+Tab / S-Tab   toggle focus           1 / 2    plans / specs (keeps doc)
 w             worktree picker (clears doc)     /        filter; Esc clears
 d             Diff toggle; specs tab only, disabled when changed specs are unknown
 ↑↓ jk         move   → ← lh  expand / collapse   Enter  open
 PgUp PgDn g G scroll document        f        hint mode (open link / copy xref)
 y / Y         copy absolute path / file name   e        sidebar / rail (open document only)
 o             open the current view in the web app (spec/web-ui.spec.md)
+b             hide / show the left pane (open document only)
 q / C-c       quit
 ```
 
 One pane left of the document shows either the sidebar (the corpus tree) or the rail, never both.
-Opening a document shows the rail; `e` swaps them, and `/` or clearing the document shows the
-sidebar. A live reload keeps the shown pane and focus.
+Opening a document shows the rail; `e` swaps them, and `/`, `1`, `2`, or clearing the document
+shows the sidebar. `b` hides the pane so the document takes the full width; `e`, `/`, `1`, `2`, or
+clearing the document shows it again. The pane is at least 30 columns wide. The footer lists the
+key hints that fit whole, ending with `…` when some are dropped. A live reload keeps the shown
+pane and focus.
 
 Tree semantics: the specs tab nests by path, compacts single-child directory chains, nests a spec
 under the document its `parent-spec` resolves to, and lets an umbrella own a directory it fully
@@ -119,7 +123,8 @@ explains. Companions (`<stem>.discovery.*`, `<stem>.examples.*`) sit under their
 plans tab is flat, with a plan index owning its phase files. A non-empty filter or `Diff` shows a
 flat list with paths and omits attached examples. A document row never expands. A family member
 keeps its owner row current, and ancestors of the open document expand. Filter and `Diff` persist
-across tab and worktree switches; a switch clears the document and expansion. An archived document
+across tab and worktree switches. A worktree switch clears the document and expansion; a tab
+switch keeps the open document and selects its row when the tab lists it. An archived document
 shows an `archived` chip in `status_unknown`. The header kind is the document's tree kind (`plan`,
 `phase`, `umbrella`, `leaf`, `discovery`, `examples`). The rail lists the nearest family's files
 when the document belongs to one, then the document's outline.
@@ -190,9 +195,10 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
   construct of `fixtures/dialect.spec.mdx`. — demonstrates `[SO-1]`
 - `[VC-2]` Given key sequences on the fixture, then: a filter shows a flat list with paths and
   without attached examples; `d` restricts specs to the changed set; `w` switches worktree and
-  clears the document; opening a phase keeps its plan row current; hint mode on an xref writes an
-  OSC 52 sequence carrying the ID; hint mode on a doc link opens its target; opening a document
-  replaces the sidebar with the rail and `e` swaps them back. — demonstrates `[SO-1]`
+  clears the document; `1` and `2` keep the open document; `b` hides the left pane; opening a phase
+  keeps its plan row current; hint mode on an xref writes an OSC 52 sequence carrying the ID; hint
+  mode on a doc link opens its target; opening a document replaces the sidebar with the rail and `e`
+  swaps them back. — demonstrates `[SO-1]`
 - `[VC-3]` Given an open document, when a new `.plan/*.md` file is written and the open file is
   edited, then a reload arrives, the tree lists the new plan, the body shows the edit, and the
   scroll position is kept. — demonstrates `[SO-2]`
@@ -231,3 +237,4 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 | 2026-10-19 | Code blocks boxed on `code_bg` and highlighted by ANSI slot; Mermaid drawn as text; Catppuccin built-ins and code themes removed | CT-1, CT-4, Design, VC-6, C-3        | Colours follow the configured palette                            |
 | 2026-10-19 | The sidebar and the rail share one pane; opening a document shows the rail, `e` swaps them; `surface` defaults to hex            | Design, CT-2, VC-1, VC-2, C-3        | Wider document; code blocks stand out on any terminal background |
 | 2026-10-19 | Inline expressions stay in the paragraph; comparison and node-detail cards side by side; step rail; `muted` table borders        | CT-1                                 | Closer to the web rendering                                      |
+| 2026-10-19 | Tab switches keep the open document; `b` hides the left pane; the pane is at least 30 columns; the footer drops whole hints      | CT-2, VC-2                           | Browsing the other tab lost the document; narrow terminals       |
