@@ -248,6 +248,32 @@ fn xref_families_and_bracketed_subreferences() {
 }
 
 #[test]
+fn bracketed_text_xrefs_drop_brackets() {
+    let document = render("see [CT-2], [VC-1 and [G-3]x");
+    assert_eq!(
+        document.blocks[0],
+        Block::Paragraph(vec![
+            Inline::Text("see ".into()),
+            Inline::Xref {
+                id: "CT-2".into(),
+                family: "ct".into()
+            },
+            Inline::Text(", [".into()),
+            Inline::Xref {
+                id: "VC-1".into(),
+                family: "vc".into()
+            },
+            Inline::Text(" and ".into()),
+            Inline::Xref {
+                id: "G-3".into(),
+                family: "g".into()
+            },
+            Inline::Text("x".into()),
+        ])
+    );
+}
+
+#[test]
 fn xrefs_protect_code_and_unknown_bare_prefixes() {
     let document = render("```text\nAC-001 VC-1\n```\n\n`VC-1` `before [KD-1] after` ZZ-001");
     assert!(Nodes::document(&document).xrefs().is_empty());

@@ -212,12 +212,14 @@ fn chipify(value: &str) -> Vec<Inline> {
                 }
             });
             if let Some((end, prefix)) = found {
-                if offset < index {
-                    out.push(Inline::Text(value[offset..index].into()));
+                let wrapped = index > 0 && bytes[index - 1] == b'[' && bytes.get(end) == Some(&b']');
+                let (start, next) = if wrapped { (index - 1, end + 1) } else { (index, end) };
+                if offset < start {
+                    out.push(Inline::Text(value[offset..start].into()));
                 }
                 out.push(chip(&value[index..end], prefix));
-                offset = end;
-                index = end;
+                offset = next;
+                index = next;
                 continue;
             }
         }
