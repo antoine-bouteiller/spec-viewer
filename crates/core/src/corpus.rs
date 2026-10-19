@@ -62,6 +62,7 @@ mod tests {
     fn corpus_scan_folder_plans_unignored_specs_and_wire_null() {
         let root = tempfile::tempdir().unwrap();
         git(root.path(), &["init", "-qb", "main"]).unwrap();
+        git(root.path(), &["config", "core.excludesFile", "/dev/null"]).unwrap();
         fs::create_dir_all(root.path().join(".plan/folder")).unwrap();
         for (rel, source) in [
             (".plan/folder/index.md", "---\nstatus: review\n---\n# Folder"),

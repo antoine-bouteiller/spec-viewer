@@ -5,7 +5,9 @@ use std::process::{Command, Stdio};
 use super::js::{starts, take_while, terminator, trim};
 use super::{Project, Worktree};
 
-pub(super) const SPEC_PATHS: [&str; 6] = [
+// Pathspec `*` also matches `/`; plans are listed separately.
+pub(super) const SPEC_PATHS: [&str; 7] = [
+    ":(exclude).plan/",
     "*.spec.md",
     "*.spec.mdx",
     "*.discovery.md",
@@ -143,6 +145,7 @@ mod tests {
         run(root.path(), &["init", "-qb", "main"]);
         run(root.path(), &["config", "user.email", "spec-viewer@example.test"]);
         run(root.path(), &["config", "user.name", "Spec Viewer Test"]);
+        run(root.path(), &["config", "core.excludesFile", "/dev/null"]);
         root
     }
     #[test]
@@ -188,7 +191,9 @@ mod tests {
             ("second.spec.md", "second\n"),
             ("remote-only.spec.md", "remote only\n"),
             ("README.md", "readme\n"),
+            (".plan/plan.examples.md", "plan\n"),
         ] {
+            fs::create_dir_all(root.path().join(name).parent().unwrap()).unwrap();
             fs::write(root.path().join(name), content).unwrap();
         }
         run(root.path(), &["add", "."]);
@@ -201,6 +206,7 @@ mod tests {
         fs::write(root.path().join("first.spec.md"), "changed in working tree\n").unwrap();
         fs::write(root.path().join("second.spec.md"), "changed in commit\n").unwrap();
         fs::write(root.path().join("README.md"), "not a spec\n").unwrap();
+        fs::write(root.path().join(".plan/plan.examples.md"), "changed plan\n").unwrap();
         run(root.path(), &["add", "second.spec.md"]);
         run(root.path(), &["commit", "-qm", "change second spec"]);
         let mut changed = changed_specs(root.path()).unwrap();

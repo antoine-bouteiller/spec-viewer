@@ -1,18 +1,18 @@
 ---
-source: tests/tui.rs
+source: crates/render-tui/tests/tui.rs
 expression: first
 ---
 ┌corpus · Plans────────────────────────┐┌Sections────────────────┐┌Document────────────────────────────────────────────────────────────────────────────────────┐
 │feature (main) ▾                      ││§ 1. Overview           ││Spec Dialect Fixture [accepted]                                                             │
 │plans [specs] Diff                    ││  § 1.1 Rendered table  ││140 lines                                                                                   │
 │/                                     ││§ 2. Component dialect  ││leaf                                                                                        │
-│▸ .plan/rollout                       ││§ 3. Code and diagrams  ││spec/dialect.spec.mdx  y path · Y name                                                      │
-│▸ doc/architecture                    ││  § 3.1 Closing notes   ││────────────────────────────────────────────────────────────────────────────────────────────│
-│▾ spec                                ││                        ││1. Overview                                                                                 │
-│    Broken MDX [draft]                ││                        ││                                                                                            │
-│    Raw HTML                          ││                        ││This checked-in fixture exercises the document dialect for AC-001 and T-010. It keeps       │
-│    Spec Dialect Fixture [accepted]   ││                        ││ordinary prose alongside an inline type, List<String>, and the expression                   │
-│    Standalone spec [done]            ││                        ││┌─ <expression>────────────────────────────────────────────────────────────────────────────┐│
+│▸ doc/architecture                    ││§ 3. Code and diagrams  ││spec/dialect.spec.mdx  y path · Y name                                                      │
+│▾ spec                                ││  § 3.1 Closing notes   ││────────────────────────────────────────────────────────────────────────────────────────────│
+│    Broken MDX [draft]                ││                        ││1. Overview                                                                                 │
+│    Raw HTML                          ││                        ││                                                                                            │
+│    Spec Dialect Fixture [accepted]   ││                        ││This checked-in fixture exercises the document dialect for AC-001 and T-010. It keeps       │
+│    Standalone spec [done]            ││                        ││ordinary prose alongside an inline type, List<String>, and the expression                   │
+│                                      ││                        ││┌─ <expression>────────────────────────────────────────────────────────────────────────────┐│
 │                                      ││                        │││ someValue                                                                                ││
 │                                      ││                        ││└──────────────────────────────────────────────────────────────────────────────────────────┘│
 │                                      ││                        ││                                                                                            │

@@ -1,20 +1,20 @@
 ---
-source: tests/tui.rs
+source: crates/render-tui/tests/tui.rs
 expression: draw(&mut app)
 ---
 ┌corpus · Plans────────────────────────┐┌Files───────────────────┐┌Document────────────────────────────────────────────────────────────────────────────────────┐
 │feature (main) ▾                      ││Viewer umbrella [index] ││Tree leaf [amended]                                                                         │
 │plans [specs] Diff                    ││Tree leaf               ││3 lines                                                                                     │
 │/                                     ││  § Tree                ││leaf                                                                                        │
-│▸ .plan/rollout                       ││Viewer examples         ││doc/architecture/tree.spec.md  y path · Y name                                              │
-│▾ doc/architecture                    ││[examples]              ││────────────────────────────────────────────────────────────────────────────────────────────│
-│    Unlinked sibling [draft]          ││Viewer discovery        ││Tree                                                                                        │
-│    Viewer umbrella [accepted]        ││                        ││                                                                                            │
-│▾ spec                                ││                        ││Flat document rows.                                                                         │
-│    Broken MDX [draft]                ││                        ││                                                                                            │
+│▾ doc/architecture                    ││Viewer examples         ││doc/architecture/tree.spec.md  y path · Y name                                              │
+│    Unlinked sibling [draft]          ││[examples]              ││────────────────────────────────────────────────────────────────────────────────────────────│
+│    Viewer umbrella [accepted]        ││Viewer discovery        ││Tree                                                                                        │
+│▾ spec                                ││                        ││                                                                                            │
+│    Broken MDX [draft]                ││                        ││Flat document rows.                                                                         │
 │    Raw HTML                          ││                        ││                                                                                            │
 │    Spec Dialect Fixture [accepted]   ││                        ││                                                                                            │
 │    Standalone spec [done]            ││                        ││                                                                                            │
+│                                      ││                        ││                                                                                            │
 │                                      ││                        ││                                                                                            │
 │                                      ││                        ││                                                                                            │
 │                                      ││                        ││                                                                                            │
