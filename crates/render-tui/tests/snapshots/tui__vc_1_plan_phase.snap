@@ -1,52 +1,52 @@
 ---
-source: tests/tui.rs
+source: crates/render-tui/tests/tui.rs
 expression: draw(&mut app)
 ---
-┌corpus · Plans────────────────────────┐┌Files───────────────────┐┌Document────────────────────────────────────────────────────────────────────────────────────┐
-│feature (main) ▾                      ││API rollout [index]     ││Design phase [ready]                                                                        │
-│[plans] specs                         ││Design phase            ││AC 1/2 ▮▮▯▯▯  T 1/2 ▮▮▯▯▯  14 lines                                                         │
-│/                                     ││  § Why                 ││phase · API rollout · 1 phases · Fixture Author · 2026-01-02                                │
-│  Actions [draft]                     ││  § Acceptance criteria ││related: spec/standalone.spec.md                                                            │
-│  API rollout [in-progress]           ││  § Implementation      ││.plan/rollout/01-design.md  y path · Y name                                                 │
-│  Legacy rollout [done]               ││    § Design            ││────────────────────────────────────────────────────────────────────────────────────────────│
-│  Old design [archived]               ││Deploy phase            ││Why                                                                                         │
-│                                      ││Rollout examples        ││                                                                                            │
-│                                      ││[examples]              ││Design the API.                                                                             │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││Acceptance criteria                                                                         │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││• [x] Review                                                                                │
-│                                      ││                        ││• [ ] Sign off                                                                              │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││Implementation                                                                              │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││Design                                                                                      │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││• [x] Contract                                                                              │
-│                                      ││                        ││• [ ] Rollout                                                                               │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-└──────────────────────────────────────┘└────────────────────────┘└────────────────────────────────────────────────────────────────────────────────────────────┘
-Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · r rail · q quit
+┌Files─────────────────────────────────┐┌Document──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│API rollout [index]                   ││Design phase [ready]                                                                                                  │
+│Design phase                          ││AC 1/2 ▮▮▯▯▯  T 1/2 ▮▮▯▯▯  14 lines                                                                                   │
+│  § Why                               ││phase · API rollout · 1 phases · Fixture Author · 2026-01-02                                                          │
+│  § Acceptance criteria               ││related: spec/standalone.spec.md                                                                                      │
+│  § Implementation                    ││.plan/rollout/01-design.md  y path · Y name                                                                           │
+│    § Design                          ││──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│Deploy phase                          ││Why                                                                                                                   │
+│Rollout examples [examples]           ││                                                                                                                      │
+│                                      ││Design the API.                                                                                                       │
+│                                      ││                                                                                                                      │
+│                                      ││Acceptance criteria                                                                                                   │
+│                                      ││                                                                                                                      │
+│                                      ││• [x] Review                                                                                                          │
+│                                      ││• [ ] Sign off                                                                                                        │
+│                                      ││                                                                                                                      │
+│                                      ││Implementation                                                                                                        │
+│                                      ││                                                                                                                      │
+│                                      ││Design                                                                                                                │
+│                                      ││                                                                                                                      │
+│                                      ││• [x] Contract                                                                                                        │
+│                                      ││• [ ] Rollout                                                                                                         │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+└──────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · e files · q quit

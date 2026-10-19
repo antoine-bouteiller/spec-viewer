@@ -2,51 +2,51 @@
 source: crates/render-tui/tests/tui.rs
 expression: draw(&mut app)
 ---
-┌corpus · Plans────────────────────────┐┌Sections────────────────┐┌Document────────────────────────────────────────────────────────────────────────────────────┐
-│feature (main) ▾                      ││§ 1. Overview           ││Spec Dialect Fixture [accepted]                                                             │
-│plans [specs] Diff                    ││  § 1.1 Rendered table  ││140 lines                                                                                   │
-│/                                     ││§ 2. Component dialect  ││leaf                                                                                        │
-│▸ doc/architecture                    ││§ 3. Code and diagrams  ││spec/dialect.spec.mdx  y path · Y name                                                      │
-│▾ spec                                ││  § 3.1 Closing notes   ││────────────────────────────────────────────────────────────────────────────────────────────│
-│    Broken MDX [draft]                ││                        │││         │                                                                                ││
-│    Raw HTML                          ││                        │││         │                                                                                ││
-│    Spec Dialect Fixture [accepted]   ││                        │││         │                                                                                ││
-│    Standalone spec [done]            ││                        │││    ┌────▾───┐                                                                            ││
-│                                      ││                        │││    │ Review │                                                                            ││
-│                                      ││                        │││    └────────┘                                                                            ││
-│                                      ││                        │││         │                                                                                ││
-│                                      ││                        │││         │                                                                                ││
-│                                      ││                        │││         │                                                                                ││
-│                                      ││                        │││         │                                                                                ││
-│                                      ││                        │││         │                                                                                ││
-│                                      ││                        │││   ┌─────▾────┐                                                                           ││
-│                                      ││                        │││   │ Accepted │                                                                           ││
-│                                      ││                        │││   └──────────┘                                                                           ││
-│                                      ││                        ││└──────────────────────────────────────────────────────────────────────────────────────────┘│
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││Draft                                                                                       │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││An author starts with ordinary prose and examples.                                          │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││Accepted                                                                                    │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││A reviewer confirms all required constructs.                                                │
-│                                      ││                        ││1. Author                                                                                   │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││   Write realistic source content and component children.                                   │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││2. Render                                                                                   │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││   Convert MDX bridge elements into their documented markup.                                │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││3. Review                                                                                   │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││   Check both enhanced diagrams and visible fallback source.                                │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││┌─ <FeatureViewer>─────────────────────────────────────────────────────────────────────────┐│
-│                                      ││                        │││ This unsupported component deliberately retains child content in its placeholder.        ││
-│                                      ││                        │││                                                                                          ││
-│                                      ││                        ││└──────────────────────────────────────────────────────────────────────────────────────────┘│
-└──────────────────────────────────────┘└────────────────────────┘└────────────────────────────────────────────────────────────────────────────────────────────┘
-Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · r rail · q quit
+┌Sections──────────────────────────────┐┌Document──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│§ 1. Overview                         ││Spec Dialect Fixture [accepted]                                                                                       │
+│  § 1.1 Rendered table                ││140 lines                                                                                                             │
+│§ 2. Component dialect                ││leaf                                                                                                                  │
+│§ 3. Code and diagrams                ││spec/dialect.spec.mdx  y path · Y name                                                                                │
+│  § 3.1 Closing notes                 ││──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│                                      │││         │                                                                                                          ││
+│                                      │││         │                                                                                                          ││
+│                                      │││         │                                                                                                          ││
+│                                      │││    ┌────▾───┐                                                                                                      ││
+│                                      │││    │ Review │                                                                                                      ││
+│                                      │││    └────────┘                                                                                                      ││
+│                                      │││         │                                                                                                          ││
+│                                      │││         │                                                                                                          ││
+│                                      │││         │                                                                                                          ││
+│                                      │││         │                                                                                                          ││
+│                                      │││         │                                                                                                          ││
+│                                      │││   ┌─────▾────┐                                                                                                     ││
+│                                      │││   │ Accepted │                                                                                                     ││
+│                                      │││   └──────────┘                                                                                                     ││
+│                                      ││└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│
+│                                      ││                                                                                                                      │
+│                                      ││Draft                                                                                                                 │
+│                                      ││                                                                                                                      │
+│                                      ││An author starts with ordinary prose and examples.                                                                    │
+│                                      ││                                                                                                                      │
+│                                      ││Accepted                                                                                                              │
+│                                      ││                                                                                                                      │
+│                                      ││A reviewer confirms all required constructs.                                                                          │
+│                                      ││1. Author                                                                                                             │
+│                                      ││                                                                                                                      │
+│                                      ││   Write realistic source content and component children.                                                             │
+│                                      ││                                                                                                                      │
+│                                      ││2. Render                                                                                                             │
+│                                      ││                                                                                                                      │
+│                                      ││   Convert MDX bridge elements into their documented markup.                                                          │
+│                                      ││                                                                                                                      │
+│                                      ││3. Review                                                                                                             │
+│                                      ││                                                                                                                      │
+│                                      ││   Check both enhanced diagrams and visible fallback source.                                                          │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││┌─ <FeatureViewer>───────────────────────────────────────────────────────────────────────────────────────────────────┐│
+│                                      │││ This unsupported component deliberately retains child content in its placeholder.                                  ││
+│                                      │││                                                                                                                    ││
+│                                      ││└────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘│
+└──────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · e files · q quit

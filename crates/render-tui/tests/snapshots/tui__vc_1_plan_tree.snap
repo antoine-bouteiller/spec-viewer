@@ -1,0 +1,52 @@
+---
+source: crates/render-tui/tests/tui.rs
+expression: draw(&mut app)
+---
+┌corpus · Plans────────────────────────┐┌Document──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│feature (main) ▾                      ││API rollout [in-progress]                                                                                             │
+│[plans] specs                         ││AC 1/2 ▮▮▯▯▯  T 1/2 ▮▮▯▯▯  15 lines                                                                                   │
+│/                                     ││plan · 2 phases · Fixture Author · 2026-01-02                                                                         │
+│  Actions [draft]                     ││related: spec/standalone.spec.md                                                                                      │
+│  API rollout [in-progress]           ││.plan/rollout/index.md  y path · Y name                                                                               │
+│  Legacy rollout [done]               ││──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│  Old design [archived]               ││Why                                                                                                                   │
+│                                      ││                                                                                                                      │
+│                                      ││Deploy safely.                                                                                                        │
+│                                      ││                                                                                                                      │
+│                                      ││Acceptance criteria                                                                                                   │
+│                                      ││                                                                                                                      │
+│                                      ││• [x] First check                                                                                                     │
+│                                      ││• [ ] Second check                                                                                                    │
+│                                      ││                                                                                                                      │
+│                                      ││Implementation                                                                                                        │
+│                                      ││                                                                                                                      │
+│                                      ││Design                                                                                                                │
+│                                      ││                                                                                                                      │
+│                                      ││• [x] Design task                                                                                                     │
+│                                      ││                                                                                                                      │
+│                                      ││Deploy                                                                                                                │
+│                                      ││                                                                                                                      │
+│                                      ││• [ ] Deploy task                                                                                                     │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+└──────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · e files · q quit

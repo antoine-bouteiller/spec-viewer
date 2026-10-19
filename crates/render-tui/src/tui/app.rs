@@ -55,7 +55,8 @@ pub struct App {
     pub focus: Focus,
     pub scroll: usize,
     pub quit: bool,
-    pub rail_visible: bool,
+    /// The file navigator and the rail share one pane; an open document shows the rail.
+    pub navigator: bool,
     pub rendered: TermDoc,
     pub hints: Vec<Hint>,
     pub message: Option<String>,
@@ -96,7 +97,7 @@ impl App {
             focus: Focus::Sidebar,
             scroll: 0,
             quit: false,
-            rail_visible: true,
+            navigator: true,
             rendered: TermDoc::default(),
             hints: Vec::new(),
             message: None,
@@ -198,6 +199,10 @@ impl App {
                 self.rendered = to_terminal(&doc.document, self.viewport.width.max(1), &self.theme);
                 self.doc = Some(doc);
                 self.scroll = 0;
+                self.navigator = false;
+                if self.focus == Focus::Sidebar {
+                    self.focus = Focus::Document;
+                }
                 self.rail_selection = self.rail_entries().iter().position(|entry| matches!(entry, RailEntry::File { path, .. } if self.doc.as_ref().is_some_and(|doc| doc.root_path == *path))).unwrap_or(0);
                 self.message = None;
                 if let Some(index) = self.rows().iter().position(|row| row.current) {
@@ -223,9 +228,9 @@ impl App {
         self.docs = self.library.corpus(self.worktree_path());
         self.expanded.clear();
         if let Some(path) = self.doc.as_ref().map(|doc| doc.root_path.clone()) {
-            let scroll = self.scroll;
+            let (scroll, navigator, focus) = (self.scroll, self.navigator, self.focus);
             self.open(&path);
-            self.scroll = scroll;
+            (self.scroll, self.navigator, self.focus) = (scroll, navigator, focus);
         }
     }
 
@@ -237,6 +242,10 @@ impl App {
         self.sidebar_selection = 0;
         self.expanded.clear();
         self.message = None;
+        self.navigator = true;
+        if self.focus == Focus::Rail {
+            self.focus = Focus::Sidebar;
+        }
         self.cancel_hints();
     }
 
@@ -425,6 +434,7 @@ impl App {
             }
             KeyCode::Char('/') => {
                 self.filter_editing = true;
+                self.navigator = true;
                 self.focus = Focus::Sidebar;
             }
             KeyCode::Esc => {
@@ -437,18 +447,15 @@ impl App {
                 self.sidebar_selection = 0;
             }
             KeyCode::Char('o') => self.open_browser(),
-            KeyCode::Char('r') => {
-                self.rail_visible = !self.rail_visible;
-                if self.focus == Focus::Rail && !self.rail_visible {
-                    self.focus = Focus::Document;
-                }
+            KeyCode::Char('e') if self.doc.is_some() => {
+                self.navigator = !self.navigator;
+                self.focus = if self.navigator { Focus::Sidebar } else { Focus::Document };
             }
             KeyCode::Tab | KeyCode::BackTab => {
-                let reverse = key.code == KeyCode::BackTab || key.modifiers.contains(KeyModifiers::SHIFT);
-                self.focus = match (self.focus, reverse, self.rail_visible) {
-                    (Focus::Sidebar, false, true) | (Focus::Document, true, true) => Focus::Rail,
-                    (Focus::Sidebar, false, false) | (Focus::Sidebar, true, _) | (Focus::Rail, false, _) => Focus::Document,
-                    _ => Focus::Sidebar,
+                self.focus = match self.focus {
+                    Focus::Document if self.navigator => Focus::Sidebar,
+                    Focus::Document => Focus::Rail,
+                    _ => Focus::Document,
                 };
             }
             KeyCode::Char('y') | KeyCode::Char('Y') => {
@@ -555,24 +562,19 @@ impl App {
         let area = frame.area();
         let footer_height = u16::from(area.height > 1);
         let vertical = Layout::vertical([Constraint::Min(0), Constraint::Length(footer_height)]).split(area);
-        let sidebar_width = (area.width / 4).clamp(18, 42).min(area.width);
-        let rail_width = if self.rail_visible { (area.width / 6).clamp(12, 30) } else { 0 };
-        let panes = Layout::horizontal([
-            Constraint::Length(sidebar_width),
-            Constraint::Length(rail_width),
-            Constraint::Min(0),
-        ])
-        .split(vertical[0]);
-        self.draw_sidebar(frame, panes[0]);
-        self.draw_document(frame, panes[2]);
-        if self.rail_visible {
-            self.draw_rail(frame, panes[1]);
+        let side_width = (area.width / 4).clamp(18, 42).min(area.width);
+        let panes = Layout::horizontal([Constraint::Length(side_width), Constraint::Min(0)]).split(vertical[0]);
+        if self.navigator {
+            self.draw_sidebar(frame, panes[0]);
+        } else {
+            self.draw_rail(frame, panes[0]);
         }
+        self.draw_document(frame, panes[1]);
         let footer = if let Some(input) = &self.hint_input {
             format!("Hint: {input}  Esc cancel")
         } else {
             self.message.clone().unwrap_or_else(|| {
-                let keys = "Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · r rail · q quit";
+                let keys = "Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · e files · q quit";
                 match &self.web_url {
                     Some(url) => format!("{keys} · o {url}"),
                     None => keys.into(),
@@ -1051,8 +1053,9 @@ mod tests {
         app.scroll = 12;
         app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
         assert_eq!(app.scroll, 0);
-        app.handle_key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-        assert_eq!(app.focus, Focus::Document);
+        app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+        assert!(app.navigator);
+        assert_eq!(app.focus, Focus::Sidebar);
     }
 
     #[test]

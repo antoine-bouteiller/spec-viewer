@@ -2,51 +2,51 @@
 source: crates/render-tui/tests/tui.rs
 expression: draw(&mut app)
 ---
-┌corpus · Plans────────────────────────┐┌Files───────────────────┐┌Document────────────────────────────────────────────────────────────────────────────────────┐
-│feature (main) ▾                      ││Viewer umbrella [index] ││Tree leaf [amended]                                                                         │
-│plans [specs] Diff                    ││Tree leaf               ││3 lines                                                                                     │
-│/                                     ││  § Tree                ││leaf                                                                                        │
-│▾ doc/architecture                    ││Viewer examples         ││doc/architecture/tree.spec.md  y path · Y name                                              │
-│    Unlinked sibling [draft]          ││[examples]              ││────────────────────────────────────────────────────────────────────────────────────────────│
-│    Viewer umbrella [accepted]        ││Viewer discovery        ││Tree                                                                                        │
-│▾ spec                                ││                        ││                                                                                            │
-│    Broken MDX [draft]                ││                        ││Flat document rows.                                                                         │
-│    Raw HTML                          ││                        ││                                                                                            │
-│    Spec Dialect Fixture [accepted]   ││                        ││                                                                                            │
-│    Standalone spec [done]            ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-│                                      ││                        ││                                                                                            │
-└──────────────────────────────────────┘└────────────────────────┘└────────────────────────────────────────────────────────────────────────────────────────────┘
-Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · r rail · q quit
+┌Files─────────────────────────────────┐┌Document──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Viewer umbrella [index]               ││Tree leaf [amended]                                                                                                   │
+│Tree leaf                             ││3 lines                                                                                                               │
+│  § Tree                              ││leaf                                                                                                                  │
+│Viewer examples [examples]            ││doc/architecture/tree.spec.md  y path · Y name                                                                        │
+│Viewer discovery                      ││──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│                                      ││Tree                                                                                                                  │
+│                                      ││                                                                                                                      │
+│                                      ││Flat document rows.                                                                                                   │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+│                                      ││                                                                                                                      │
+└──────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · e files · q quit

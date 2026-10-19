@@ -66,9 +66,11 @@ fn vc_4_worktree_statuses_replace_defaults_in_tree_and_header() {
         Some(Mode::Dark),
     );
     app.open(".plan/shipped.md");
+    app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
     assert_eq!(assert_text_fg(&draw(&mut app), "[shipped]", Color::Magenta), 2);
     assert!(app.doc.as_ref().unwrap().document.meta.status.as_ref().unwrap().known);
     app.open(".plan/done.md");
+    app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
     assert_eq!(assert_text_fg(&draw(&mut app), "[done]", Color::DarkGray), 2);
     assert!(!app.doc.as_ref().unwrap().document.meta.status.as_ref().unwrap().known);
 }
@@ -110,6 +112,7 @@ fn vc_6_palette_overrides_recolour_border_xrefs_and_status() {
     ] {
         let mut app = configured(root.path(), source, mode);
         app.open(".plan/a.md");
+        app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
         let buffer = draw(&mut app);
         assert_eq!(buffer[(0, 0)].fg, expected);
         assert_text_fg(&buffer, "KD-1", expected);
@@ -190,12 +193,12 @@ fn vc_6_hex_palette_dialect_buffer_uses_only_palette_colours() {
     .unwrap();
     app.reload();
     app.open(".plan/roles.md");
-    app.focus = Focus::Sidebar;
+    app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
+    assert_eq!(app.focus, Focus::Sidebar);
     let buffer = draw(&mut app);
     assert_eq!(buffer[(0, 0)].fg, hex(4));
     assert_eq!(buffer[(40, 0)].fg, hex(8));
-    // The outline repeats this text in the rail; assert the body's heading cells only.
-    assert_text_fg_from_column(&buffer, "Palette heading", hex(5), 66);
+    assert_text_fg_from_column(&buffer, "Palette heading", hex(5), 40);
     assert_eq!(assert_text_fg(&buffer, "[accepted]", hex(4)), 2);
     assert_text_fg(&buffer, "KD-1", hex(4));
 }

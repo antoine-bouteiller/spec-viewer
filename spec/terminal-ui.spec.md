@@ -88,26 +88,30 @@ pub enum Target { Doc(String), Xref(String) }
 Kind: type · Anchor: `crates/render-tui/src/tui/app.rs#App`
 
 ```text
-┌ sidebar ───────────────┬ rail ──────────┬ document ─────────────────────────────┐
-│ worktree ▾ (main)      │ Files          │ Title  [status]                        │
-│ [plans] specs   Diff   │  index         │ AC 3/5 ▮▮▯ T 2/9 ▮▯▯  N lines           │
-│ / filter               │  phase-1       │ kind · owner · N phases · author · date│
-│ ▸ doc/architecture     │   § Why        │ related: …   path  y path · Y name     │
-│   spec title  [chip]   │   § Design     │ rendered body                          │
-└────────────────────────┴────────────────┴───────────────────────────────────────┘
+┌ sidebar or rail ───────┬ document ──────────────────────────────┐
+│ worktree ▾ (main)      │ Title  [status]                         │
+│ [plans] specs   Diff   │ AC 3/5 ▮▮▯ T 2/9 ▮▯▯  N lines           │
+│ / filter               │ kind · owner · N phases · author · date │
+│ ▸ doc/architecture     │ related: …   path  y path · Y name      │
+│   spec title  [chip]   │ rendered body                           │
+└────────────────────────┴─────────────────────────────────────────┘
 ```
 
 ```text
-state: worktree, tab, doc, filter, diff, expanded, focus (sidebar|rail|document), scroll
-Tab / S-Tab   cycle focus            1 / 2    plans / specs (clears doc)
+state: worktree, tab, doc, filter, diff, expanded, navigator, focus (sidebar|rail|document), scroll
+Tab / S-Tab   toggle focus           1 / 2    plans / specs (clears doc)
 w             worktree picker (clears doc)     /        filter; Esc clears
 d             Diff toggle; specs tab only, disabled when changed specs are unknown
 ↑↓ jk         move   → ← lh  expand / collapse   Enter  open
 PgUp PgDn g G scroll document        f        hint mode (open link / copy xref)
-y / Y         copy absolute path / file name   r        toggle rail
+y / Y         copy absolute path / file name   e        sidebar / rail (open document only)
 o             open the current view in the web app (spec/web-ui.spec.md)
 q / C-c       quit
 ```
+
+One pane left of the document shows either the sidebar (the corpus tree) or the rail, never both.
+Opening a document shows the rail; `e` swaps them, and `/` or clearing the document shows the
+sidebar. A live reload keeps the shown pane and focus.
 
 Tree semantics: the specs tab nests by path, compacts single-child directory chains, nests a spec
 under the document its `parent-spec` resolves to, and lets an umbrella own a directory it fully
@@ -180,13 +184,14 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 ## Acceptance
 
 - `[VC-1]` Given the shared fixture rendered by `TestBackend` at 160×48 under the default config,
-  then snapshots show the sidebar tree with status chips, the header fields, the rail as a family
-  list for a plan phase and as a section outline for a standalone spec, and every `[CT-1]`
+  then snapshots show the sidebar tree with status chips after `e`, the header fields, the rail as a
+  family list for a plan phase and as a section outline for a standalone spec, and every `[CT-1]`
   construct of `fixtures/dialect.spec.mdx`. — demonstrates `[SO-1]`
 - `[VC-2]` Given key sequences on the fixture, then: a filter shows a flat list with paths and
   without attached examples; `d` restricts specs to the changed set; `w` switches worktree and
   clears the document; opening a phase keeps its plan row current; hint mode on an xref writes an
-  OSC 52 sequence carrying the ID; hint mode on a doc link opens its target. — demonstrates `[SO-1]`
+  OSC 52 sequence carrying the ID; hint mode on a doc link opens its target; opening a document
+  replaces the sidebar with the rail and `e` swaps them back. — demonstrates `[SO-1]`
 - `[VC-3]` Given an open document, when a new `.plan/*.md` file is written and the open file is
   edited, then within 1 s the tree lists the new plan, the body shows the edit, and the scroll
   position is kept. — demonstrates `[SO-2]`
@@ -223,3 +228,4 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 | 2026-10-18 | Layered config for theme, statuses, and header chips (`[KD-5]`, `[KD-8]`, `[KD-9]`, `[CT-4]`)                                    | Design, CT-2, CT-4, CT-5, Acceptance | Projects use other statuses, header sections, and colours        |
 | 2026-10-19 | `o` opens the web app; the session also serves it                                                                                | CT-2, CT-5                           | The browser view moved into `spec-viewer` (spec/web-ui.spec.md)  |
 | 2026-10-19 | Code blocks boxed on `code_bg` and highlighted by ANSI slot; Mermaid drawn as text; Catppuccin built-ins and code themes removed | CT-1, CT-4, Design, VC-6, C-3        | Colours follow the configured palette                            |
+| 2026-10-19 | The sidebar and the rail share one pane; opening a document shows the rail, `e` swaps them; `surface` defaults to hex            | Design, CT-2, VC-1, VC-2, C-3        | Wider document; code blocks stand out on any terminal background |

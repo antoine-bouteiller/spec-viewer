@@ -63,6 +63,8 @@ fn vc_1_plan_header_tree_family_and_legacy_snapshots() {
     .unwrap();
     app.open(".plan/rollout/index.md");
     insta::assert_snapshot!("vc_1_plan_index", draw(&mut app));
+    key(&mut app, KeyCode::Char('e'));
+    insta::assert_snapshot!("vc_1_plan_tree", draw(&mut app));
     app.open(".plan/rollout/01-design.md");
     insta::assert_snapshot!("vc_1_plan_phase", draw(&mut app));
     assert!(
@@ -303,6 +305,7 @@ fn vc_3_live_reload_adds_plan_refreshes_body_and_preserves_scroll_within_one_sec
     )
     .unwrap();
     app.open(".plan/actions.md");
+    key(&mut app, KeyCode::Char('e'));
     draw(&mut app);
     key(&mut app, KeyCode::PageDown);
     let scroll = app.scroll;
@@ -327,6 +330,7 @@ fn vc_3_live_reload_adds_plan_refreshes_body_and_preserves_scroll_within_one_sec
     assert!(app.rows().iter().any(|row| row.node.path.as_deref() == Some(".plan/new.md")));
     assert!(screen.contains("EDITED live document"));
     assert!(screen.contains("New plan"));
+    assert!(app.navigator);
 }
 
 #[test]
@@ -339,6 +343,8 @@ fn vc_2_focus_scrolling_expansion_and_quit_state_transitions() {
     )
     .unwrap();
     app.open(".plan/actions.md");
+    assert!(!app.navigator);
+    assert_eq!(app.focus, Focus::Document);
     draw(&mut app);
     key(&mut app, KeyCode::Tab);
     assert_eq!(app.focus, Focus::Rail);
@@ -356,10 +362,17 @@ fn vc_2_focus_scrolling_expansion_and_quit_state_transitions() {
     assert_eq!(app.scroll, 0);
     key(&mut app, KeyCode::BackTab);
     assert_eq!(app.focus, Focus::Rail);
-    key(&mut app, KeyCode::Char('r'));
+    key(&mut app, KeyCode::Char('e'));
+    assert!(app.navigator);
+    assert_eq!(app.focus, Focus::Sidebar);
+    key(&mut app, KeyCode::Tab);
     assert_eq!(app.focus, Focus::Document);
     key(&mut app, KeyCode::Tab);
     assert_eq!(app.focus, Focus::Sidebar);
+    key(&mut app, KeyCode::Char('e'));
+    assert!(!app.navigator);
+    assert_eq!(app.focus, Focus::Document);
+    key(&mut app, KeyCode::Char('e'));
     key(&mut app, KeyCode::Char('2'));
     key(&mut app, KeyCode::Right);
     assert!(app.rows().len() > 2);
