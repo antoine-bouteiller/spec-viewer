@@ -162,10 +162,19 @@ impl<'a> Tree<'a> {
     fn meta(&self, node: usize) -> Option<&DocMeta> {
         self.metadata.iter().find(|(id, _)| *id == node).map(|(_, doc)| *doc)
     }
+    /// The spec or plan for `<stem>[.<topic>…].<companion>.<ext>`, preferring the longest stem.
     fn owner(&self, path: &str) -> Option<usize> {
-        [".spec.md", ".spec.mdx", ".md"]
-            .iter()
-            .find_map(|suffix| self.documents.get(&format!("{}{suffix}", spec_stem(path))).copied())
+        let mut stem = spec_stem(path);
+        loop {
+            let found = [".spec.md", ".spec.mdx", ".md"]
+                .iter()
+                .find_map(|suffix| self.documents.get(&format!("{stem}{suffix}")).copied());
+            if found.is_some() {
+                return found;
+            }
+            let name_start = stem.rfind('/').map_or(0, |index| index + 1);
+            stem = &stem[..name_start + stem[name_start..].rfind('.')?];
+        }
     }
     fn resolves_to_umbrella(&self, child: usize, umbrella: usize) -> bool {
         let (Some(child_doc), Some(umbrella_doc)) = (self.meta(child), self.meta(umbrella)) else {
@@ -490,6 +499,19 @@ mod tests {
                 ("discovery", "Guide discovery", Some("guide.discovery.md"))
             ]
         );
+    }
+    #[test]
+    fn topic_companion_attaches_to_spec_of_shorter_stem() {
+        let tree = build_tree(
+            &[
+                doc("graph/labels.spec.mdx", "Labels"),
+                doc("graph/labels.KD-1-ownership.discovery.mdx", "Ownership discovery"),
+            ],
+            false,
+        );
+        let spec = &children(&tree[0])[0];
+        assert_eq!(spec.path.as_deref(), Some("graph/labels.spec.mdx"));
+        assert_eq!(paths(children(spec)), ["graph/labels.KD-1-ownership.discovery.mdx"]);
     }
     #[test]
     fn plan_examples_attach_in_flat_tree() {

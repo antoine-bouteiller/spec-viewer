@@ -143,7 +143,8 @@ Only these files open.
 
 Tree semantics: the specs tab nests by path, compacts single-child directory chains, nests a spec
 under the document its `parent-spec` resolves to, and lets an umbrella own a directory it fully
-explains. Companions (`<stem>.discovery.*`, `<stem>.examples.*`) sit under their spec or plan. A
+explains. Companions (`<stem>[.<topic>].discovery.*`, `<stem>[.<topic>].examples.*`) sit under their spec or
+plan, matched on the longest stem that has one. A
 folder tab is flat, with a plan index owning its phase files. A non-empty filter or `Diff` shows a
 flat list with paths and omits attached examples. A document row never expands. A family member
 keeps its owner row current, and ancestors of the open document expand. Filter and `Diff` persist
