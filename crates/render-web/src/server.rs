@@ -262,7 +262,14 @@ impl State {
         let corpus = self.library.corpus(worktree);
         json(&DocsJson {
             changed_specs: corpus.changed_specs,
-            plans: corpus.plans.iter().map(|node| self.node(node)).collect(),
+            folders: corpus
+                .folders
+                .iter()
+                .map(|folder| FolderJson {
+                    name: &folder.name,
+                    nodes: folder.nodes.iter().map(|node| self.node(node)).collect(),
+                })
+                .collect(),
             project: corpus.project,
             specs: corpus.specs.iter().map(|node| self.node(node)).collect(),
         })
@@ -464,10 +471,16 @@ struct NodeJson {
 }
 
 #[derive(Serialize)]
+struct FolderJson<'a> {
+    name: &'a str,
+    nodes: Vec<NodeJson>,
+}
+
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-struct DocsJson {
+struct DocsJson<'a> {
     changed_specs: Option<Vec<String>>,
-    plans: Vec<NodeJson>,
+    folders: Vec<FolderJson<'a>>,
     project: String,
     specs: Vec<NodeJson>,
 }

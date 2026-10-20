@@ -1,4 +1,4 @@
-//! Debounced change notifications for plan, spec, and Git metadata paths.
+//! Debounced change notifications for folder-tab, spec, and Git metadata paths.
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
@@ -17,7 +17,8 @@ pub struct Watch {
     _watcher: Arc<Mutex<RecommendedWatcher>>,
 }
 
-pub fn watch(worktree: &Path) -> notify::Result<Watch> {
+/// `folders` are watched recursively; spec directories outside them are found with `spec_paths`.
+pub fn watch(worktree: &Path, folders: &[String]) -> notify::Result<Watch> {
     let (event_sender, event_receiver) = mpsc::channel::<Event>();
     let watcher = notify::recommended_watcher(move |result: notify::Result<Event>| {
         if let Ok(event) = result {
@@ -25,7 +26,7 @@ pub fn watch(worktree: &Path) -> notify::Result<Watch> {
         }
     })?;
     let watcher = Arc::new(Mutex::new(watcher));
-    let mut set = WatchSet::new(worktree);
+    let mut set = WatchSet::new(worktree, folders);
     set.start(&mut watcher.lock().expect("watcher"));
     let (reload_sender, reload_receiver) = mpsc::channel();
     let weak = Arc::downgrade(&watcher);
@@ -64,27 +65,31 @@ fn debounce(mut set: WatchSet, watcher: &Weak<Mutex<RecommendedWatcher>>, events
 
 struct WatchSet {
     worktree: PathBuf,
-    plan_dir: PathBuf,
+    folders: Vec<String>,
+    folder_dirs: Vec<PathBuf>,
     git_dir: Option<PathBuf>,
     spec_dirs: HashSet<PathBuf>,
 }
 
 impl WatchSet {
-    fn new(worktree: &Path) -> Self {
+    fn new(worktree: &Path, folders: &[String]) -> Self {
         let git_dir = git_index_path(worktree)
             .and_then(|index| index.parent().map(Path::to_path_buf))
             .filter(|directory| directory.exists());
         Self {
             worktree: worktree.to_path_buf(),
-            plan_dir: worktree.join(".plan"),
+            folders: folders.to_vec(),
+            folder_dirs: folders.iter().map(|folder| worktree.join(folder)).collect(),
             git_dir,
             spec_dirs: HashSet::new(),
         }
     }
 
     fn start(&mut self, watcher: &mut RecommendedWatcher) {
-        if self.plan_dir.exists() {
-            let _ = watcher.watch(&self.plan_dir, RecursiveMode::Recursive);
+        for directory in &self.folder_dirs {
+            if directory.exists() {
+                let _ = watcher.watch(directory, RecursiveMode::Recursive);
+            }
         }
         if let Some(directory) = &self.git_dir {
             let _ = watcher.watch(directory, RecursiveMode::NonRecursive);
@@ -98,7 +103,7 @@ impl WatchSet {
             return false;
         }
         event.paths.iter().any(|path| {
-            if path.starts_with(&self.plan_dir) {
+            if self.folder_dirs.iter().any(|directory| path.starts_with(directory)) {
                 return true;
             }
             let parent = path.parent();
@@ -110,7 +115,7 @@ impl WatchSet {
     }
 
     fn watch_document_directories(&mut self, watcher: &mut RecommendedWatcher) {
-        for path in spec_paths(&self.worktree) {
+        for path in spec_paths(&self.worktree, &self.folders) {
             let Some(directory) = self.worktree.join(path).parent().map(Path::to_path_buf) else {
                 continue;
             };
@@ -173,7 +178,7 @@ mod tests {
     #[test]
     fn a_new_plan_file_sends_one_reload() {
         let directory = repository();
-        let watch = watch(&root(&directory)).unwrap();
+        let watch = watch(&root(&directory), &[".plan".into()]).unwrap();
         settle(&watch);
         std::fs::write(root(&directory).join(".plan/new.md"), "# New\n").unwrap();
         std::fs::write(root(&directory).join(".plan/new.md"), "# New\n\nmore\n").unwrap();
@@ -184,7 +189,7 @@ mod tests {
     #[test]
     fn an_edited_spec_sends_a_reload() {
         let directory = repository();
-        let watch = watch(&root(&directory)).unwrap();
+        let watch = watch(&root(&directory), &[".plan".into()]).unwrap();
         settle(&watch);
         std::fs::write(root(&directory).join("spec/a.spec.md"), "# A edited\n").unwrap();
         assert_eq!(watch.reloads.recv_timeout(Duration::from_secs(1)), Ok(()));
@@ -193,7 +198,7 @@ mod tests {
     #[test]
     fn unrelated_files_do_not_reload() {
         let directory = repository();
-        let watch = watch(&root(&directory)).unwrap();
+        let watch = watch(&root(&directory), &[".plan".into()]).unwrap();
         settle(&watch);
         std::fs::write(root(&directory).join("README.md"), "x\n").unwrap();
         assert!(watch.reloads.recv_timeout(Duration::from_millis(500)).is_err());

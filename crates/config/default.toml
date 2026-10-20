@@ -50,6 +50,13 @@ oq = "bright_magenta"
 ex = "bright_cyan"
 other = "bright_black"
 
+# Folder tabs, in order; `tab = []` in a later layer removes them. Each lists every .md below its
+# worktree-relative folder; a subfolder's index.md owns the other files there. The specs tab follows and lists the
+# *.spec|discovery|examples.md[x] files outside every folder.
+[[tab]]
+name = "plans"
+folder = ".plan"
+
 [[status]]
 name = "draft"
 aliases = ["planned", "todo"]

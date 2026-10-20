@@ -53,6 +53,7 @@ struct Raw {
     theme: ThemeSettings,
     status: Vec<StatusConfig>,
     chip: Vec<ChipConfig>,
+    tab: Vec<TabConfig>,
 }
 
 #[derive(Clone, Debug)]
@@ -149,6 +150,7 @@ impl Config {
             parse: ParseConfig {
                 statuses: raw.status,
                 chips: raw.chip,
+                tabs: raw.tab,
             },
             origins,
         };
@@ -227,6 +229,35 @@ impl Config {
                     }
                 }
             }
+        }
+        let mut tab_names = HashSet::new();
+        for (index, tab) in self.parse.tabs.iter().enumerate() {
+            let name = tab.name.trim().to_lowercase();
+            if name.is_empty() || name == "specs" || !tab_names.insert(name) {
+                return Err(self.error(
+                    &format!("tab[{index}].name"),
+                    format!("empty, duplicate, or reserved tab name {:?}", tab.name),
+                ));
+            }
+            if !tab.folder.split('/').all(|part| !part.is_empty() && part != "." && part != "..") {
+                return Err(self.error(
+                    &format!("tab[{index}].folder"),
+                    format!("expected a relative folder like \".plan\", got {:?}", tab.folder),
+                ));
+            }
+            for (other, earlier) in self.parse.tabs[..index].iter().enumerate() {
+                let nested = |outer: &str, inner: &str| inner == outer || inner.starts_with(&format!("{outer}/"));
+                if nested(&earlier.folder, &tab.folder) || nested(&tab.folder, &earlier.folder) {
+                    return Err(self.error(
+                        &format!("tab[{index}].folder"),
+                        format!("{:?} overlaps tab[{other}].folder {:?}", tab.folder, earlier.folder),
+                    ));
+                }
+            }
+        }
+        // Keys 1-9 select tabs; the specs tab takes the last one.
+        if self.parse.tabs.len() > 8 {
+            return Err(self.error("tab", "at most 8 folder tabs"));
         }
         // A name may be added only for one mode. Validate that it exists here;
         // resolve() checks the palette for the mode actually selected (including CLI overrides).

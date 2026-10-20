@@ -2,7 +2,7 @@
 const MERMAID = 'https://cdn.jsdelivr.net/npm/mermaid@12/dist/mermaid.esm.min.mjs'
 const THEME_KEY = 'spec-viewer.theme'
 const UNKNOWN_TONE = 'var(--status-unknown)'
-const NO_DOCS = { changedSpecs: null, plans: [], project: '', specs: [] }
+const NO_DOCS = { changedSpecs: null, folders: [], project: '', specs: [] }
 
 const $ = (id) => document.getElementById(id)
 const page = $('page')
@@ -41,7 +41,7 @@ const readUrl = () => {
   return {
     diff: params.get('diff') === 'true' ? 'true' : undefined,
     doc: params.get('doc') || undefined,
-    tab: tab === 'plans' || tab === 'specs' ? tab : undefined,
+    tab: tab || undefined,
     wt: params.get('wt') || undefined,
   }
 }
@@ -74,9 +74,11 @@ const state = {
   treeId: '',
 }
 
-const tab = () => (url.tab === 'specs' ? 'specs' : 'plans')
+// Folder tabs in config order, then specs; an unknown `tab` falls back to the first.
+const tabs = () => [...state.docs.folders, { name: 'specs', nodes: state.docs.specs }]
+const tab = () => (tabs().find((item) => item.name === url.tab) ?? tabs()[0]).name
 const worktree = () => state.project?.worktrees.find((item) => item.path === url.wt)
-const listed = () => (tab() === 'specs' ? state.docs.specs : state.docs.plans)
+const listed = () => tabs().find((item) => item.name === tab()).nodes
 
 // Tree model.
 
@@ -140,7 +142,7 @@ const familyOf = (node, path) => {
   return isFamilyRoot(node) && containsPath(node, path) ? [node, ...documentsOf(node.children ?? [])] : null
 }
 
-const activeOwner = () => [...state.docs.plans, ...state.docs.specs].find((node) => findNode(node, url.doc ?? null)) ?? null
+const activeOwner = () => tabs().flatMap((item) => item.nodes).find((node) => findNode(node, url.doc ?? null)) ?? null
 
 const changedFilter = () => (tab() === 'specs' && url.diff === 'true' && state.docs.changedSpecs ? new Set(state.docs.changedSpecs) : undefined)
 
@@ -203,7 +205,9 @@ const renderSidebar = () => {
   }
   if (selected) {
     parts.push(
-      `<div class="doc-tabs">${['plans', 'specs'].map((name) => rowButton(tab() === name, `data-tab="${name}"`, esc(name), ' doc-tab')).join('')}</div>`
+      `<div class="doc-tabs">${tabs()
+        .map(({ name }) => rowButton(tab() === name, `data-tab="${esc(name)}"`, esc(name), ' doc-tab'))
+        .join('')}</div>`
     )
     const needle = state.query.trim().toLowerCase()
     const paths = changedFilter()

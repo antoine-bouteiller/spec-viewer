@@ -643,6 +643,7 @@ fn vc_5_configured_chips_follow_order_and_first_present_section() {
                 sections: vec!["implementation".into(), "steps".into()],
             },
         ],
+        tabs: vec![],
     };
     let document = super::parse(
         "## Steps\n### Not selected\n- [x] task\n## Risks\n### First\n- [x] identified\n### Second\n- [ ] pending\n## Implementation\n",

@@ -20,10 +20,18 @@ pub struct DocNode {
     pub children: Option<Vec<DocNode>>,
 }
 
+/// A configured folder tab and the documents below its folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FolderDocs {
+    pub name: String,
+    pub folder: String,
+    pub nodes: Vec<DocNode>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Docs {
     pub changed_specs: Option<Vec<String>>,
-    pub plans: Vec<DocNode>,
+    pub folders: Vec<FolderDocs>,
     pub project: String,
     pub specs: Vec<DocNode>,
 }

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use super::js::{name_order, spec_path};
-use super::project::{SPEC_PATHS, git};
+use super::project::{git, spec_pathspecs};
 use super::{DocError, ResolvedDoc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -13,7 +13,8 @@ pub struct Entry {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Listing {
-    pub plans: Vec<Entry>,
+    /// One list per folder, in the order given.
+    pub folders: Vec<Vec<Entry>>,
     pub specs: Vec<Entry>,
 }
 
@@ -41,12 +42,12 @@ fn contained(file: &Path, root: &Path) -> bool {
     file.strip_prefix(root).is_ok_and(|rel| !rel.as_os_str().is_empty())
 }
 
-fn is_allowed(file: &Path, root: &Path) -> bool {
+fn is_allowed(file: &Path, root: &Path, folders: &[String]) -> bool {
     if !contained(file, root) {
         return false;
     }
     let rel = file.strip_prefix(root).expect("contained path").to_string_lossy();
-    (rel.starts_with(".plan/") && rel.ends_with(".md")) || spec_path(&rel)
+    (rel.ends_with(".md") && folders.iter().any(|folder| rel.starts_with(&format!("{folder}/")))) || spec_path(&rel)
 }
 
 fn real_file_in_root(file: &Path, root: &Path) -> Option<PathBuf> {
@@ -55,13 +56,13 @@ fn real_file_in_root(file: &Path, root: &Path) -> Option<PathBuf> {
     contained(&file, &root).then_some(file)
 }
 
-pub fn resolve(worktree: &Path, rel: &str) -> Result<ResolvedDoc, DocError> {
+pub fn resolve(worktree: &Path, rel: &str, folders: &[String]) -> Result<ResolvedDoc, DocError> {
     if rel.contains('\0') || Path::new(rel).is_absolute() {
         return Err(DocError::Forbidden);
     }
     let root = lexical(worktree);
     let file = lexical(&root.join(rel));
-    if !is_allowed(&file, &root) {
+    if !is_allowed(&file, &root, folders) {
         return Err(DocError::Forbidden);
     }
     let real = std::fs::canonicalize(&file).map_err(|_| DocError::NotFound)?;
@@ -103,26 +104,30 @@ fn list_plans(dir: &Path, root: &Path, kind: &str) -> Vec<Entry> {
     plans
 }
 
-pub fn spec_paths(worktree: &Path) -> Vec<String> {
+pub fn spec_paths(worktree: &Path, folders: &[String]) -> Vec<String> {
+    let pathspecs = spec_pathspecs(folders);
     let mut args = vec!["ls-files", "--cached", "--others", "--exclude-standard", "--"];
-    args.extend(SPEC_PATHS);
+    args.extend(pathspecs.iter().map(String::as_str));
     let Ok(output) = git(worktree, &args) else { return vec![] };
     let mut paths: Vec<_> = output.split('\n').filter(|path| !path.is_empty()).map(str::to_owned).collect();
     paths.sort_by(|left, right| name_order(left, right));
     paths
 }
 
-fn list_specs(root: &Path) -> Vec<Entry> {
-    spec_paths(root)
+fn list_specs(root: &Path, folders: &[String]) -> Vec<Entry> {
+    spec_paths(root, folders)
         .into_iter()
         .filter_map(|path| real_file_in_root(&root.join(&path), root).map(|real| Entry { path, real, kind: None }))
         .collect()
 }
 
-pub fn list(worktree: &Path) -> Listing {
+pub fn list(worktree: &Path, folders: &[String]) -> Listing {
     Listing {
-        plans: list_plans(&worktree.join(".plan"), worktree, "plan"),
-        specs: list_specs(worktree),
+        folders: folders
+            .iter()
+            .map(|folder| list_plans(&worktree.join(folder), worktree, "plan"))
+            .collect(),
+        specs: list_specs(worktree, folders),
     }
 }
 
@@ -130,13 +135,43 @@ pub fn list(worktree: &Path) -> Listing {
 mod tests {
     use super::*;
     use std::fs;
+
+    fn plan() -> Vec<String> {
+        vec![".plan".into()]
+    }
+
+    #[test]
+    fn folders_decide_which_markdown_files_resolve_and_where_they_are_listed() {
+        let root = tempfile::tempdir().unwrap();
+        for rel in [".plan/a.md", ".plan/b.spec.md", "docs/adr/c.md", "d.spec.md"] {
+            fs::create_dir_all(root.path().join(rel).parent().unwrap()).unwrap();
+            fs::write(root.path().join(rel), "# Test").unwrap();
+        }
+        for args in [&["init", "-q"][..], &["config", "core.excludesFile", "/dev/null"]] {
+            git(root.path(), args).unwrap();
+        }
+        let adr = vec!["docs/adr".to_owned()];
+        assert!(resolve(root.path(), "docs/adr/c.md", &adr).is_ok());
+        assert_eq!(resolve(root.path(), ".plan/a.md", &adr), Err(DocError::Forbidden));
+        let paths = |entries: &[Entry]| entries.iter().map(|entry| entry.path.clone()).collect::<Vec<_>>();
+        let listing = list(root.path(), &adr);
+        assert_eq!(
+            listing.folders.iter().map(|entries| paths(entries)).collect::<Vec<_>>(),
+            [["docs/adr/c.md"]]
+        );
+        assert_eq!(paths(&listing.specs), [".plan/b.spec.md", "d.spec.md"]);
+        let listing = list(root.path(), &[]);
+        assert!(listing.folders.is_empty());
+        assert_eq!(paths(&listing.specs), [".plan/b.spec.md", "d.spec.md"]);
+        assert_eq!(paths(&list(root.path(), &plan()).specs), ["d.spec.md"]);
+    }
     #[test]
     fn resolves_allowed_plan_and_spec() {
         let root = tempfile::tempdir().unwrap();
         fs::create_dir(root.path().join(".plan")).unwrap();
         for rel in [".plan/a.md", "a.spec.md", "a.discovery.mdx", "nested.examples.mdx"] {
             fs::write(root.path().join(rel), "# Test").unwrap();
-            let resolved = resolve(root.path(), rel).unwrap();
+            let resolved = resolve(root.path(), rel, &plan()).unwrap();
             assert_eq!(resolved.file, root.path().join(rel));
             assert_eq!(resolved.real, fs::canonicalize(root.path().join(rel)).unwrap());
             assert_eq!(resolved.root_path, rel);
@@ -156,11 +191,14 @@ mod tests {
             "",
             ".plan",
         ] {
-            assert_eq!(resolve(root.path(), rel), Err(DocError::Forbidden), "{rel:?}");
+            assert_eq!(resolve(root.path(), rel, &plan()), Err(DocError::Forbidden), "{rel:?}");
         }
-        assert_eq!(resolve(root.path(), "missing.spec.md"), Err(DocError::NotFound));
+        assert_eq!(resolve(root.path(), "missing.spec.md", &plan()), Err(DocError::NotFound));
         fs::write(root.path().join("a.spec.md"), "# A").unwrap();
-        assert_eq!(resolve(root.path(), "does-not-exist/../a.spec.md").unwrap().root_path, "a.spec.md");
+        assert_eq!(
+            resolve(root.path(), "does-not-exist/../a.spec.md", &plan()).unwrap().root_path,
+            "a.spec.md"
+        );
     }
     #[cfg(unix)]
     #[test]
@@ -170,10 +208,10 @@ mod tests {
         let outside = tempfile::tempdir().unwrap();
         fs::write(outside.path().join("out.spec.md"), "outside").unwrap();
         symlink(outside.path().join("out.spec.md"), root.path().join("escape.spec.md")).unwrap();
-        assert_eq!(resolve(root.path(), "escape.spec.md"), Err(DocError::Forbidden));
+        assert_eq!(resolve(root.path(), "escape.spec.md", &plan()), Err(DocError::Forbidden));
         fs::write(root.path().join("real.md"), "body").unwrap();
         symlink(root.path().join("real.md"), root.path().join("alias.spec.md")).unwrap();
-        let resolved = resolve(root.path(), "alias.spec.md").unwrap();
+        let resolved = resolve(root.path(), "alias.spec.md", &plan()).unwrap();
         assert_eq!(resolved.file, root.path().join("alias.spec.md"));
         assert_eq!(resolved.real, fs::canonicalize(root.path().join("real.md")).unwrap());
         assert_eq!(resolved.root_path, "alias.spec.md");

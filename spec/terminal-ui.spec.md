@@ -112,7 +112,7 @@ Kind: type · Anchor: `crates/render-tui/src/tui/app.rs#App`
 
 ```text
 state: worktree, tab, doc, filter, diff, expanded, navigator, panel, focus (sidebar|rail|document), scroll, pan
-Tab / S-Tab   toggle focus           1 / 2    plans / specs (keeps doc)
+Tab / S-Tab   toggle focus           1 … 9    folder tabs in config order, then specs (keeps doc)
 w             worktree picker (clears doc)     /        filter; Esc clears
 d             Diff toggle; specs tab only, disabled when changed specs are unknown
 ↑↓ jk         move   → ← lh  expand / collapse; in the document, pan wide blocks 8 columns   Enter  open
@@ -121,13 +121,13 @@ y / Y         copy absolute path / file name   e        sidebar / rail (open doc
 o             open the current view in the web app (spec/web-ui.spec.md)
 b             hide / show the left pane (open document only)
 q / C-c       quit
-click         focus a pane; in the left pane, activate the worktree line (w), a tab (1 / 2),
+click         focus a pane; in the left pane, activate the worktree line (w), a tab (1 … 9),
               Diff (d), the filter (/), or a row or rail entry (select + Enter)
 ```
 
 One pane left of the document shows either the sidebar (the corpus tree) or the rail, never both.
-Opening a document shows the rail; `e` swaps them, and `/`, `1`, `2`, or clearing the document
-shows the sidebar. `b` hides the pane so the document takes the full width; `e`, `/`, `1`, `2`, or
+Opening a document shows the rail; `e` swaps them, and `/`, a tab key, or clearing the document
+shows the sidebar. `b` hides the pane so the document takes the full width; `e`, `/`, a tab key, or
 clearing the document shows it again. The pane is at least 30 columns wide. Each header line is
 cut to the pane width with `…`; the title is cut before its status, and the path before
 `y path · Y name`. The footer lists the
@@ -137,14 +137,18 @@ the same way. Opening another document or resizing the pane resets the pan; a li
 A live reload keeps the shown
 pane and focus.
 
+Tabs: each `[[tab]]` lists every `.md` below its folder; the default is `plans` for `.plan`. The
+specs tab comes last and lists the spec, discovery, and examples files outside every tab folder.
+Only these files open.
+
 Tree semantics: the specs tab nests by path, compacts single-child directory chains, nests a spec
 under the document its `parent-spec` resolves to, and lets an umbrella own a directory it fully
-explains. Companions (`<stem>.discovery.*`, `<stem>.examples.*`) sit under their spec or plan. The
-plans tab is flat, with a plan index owning its phase files. A non-empty filter or `Diff` shows a
+explains. Companions (`<stem>.discovery.*`, `<stem>.examples.*`) sit under their spec or plan. A
+folder tab is flat, with a plan index owning its phase files. A non-empty filter or `Diff` shows a
 flat list with paths and omits attached examples. A document row never expands. A family member
 keeps its owner row current, and ancestors of the open document expand. Filter and `Diff` persist
 across tab and worktree switches; `tui.diff` sets `Diff` at start-up. A tab without documents is
-hidden and its key ignored, unless both are empty; start-up and a corpus change select a shown tab. A worktree switch clears the document and expansion; a tab
+hidden and its key ignored, unless all are empty; start-up and a corpus change select a shown tab. A worktree switch clears the document and expansion; a tab
 switch keeps the open document and selects its row when the tab lists it. An archived document
 shows an `archived` chip in `status_unknown`. The header kind is the document's tree kind (`plan`,
 `phase`, `umbrella`, `leaf`, `discovery`, `examples`). The rail lists the nearest family's files
@@ -186,6 +190,7 @@ first: default < `$XDG_CONFIG_HOME/spec-viewer/config.toml` (else `~/.config/spe
 | `theme.roles.*`, `theme.roles.xref.*`   | Palette names for `accent`, `muted`, `inline_code`, `code_bg`, `annotation`, `warning`, `headings`, `meter_progress`, `meter_complete`, `hint_fg`, `hint_bg`, `status_unknown`, and each xref family |
 | `[[status]]`                            | `name`, optional `aliases`, `color` (palette name); names and aliases unique across entries                                                                                                          |
 | `[[chip]]`                              | `label`, `kind` (`checklist` or `headings`), `sections` (`##` names, any case)                                                                                                                       |
+| `[[tab]]`                               | `name`, `folder` (worktree-relative, no `.` or `..` parts); names unique and not `specs`, folders disjoint, at most 8. `tab = []` leaves only specs                                                  |
 | `tui.diff`                              | `true` starts with `Diff` on                                                                                                                                                                         |
 | `[web]`                                 | User config only: `bind`, `cert`, `key` per `spec/web-ui.spec.md` `[CT-6]`                                                                                                                           |
 
@@ -266,3 +271,4 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 | 2026-10-19 | Header lines truncate instead of wrapping, keeping the status and the copy keys                                                              | CT-2                                 | A wrapping header pushed the body down on narrow panes           |
 | 2026-10-19 | Left clicks focus panes and activate left-pane rows, tabs, `Diff`, the filter, and the worktree line                                         | NG-2, CT-2, VC-2                     | Pointer users expect the panes to respond to clicks              |
 | 2026-10-20 | Wide code, Mermaid diagrams, and tables pan with `h` / `l` and the horizontal wheel instead of wrapping, stacking, or falling back to source | NG-2, CT-1, CT-2, VC-2               | Sequence diagrams ignore the width budget and showed as source   |
+| 2026-10-20 | `[[tab]]` maps folders to tabs before specs; keys `1` … `9` select tabs in order                                                             | CT-2, CT-4                           | Projects keep plans and other documents in other folders         |

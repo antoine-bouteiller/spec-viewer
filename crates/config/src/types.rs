@@ -34,10 +34,25 @@ pub struct ChipConfig {
     pub sections: Vec<String>,
 }
 
+/// A sidebar tab listing every `.md` below `folder`, a worktree-relative directory.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TabConfig {
+    pub name: String,
+    pub folder: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct ParseConfig {
     pub statuses: Vec<StatusConfig>,
     pub chips: Vec<ChipConfig>,
+    /// Folder tabs in order; the specs tab follows them.
+    pub tabs: Vec<TabConfig>,
+}
+impl ParseConfig {
+    pub fn folders(&self) -> Vec<String> {
+        self.tabs.iter().map(|tab| tab.folder.clone()).collect()
+    }
 }
 impl Default for ParseConfig {
     fn default() -> Self {

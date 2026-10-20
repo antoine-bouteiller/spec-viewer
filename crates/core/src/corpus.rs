@@ -3,7 +3,7 @@ use std::path::Path;
 use spec_viewer_source::{Entry, changed_specs, list};
 
 use crate::js::label;
-use crate::{DocMeta, Docs, ParseConfig, build_tree, parse_meta};
+use crate::{DocMeta, Docs, FolderDocs, ParseConfig, build_tree, parse_meta};
 
 fn to_doc_meta(entry: Entry, config: &ParseConfig) -> DocMeta {
     let Entry { real, path, kind } = entry;
@@ -21,18 +21,24 @@ fn to_doc_meta(entry: Entry, config: &ParseConfig) -> DocMeta {
 }
 
 pub fn docs(worktree: &Path, project_name: &str, config: &ParseConfig) -> Docs {
-    let changed_specs = changed_specs(worktree);
-    let listing = list(worktree);
+    let folders = config.folders();
+    let changed_specs = changed_specs(worktree, &folders);
+    let listing = list(worktree, &folders);
     Docs {
         changed_specs,
-        plans: build_tree(
-            &listing
-                .plans
-                .into_iter()
-                .map(|entry| to_doc_meta(entry, config))
-                .collect::<Vec<_>>(),
-            true,
-        ),
+        folders: config
+            .tabs
+            .iter()
+            .zip(listing.folders)
+            .map(|(tab, entries)| FolderDocs {
+                name: tab.name.clone(),
+                folder: tab.folder.clone(),
+                nodes: build_tree(
+                    &entries.into_iter().map(|entry| to_doc_meta(entry, config)).collect::<Vec<_>>(),
+                    true,
+                ),
+            })
+            .collect(),
         project: project_name.to_owned(),
         specs: build_tree(
             &listing
@@ -84,8 +90,9 @@ mod tests {
         }
         let result = docs(root.path(), "Project", &ParseConfig::default());
         assert_eq!(result.project, "Project");
-        assert_eq!(result.plans.len(), 1);
-        let plan = &result.plans[0];
+        assert_eq!(result.folders.len(), 1);
+        assert_eq!(result.folders[0].nodes.len(), 1);
+        let plan = &result.folders[0].nodes[0];
         assert_eq!(
             (&*plan.name, &*plan.kind, plan.status.as_ref().map(|status| status.name.as_str())),
             ("Folder", "plan", Some("ready"))
@@ -102,6 +109,9 @@ mod tests {
         assert_eq!(result.specs.len(), 2);
         assert_eq!((&*result.specs[0].name, &*result.specs[0].kind), ("Spec", "unknown"));
         assert_eq!(result.changed_specs, None);
-        assert_eq!(spec_paths(root.path()), ["tracked.spec.mdx", "untracked.spec.md"]);
+        assert_eq!(
+            spec_paths(root.path(), &[".plan".into()]),
+            ["tracked.spec.mdx", "untracked.spec.md"]
+        );
     }
 }

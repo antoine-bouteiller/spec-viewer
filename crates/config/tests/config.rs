@@ -186,3 +186,47 @@ fn tui_diff_defaults_off_and_a_layer_turns_it_on() {
     std::fs::write(root.path().join(".spec-viewer.toml"), "[tui]\ndiff = true\n").unwrap();
     assert!(Config::load_layers(None, root.path(), None).unwrap().tui.diff);
 }
+
+#[test]
+fn tabs_default_to_plans_and_a_layer_replaces_or_removes_them() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join(".spec-viewer.toml");
+    let tabs = |config: Config| config.parse.tabs.into_iter().map(|tab| (tab.name, tab.folder)).collect::<Vec<_>>();
+    assert_eq!(tabs(Config::default()), [("plans".into(), ".plan".into())]);
+    std::fs::write(&file, "tab = []\n").unwrap();
+    assert!(tabs(Config::load_layers(None, root.path(), None).unwrap()).is_empty());
+    std::fs::write(
+        &file,
+        "[[tab]]\nname='plans'\nfolder='.plan'\n[[tab]]\nname='ADRs'\nfolder='docs/adr'\n",
+    )
+    .unwrap();
+    assert_eq!(
+        tabs(Config::load_layers(None, root.path(), None).unwrap()),
+        [("plans".into(), ".plan".into()), ("ADRs".into(), "docs/adr".into())]
+    );
+}
+
+#[test]
+fn tab_errors_name_the_tab_and_key() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join(".spec-viewer.toml");
+    let tab = |name: &str, folder: &str| format!("[[tab]]\nname='{name}'\nfolder='{folder}'\n");
+    for (source, key) in [
+        (tab(" ", "a"), "tab[0].name"),
+        (tab("Specs", "a"), "tab[0].name"),
+        (tab("a", "a") + &tab("A", "b"), "tab[1].name"),
+        (tab("a", ""), "tab[0].folder"),
+        (tab("a", "/abs"), "tab[0].folder"),
+        (tab("a", "../out"), "tab[0].folder"),
+        (tab("a", ".plan/"), "tab[0].folder"),
+        (tab("a", "docs") + &tab("b", "docs/adr"), "tab[1].folder"),
+        (tab("a", "docs/adr") + &tab("b", "docs"), "tab[1].folder"),
+        ("[[tab]]\nname='a'".into(), "tab[0]"),
+        ((0..9).map(|i| tab(&i.to_string(), &i.to_string())).collect(), "tab"),
+    ] {
+        std::fs::write(&file, &source).unwrap();
+        let error = Config::load_layers(None, root.path(), None).unwrap_err();
+        assert_eq!(error.file, file, "{source}: {error}");
+        assert!(error.key.starts_with(key), "{source}: {error}");
+    }
+}

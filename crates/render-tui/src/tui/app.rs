@@ -21,7 +21,8 @@ const PAN_STEP: isize = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
-    Plans,
+    /// An index into `Docs::folders`.
+    Folder(usize),
     Specs,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,7 +109,7 @@ impl App {
             output: Box::new(output),
             project,
             worktree,
-            tab: Tab::Plans,
+            tab: Tab::Folder(0),
             docs,
             doc: None,
             filter: String::new(),
@@ -139,14 +140,39 @@ impl App {
         Ok(app)
     }
 
-    /// The tabs listing documents; both when neither does.
+    /// Folder tabs in config order, then specs.
+    fn all_tabs(&self) -> impl Iterator<Item = Tab> {
+        (0..self.docs.folders.len()).map(Tab::Folder).chain([Tab::Specs])
+    }
+
+    /// The tabs listing documents; all when none does.
     pub fn tabs(&self) -> Vec<Tab> {
-        let tabs: Vec<_> = [(Tab::Plans, &self.docs.plans), (Tab::Specs, &self.docs.specs)]
-            .into_iter()
-            .filter(|(_, docs)| !docs.is_empty())
-            .map(|(tab, _)| tab)
-            .collect();
-        if tabs.is_empty() { vec![Tab::Plans, Tab::Specs] } else { tabs }
+        let tabs: Vec<_> = self.all_tabs().filter(|tab| !self.tab_docs(*tab).is_empty()).collect();
+        if tabs.is_empty() { self.all_tabs().collect() } else { tabs }
+    }
+
+    pub fn tab_name(&self, tab: Tab) -> &str {
+        match tab {
+            Tab::Folder(index) => &self.docs.folders[index].name,
+            Tab::Specs => "specs",
+        }
+    }
+
+    fn tab_docs(&self, tab: Tab) -> &[core::DocNode] {
+        match tab {
+            Tab::Folder(index) => &self.docs.folders[index].nodes,
+            Tab::Specs => &self.docs.specs,
+        }
+    }
+
+    fn all_docs(&self) -> Vec<core::DocNode> {
+        self.docs
+            .folders
+            .iter()
+            .flat_map(|folder| &folder.nodes)
+            .chain(&self.docs.specs)
+            .cloned()
+            .collect()
     }
 
     fn settle_tab(&mut self) {
@@ -165,11 +191,7 @@ impl App {
     }
 
     fn listed(&self) -> &[core::DocNode] {
-        if self.tab == Tab::Plans {
-            &self.docs.plans
-        } else {
-            &self.docs.specs
-        }
+        self.tab_docs(self.tab)
     }
 
     pub fn filtering(&self) -> bool {
@@ -196,7 +218,7 @@ impl App {
         let Some(doc) = &self.doc else {
             return Vec::new();
         };
-        let all: Vec<_> = self.docs.plans.iter().chain(&self.docs.specs).cloned().collect();
+        let all = self.all_docs();
         let sections = || {
             self.rendered
                 .toc
@@ -238,7 +260,7 @@ impl App {
     pub fn open(&mut self, path: &str) {
         match self.library.open(self.worktree_path(), path) {
             Ok(doc) => {
-                let all: Vec<_> = self.docs.plans.iter().chain(&self.docs.specs).cloned().collect();
+                let all = self.all_docs();
                 self.expanded.extend(navigation::ancestors(&all, &doc.root_path, ""));
                 self.rendered = to_terminal(&doc.document, self.viewport.width.max(1), &self.theme);
                 self.doc = Some(doc);
@@ -316,7 +338,7 @@ impl App {
         let base = self.web_url.as_ref()?;
         let mut query = vec![
             ("wt", self.worktree_path().to_string_lossy().into_owned()),
-            ("tab", if self.tab == Tab::Specs { "specs" } else { "plans" }.to_owned()),
+            ("tab", self.tab_name(self.tab).to_owned()),
         ];
         if let Some(doc) = &self.doc {
             query.push(("doc", doc.root_path.clone()));
@@ -466,8 +488,10 @@ impl App {
         }
         match key.code {
             KeyCode::Char('q') => self.quit = true,
-            KeyCode::Char('1') | KeyCode::Char('2') => {
-                let tab = if key.code == KeyCode::Char('1') { Tab::Plans } else { Tab::Specs };
+            KeyCode::Char(digit @ '1'..='9') => {
+                let Some(tab) = self.all_tabs().nth(usize::from(digit as u8 - b'1')) else {
+                    return;
+                };
                 if !self.tabs().contains(&tab) {
                     return;
                 }
@@ -580,7 +604,10 @@ impl App {
         };
         match click {
             Click::Worktree => press(self, 'w'),
-            Click::Tab(tab) => press(self, if tab == Tab::Plans { '1' } else { '2' }),
+            Click::Tab(tab) => {
+                let index = self.all_tabs().position(|other| other == tab).unwrap_or(0);
+                press(self, char::from(b'1' + index as u8));
+            }
             Click::Diff => press(self, 'd'),
             Click::Filter => press(self, '/'),
             Click::Row(index) => {
@@ -770,9 +797,10 @@ impl App {
             if !tabs.is_empty() {
                 tabs.push(' ');
             }
-            let name = if tab == Tab::Plans { "plans" } else { "specs" };
+            let name = self.tab_name(tab);
             let label = if tab == self.tab { format!("[{name}]") } else { name.to_owned() };
-            clicks.push((row(1, tabs.len() as u16, label.len()), Click::Tab(tab)));
+            let width = unicode_width::UnicodeWidthStr::width;
+            clicks.push((row(1, width(tabs.as_str()) as u16, width(label.as_str())), Click::Tab(tab)));
             tabs.push_str(&label);
         }
         let diff = if self.tab != Tab::Specs {
@@ -785,7 +813,10 @@ impl App {
             " Diff"
         };
         if self.tab == Tab::Specs && self.docs.changed_specs.is_some() {
-            clicks.push((row(1, tabs.len() as u16 + 1, diff.len() - 1), Click::Diff));
+            clicks.push((
+                row(1, unicode_width::UnicodeWidthStr::width(tabs.as_str()) as u16 + 1, diff.len() - 1),
+                Click::Diff,
+            ));
         }
         let heading = vec![
             Line::raw(format!("{}{} ▾", worktree.name, if worktree.main { " (main)" } else { "" })),
@@ -971,14 +1002,23 @@ impl App {
         }
         metrics.push(Span::raw(format!("{} lines", doc.document.meta.lines)));
         header.push(Line::from(metrics));
-        let kind = navigation::find(&self.docs.plans, &doc.root_path)
+        let folder = self
+            .docs
+            .folders
+            .iter()
+            .find(|folder| doc.root_path.starts_with(&format!("{}/", folder.folder)));
+        let kind = self
+            .docs
+            .folders
+            .iter()
+            .find_map(|folder| navigation::find(&folder.nodes, &doc.root_path))
             .or_else(|| navigation::find(&self.docs.specs, &doc.root_path))
             .map(|node| node.kind.as_str())
             .or(doc.document.meta.kind.as_deref())
-            .unwrap_or(if doc.root_path.starts_with(".plan/") { "plan" } else { "spec" });
+            .unwrap_or(if folder.is_some() { "plan" } else { "spec" });
         let mut details = vec![kind.to_string()];
-        if doc.root_path.starts_with(".plan/")
-            && let Some(owner) = self.docs.plans.iter().find(|node| navigation::contains(node, &doc.root_path))
+        if let Some(folder) = folder
+            && let Some(owner) = folder.nodes.iter().find(|node| navigation::contains(node, &doc.root_path))
             && owner.path.as_deref() != Some(doc.root_path.as_str())
         {
             details.push(owner.name.clone());
@@ -1227,7 +1267,7 @@ mod tests {
         }
         assert_eq!(app.filter, "qdw12");
         assert!(!app.quit);
-        assert_eq!(app.tab, Tab::Plans);
+        assert_eq!(app.tab, Tab::Folder(0));
         assert!(!app.diff);
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(app.filter.is_empty());
@@ -1296,10 +1336,42 @@ mod tests {
     }
 
     #[test]
+    fn configured_folder_tabs_precede_specs_and_take_number_keys_in_order() {
+        let (root, _) = app();
+        add_spec(&root);
+        std::fs::create_dir_all(root.path().join("docs/adr")).unwrap();
+        std::fs::write(root.path().join("docs/adr/one.md"), "## One\n").unwrap();
+        let mut config = core::ParseConfig::default();
+        config.tabs.push(spec_viewer_config::TabConfig {
+            name: "adr".into(),
+            folder: "docs/adr".into(),
+        });
+        let mut app = App::new(Library::new(root.path(), config).unwrap(), Theme::default(), io::sink()).unwrap();
+        assert_eq!(app.tabs(), [Tab::Folder(0), Tab::Folder(1), Tab::Specs]);
+        app.handle_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
+        assert_eq!(app.tab, Tab::Folder(1));
+        assert_eq!(app.rows()[0].node.path.as_deref(), Some("docs/adr/one.md"));
+        app.handle_key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
+        assert_eq!(app.tab, Tab::Specs);
+        app.handle_key(KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE));
+        assert_eq!(app.tab, Tab::Specs);
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let screen: String = terminal.backend().buffer().content.iter().map(|cell| cell.symbol()).collect();
+        assert!(screen.contains("plans adr [specs]"), "{screen}");
+
+        let mut config = core::ParseConfig::default();
+        config.tabs.clear();
+        let app = App::new(Library::new(root.path(), config).unwrap(), Theme::default(), io::sink()).unwrap();
+        assert_eq!(app.tabs(), [Tab::Specs]);
+        assert!(app.rows().iter().all(|row| row.node.path.as_deref() != Some(".plan/first.md")));
+    }
+
+    #[test]
     fn a_tab_without_documents_is_hidden() {
         let (root, mut app) = app();
         app.handle_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
-        assert_eq!(app.tab, Tab::Plans);
+        assert_eq!(app.tab, Tab::Folder(0));
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
         terminal.draw(|frame| app.draw(frame)).unwrap();
         let screen: String = terminal.backend().buffer().content.iter().map(|cell| cell.symbol()).collect();
@@ -1388,7 +1460,7 @@ mod tests {
         assert_eq!(app.tab, Tab::Specs);
         terminal.draw(|frame| app.draw(frame)).unwrap();
         app.handle_mouse(down(2));
-        assert_eq!(app.tab, Tab::Plans);
+        assert_eq!(app.tab, Tab::Folder(0));
     }
 
     #[test]

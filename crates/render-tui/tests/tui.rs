@@ -201,7 +201,7 @@ fn vc_2_worktree_switch_clears_document_and_tabs_keep_it_with_filter_and_diff() 
     assert!(app.diff);
     app.open("spec/standalone.spec.md");
     key(&mut app, KeyCode::Char('1'));
-    assert_eq!(app.tab, Tab::Plans);
+    assert_eq!(app.tab, Tab::Folder(0));
     assert_eq!(app.doc.as_ref().unwrap().root_path, "spec/standalone.spec.md");
     assert_eq!(app.filter, "standalone");
     assert!(app.diff);
@@ -310,7 +310,7 @@ fn vc_3_live_reload_adds_plan_refreshes_body_and_preserves_scroll() {
     key(&mut app, KeyCode::PageDown);
     let scroll = app.scroll;
     assert!(scroll > 0);
-    let watcher = watch(&fixture.root).unwrap();
+    let watcher = watch(&fixture.root, &ParseConfig::default().folders()).unwrap();
     write(
         &fixture.root,
         ".plan/new.md",

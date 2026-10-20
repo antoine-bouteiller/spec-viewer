@@ -36,6 +36,20 @@ key = "key.pem"
 
 The server has no authentication, so only bind beyond loopback on a trusted network.
 
+Folder tabs come before the specs tab, which lists the `*.spec.md`, `*.discovery.md`, and
+`*.examples.md` files outside every tab folder. The default is one `plans` tab for `.plan`. A
+worktree `.spec-viewer.toml` can replace the list, or set `tab = []` to keep only specs:
+
+```toml
+[[tab]]
+name = "plans"
+folder = ".plan"
+
+[[tab]]
+name = "adr"
+folder = "docs/adr"  # every .md below it, relative to the worktree
+```
+
 ## Development
 
 ```sh
