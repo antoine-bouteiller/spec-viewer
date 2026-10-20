@@ -159,6 +159,8 @@ pub struct Roles<T> {
     pub hint_fg: T,
     pub hint_bg: T,
     pub status_unknown: T,
+    pub highlight_bg: T,
+    pub current_bg: T,
     pub xref: XrefRoles<T>,
 }
 #[derive(Clone, Debug, Deserialize)]
@@ -196,6 +198,8 @@ impl<T> Roles<T> {
             hint_fg: f("hint_fg", &self.hint_fg)?,
             hint_bg: f("hint_bg", &self.hint_bg)?,
             status_unknown: f("status_unknown", &self.status_unknown)?,
+            highlight_bg: f("highlight_bg", &self.highlight_bg)?,
+            current_bg: f("current_bg", &self.current_bg)?,
             xref: XrefRoles {
                 g: f("xref.g", &self.xref.g)?,
                 ng: f("xref.ng", &self.xref.ng)?,

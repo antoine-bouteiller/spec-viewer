@@ -173,7 +173,8 @@ as `N <label>` in the details line; it is omitted when zero.
 Statuses: the status head (trimmed, lower-cased, cut at `;`, `,`, `—`, or `-`) matches a
 `[[status]]` name or alias case-insensitively and shows as `[<name>]` in that entry's colour. An
 unmatched head shows as-is in `status_unknown`. Focus borders, the current row, and the active
-rail entry use `accent`. Unfocused borders, the search line, paths, header details, and the footer use
+rail entry use `accent`; the current row and active rail entry sit on `current_bg`. The cursor row of
+the focused list sits on `highlight_bg`. Unfocused borders, the search line, paths, header details, and the footer use
 `muted`. Hint labels use `hint_fg` on `hint_bg`.
 
 ### [CT-3] Live reload
@@ -197,7 +198,7 @@ first: default < `$XDG_CONFIG_HOME/spec-viewer/config.toml` (else `~/.config/spe
 | `theme.mode`                            | `auto`, `light`, or `dark`                                                                                                                                                                           |
 | `theme.name`, `light_name`, `dark_name` | Built-in theme, per mode when set: `terminal`                                                                                                                                                        |
 | `theme.palette`, `theme.palette.<mode>` | Name → colour: `#rrggbb`, `rgb(r,g,b)`, an ANSI slot name, or `reset`. New names allowed. Applied over the built-in, mode table last                                                                 |
-| `theme.roles.*`, `theme.roles.xref.*`   | Palette names for `accent`, `muted`, `inline_code`, `code_bg`, `annotation`, `warning`, `headings`, `meter_progress`, `meter_complete`, `hint_fg`, `hint_bg`, `status_unknown`, and each xref family |
+| `theme.roles.*`, `theme.roles.xref.*`   | Palette names for `accent`, `muted`, `inline_code`, `code_bg`, `annotation`, `warning`, `headings`, `meter_progress`, `meter_complete`, `hint_fg`, `hint_bg`, `status_unknown`, `highlight_bg`, `current_bg`, and each xref family |
 | `[[status]]`                            | `name`, optional `aliases`, `color` (palette name); names and aliases unique across entries                                                                                                          |
 | `[[chip]]`                              | `label`, `kind` (`checklist` or `headings`), `sections` (`##` names, any case)                                                                                                                       |
 | `[[tab]]`                               | `name`, optional `folder` (worktree-relative, no `.` or `..` parts), `kinds`, `companions`; names and folders unique, 1 to 9 tabs                                                                    |
@@ -286,7 +287,7 @@ function through `/api/search` (`spec/web-ui.spec.md` `[CT-2]`).
 - `[VC-5]` Given the single chip `{ label = "R", kind = "checklist", sections = ["risks"] }` and a
   `## Risks` checklist with one of two items checked, then the header shows `R 1/2` and no `AC`,
   `T`, or `phases`. — demonstrates `[SO-3]`
-- `[VC-6]` Given a palette setting every ANSI slot and `surface` to hex colours, then the dialect
+- `[VC-6]` Given a palette setting every ANSI slot, `surface`, `highlight`, and `current` to hex colours, then the dialect
   document, code blocks included, uses only those colours. Given `[theme.palette] blue = "#123456"`
   on `terminal`, then the focused border, `kd` xrefs, and `[accepted]` render `#123456`. A
   `[theme.palette.light]` colour applies under light mode only, and `--theme light` beats
@@ -307,7 +308,7 @@ function through `/api/search` (`spec/web-ui.spec.md` `[CT-2]`).
 
 - `[C-1]` OSC 52 depends on the terminal; tmux needs `set-clipboard on`.
 - `[C-2]` The OSC 11 background query runs on Unix only; elsewhere `auto` resolves to dark.
-- `[C-3]` Hex palette colours, including the default `surface`, need a truecolor terminal;
+- `[C-3]` Hex palette colours, including the default `surface`, `highlight`, and `current`, need a truecolor terminal;
   otherwise the terminal approximates them.
 
 ## Changelog

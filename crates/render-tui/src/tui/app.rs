@@ -842,7 +842,7 @@ impl App {
                                 .join(" · "),
                         ),
                     )
-                    .highlight_style(Style::default().add_modifier(Modifier::REVERSED)),
+                    .highlight_style(Style::default().bg(self.theme.roles.highlight_bg)),
                 popup,
                 &mut ListState::default().with_selected(Some(selection)),
             );
@@ -927,7 +927,7 @@ impl App {
         frame.render_stateful_widget(
             List::new(items)
                 .highlight_symbol(Line::styled("> ", accent))
-                .highlight_style(Style::default().add_modifier(Modifier::REVERSED)),
+                .highlight_style(Style::default().bg(self.theme.roles.highlight_bg)),
             inner,
             &mut ListState::default().with_selected(Some(search.selection)),
         );
@@ -1027,7 +1027,11 @@ impl App {
                         Style::default().fg(self.theme.roles.muted),
                     ));
                 }
-                ListItem::new(lines)
+                ListItem::new(lines).style(if row.current {
+                    Style::default().bg(self.theme.roles.current_bg)
+                } else {
+                    Style::default()
+                })
             })
             .collect();
         let heights: Vec<_> = items.iter().map(ListItem::height).collect();
@@ -1044,7 +1048,7 @@ impl App {
             let mut state = ListState::default().with_selected(Some(self.sidebar_selection));
             frame.render_stateful_widget(
                 List::new(items).highlight_style(if self.focus == Focus::Sidebar {
-                    Style::default().add_modifier(Modifier::REVERSED)
+                    Style::default().bg(self.theme.roles.highlight_bg)
                 } else {
                     Style::default()
                 }),
@@ -1097,7 +1101,10 @@ impl App {
                         .collect::<Vec<_>>(),
                 )
                 .style(if current {
-                    Style::default().fg(self.theme.roles.accent).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(self.theme.roles.accent)
+                        .bg(self.theme.roles.current_bg)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default()
                 })
@@ -1107,7 +1114,7 @@ impl App {
         let mut state = ListState::default().with_selected(Some(self.rail_selection));
         frame.render_stateful_widget(
             List::new(items).highlight_style(if self.focus == Focus::Rail {
-                Style::default().add_modifier(Modifier::REVERSED)
+                Style::default().bg(self.theme.roles.highlight_bg)
             } else {
                 Style::default()
             }),

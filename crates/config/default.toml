@@ -71,8 +71,12 @@ name = "terminal"              # built-ins: terminal
 # brand = "#ff79c6"
 [theme.palette.light]
 surface = "#eaeaee"            # hex: no ANSI slot is reliably one step off the terminal background
+highlight = "#d6d6dc"
+current = "#e4e4e8"
 [theme.palette.dark]
 surface = "#1f1f22"
+highlight = "#3e3e45"
+current = "#303034"
 
 [theme.roles]                  # every value names a palette colour
 accent = "blue"                # focused border, current row and rail entry
@@ -87,6 +91,8 @@ meter_complete = "green"
 hint_fg = "black"
 hint_bg = "yellow"
 status_unknown = "bright_black" # also archived
+highlight_bg = "highlight"      # cursor row in the focused list
+current_bg = "current"          # current row and active rail entry
 
 [theme.roles.xref]
 g = "cyan"

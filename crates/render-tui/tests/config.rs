@@ -161,12 +161,12 @@ fn vc_6_hex_palette_dialect_buffer_uses_only_palette_colours() {
     for (index, name) in slots.iter().enumerate() {
         source.push_str(&format!("{name}='#1020{index:02x}'\n"));
     }
-    source.push_str("[theme.palette.dark]\nsurface='#102099'\n");
+    source.push_str("[theme.palette.dark]\nsurface='#102099'\nhighlight='#10209a'\ncurrent='#10209b'\n");
     let mut app = configured(&fixture.root, &source, Some(Mode::Dark));
     app.open("spec/dialect.spec.mdx");
     let surface = Color::Rgb(0x10, 0x20, 0x99);
     let mut allowed: Vec<_> = (0..16).map(hex).collect();
-    allowed.extend([surface, Color::Reset]);
+    allowed.extend([surface, Color::Rgb(0x10, 0x20, 0x9a), Color::Rgb(0x10, 0x20, 0x9b), Color::Reset]);
     let (mut pages, mut code_cells) = (0, 0);
     loop {
         let buffer = draw(&mut app);
