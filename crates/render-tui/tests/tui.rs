@@ -125,7 +125,7 @@ fn vc_1_every_dialect_construct_across_document_pages() {
 }
 
 #[test]
-fn vc_2_filter_is_flat_with_paths_and_without_attached_examples() {
+fn vc_2_filter_is_flat_with_paths_and_without_attached_companions() {
     let fixture = Fixture::new();
     let mut app = App::new(
         Library::new(&fixture.root, ParseConfig::default()).unwrap(),
@@ -149,6 +149,12 @@ fn vc_2_filter_is_flat_with_paths_and_without_attached_examples() {
     assert!(!screen.contains("Rollout examples"));
     key(&mut app, KeyCode::Esc);
     assert!(!app.filtering());
+    key(&mut app, KeyCode::Char('2'));
+    key(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "viewer");
+    key(&mut app, KeyCode::Enter);
+    let paths: Vec<_> = app.rows().into_iter().filter_map(|row| row.node.path).collect();
+    assert_eq!(paths, ["doc/architecture/viewer.spec.md"]);
 }
 
 #[test]

@@ -114,7 +114,7 @@ const ancestorKeys = (nodes, active, parentKey = '') => {
   return []
 }
 
-// An examples document attached to its owner is reached through the owner's row, not listed on its own.
+// An examples or discovery document attached to its owner is reached through the owner's row, not listed on its own.
 const matchingDocuments = (nodes, needle, paths) =>
   nodes.flatMap((node) => [
     ...(node.path &&
@@ -123,7 +123,7 @@ const matchingDocuments = (nodes, needle, paths) =>
       ? [node]
       : []),
     ...matchingDocuments(
-      (node.children ?? []).filter((child) => !(node.path && child.kind === 'examples')),
+      (node.children ?? []).filter((child) => !(node.path && (child.kind === 'examples' || child.kind === 'discovery'))),
       needle,
       paths
     ),

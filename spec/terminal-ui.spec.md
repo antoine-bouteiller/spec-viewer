@@ -146,7 +146,7 @@ under the document its `parent-spec` resolves to, and lets an umbrella own a dir
 explains. Companions (`<stem>[.<topic>].discovery.*`, `<stem>[.<topic>].examples.*`) sit under their spec or
 plan, matched on the longest stem that has one. A
 folder tab is flat, with a plan index owning its phase files. A non-empty filter or `Diff` shows a
-flat list with paths and omits attached examples. A document row never expands. A family member
+flat list with paths and omits attached companions. A document row never expands. A family member
 keeps its owner row current, and ancestors of the open document expand. Filter and `Diff` persist
 across tab and worktree switches; `tui.diff` sets `Diff` at start-up. A tab without documents is
 hidden and its key ignored, unless all are empty; start-up and a corpus change select a shown tab. A worktree switch clears the document and expansion; a tab
