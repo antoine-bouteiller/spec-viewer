@@ -1871,6 +1871,7 @@ name = "spec-viewer-source"
 version = "0.1.0"
 dependencies = [
  "notify",
+ "spec-viewer-config",
  "tempfile",
 ]
 

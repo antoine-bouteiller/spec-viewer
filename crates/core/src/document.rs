@@ -28,7 +28,7 @@ impl Documents {
     }
 
     pub fn open(&self, worktree: &Path, rel: &str) -> Result<Opened, DocError> {
-        let resolved = resolve(worktree, rel, &self.config.folders())?;
+        let resolved = resolve(worktree, rel, &self.config)?;
         let (source, stamp) = read(&resolved)?;
         let real_root = std::fs::canonicalize(worktree).map_err(|_| DocError::NotFound)?;
         let render_path = resolved

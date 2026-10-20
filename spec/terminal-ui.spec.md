@@ -112,9 +112,9 @@ Kind: type · Anchor: `crates/render-tui/src/tui/app.rs#App`
 
 ```text
 state: worktree, tab, doc, filter, diff, expanded, navigator, panel, focus (sidebar|rail|document), scroll, pan
-Tab / S-Tab   toggle focus           1 … 9    folder tabs in config order, then specs (keeps doc)
+Tab / S-Tab   toggle focus           1 … 9    tabs in config order (keeps doc)
 w             worktree picker (clears doc)     /        filter; Esc clears
-d             Diff toggle; specs tab only, disabled when changed specs are unknown
+d             Diff toggle; disabled when changed documents are unknown
 ↑↓ jk         move   → ← lh  expand / collapse; in the document, pan wide blocks 8 columns   Enter  open
 PgUp PgDn g G scroll document        f        hint mode (open link / copy xref)
 y / Y         copy absolute path / file name   e        sidebar / rail (open document only)
@@ -137,22 +137,25 @@ the same way. Opening another document or resizing the pane resets the pan; a li
 A live reload keeps the shown
 pane and focus.
 
-Tabs: each `[[tab]]` lists every `.md` below its folder; the default is `plans` for `.plan`. The
-specs tab comes last and lists the spec, discovery, and examples files outside every tab folder.
-Only these files open.
+Tabs: each `[[tab]]` lists the `.md` and `.mdx` files below its folder, or below the worktree,
+through Git, when it has none. A file belongs to the tab with the deepest folder containing it, and
+is listed only when that tab's `kinds` (the `<kind>` of `<name>.<kind>.md`) or `companions` match
+it; a tab without `kinds` matches every file. The defaults are `plans` for `.plan` with `examples`
+companions, then `specs` for the worktree with `spec` kinds and `examples` and `discovery`
+companions. Only listed files open.
 
-Tree semantics: the specs tab nests by path, compacts single-child directory chains, nests a spec
-under the document its `parent-spec` resolves to, and lets an umbrella own a directory it fully
-explains. Companions (`<stem>[.<topic>].discovery.*`, `<stem>[.<topic>].examples.*`) sit under their spec or
-plan, matched on the longest stem that has one. A
-folder tab is flat, with a plan index owning its phase files. A non-empty filter or `Diff` shows a
+Tree semantics: every tab nests by path below its folder, compacts single-child directory chains,
+nests a document under the document its `parent-spec` resolves to, and lets an umbrella own a
+directory it fully explains. A subfolder's `index.md` is a `plan` owning the other files there as
+its `phase` files. Companions (`<stem>[.<topic>].<companion>.*`) sit under the document of the
+longest stem that has one, in `companions` order. A non-empty filter or `Diff` shows a
 flat list with paths and omits attached companions. A document row never expands. A family member
 keeps its owner row current, and ancestors of the open document expand. Filter and `Diff` persist
 across tab and worktree switches; `tui.diff` sets `Diff` at start-up. A tab without documents is
 hidden and its key ignored, unless all are empty; start-up and a corpus change select a shown tab. A worktree switch clears the document and expansion; a tab
 switch keeps the open document and selects its row when the tab lists it. An archived document
 shows an `archived` chip in `status_unknown`. The header kind is the document's tree kind (`plan`,
-`phase`, `umbrella`, `leaf`, `discovery`, `examples`). The rail lists the nearest family's files
+`phase`, `umbrella`, `leaf`, or a companion kind), then the name of the family owner it belongs to. The rail lists the nearest family's files
 when the document belongs to one, then the document's outline.
 
 Header chips: each `[[chip]]` is matched against the document's `##` sections, the first listed
@@ -191,7 +194,7 @@ first: default < `$XDG_CONFIG_HOME/spec-viewer/config.toml` (else `~/.config/spe
 | `theme.roles.*`, `theme.roles.xref.*`   | Palette names for `accent`, `muted`, `inline_code`, `code_bg`, `annotation`, `warning`, `headings`, `meter_progress`, `meter_complete`, `hint_fg`, `hint_bg`, `status_unknown`, and each xref family |
 | `[[status]]`                            | `name`, optional `aliases`, `color` (palette name); names and aliases unique across entries                                                                                                          |
 | `[[chip]]`                              | `label`, `kind` (`checklist` or `headings`), `sections` (`##` names, any case)                                                                                                                       |
-| `[[tab]]`                               | `name`, `folder` (worktree-relative, no `.` or `..` parts); names unique and not `specs`, folders disjoint, at most 8. `tab = []` leaves only specs                                                  |
+| `[[tab]]`                               | `name`, optional `folder` (worktree-relative, no `.` or `..` parts), `kinds`, `companions`; names and folders unique, 1 to 9 tabs                                                                    |
 | `tui.diff`                              | `true` starts with `Diff` on                                                                                                                                                                         |
 | `[web]`                                 | User config only: `bind`, `cert`, `key` per `spec/web-ui.spec.md` `[CT-6]`                                                                                                                           |
 
@@ -222,7 +225,7 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
   family list for a plan phase and as a section outline for a standalone spec, and every `[CT-1]`
   construct of `fixtures/dialect.spec.mdx`. — demonstrates `[SO-1]`
 - `[VC-2]` Given key sequences on the fixture, then: a filter shows a flat list with paths and
-  without attached examples; `d` restricts specs to the changed set; `w` switches worktree and
+  without attached companions; `d` restricts the tab to the changed set; `w` switches worktree and
   clears the document; `1` and `2` keep the open document; `b` hides the left pane; opening a phase
   keeps its plan row current; hint mode on an xref writes an OSC 52 sequence carrying the ID; hint
   mode on a doc link opens its target; clicking a pane focuses it and clicking a left-pane row or
@@ -273,3 +276,4 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 | 2026-10-19 | Left clicks focus panes and activate left-pane rows, tabs, `Diff`, the filter, and the worktree line                                         | NG-2, CT-2, VC-2                     | Pointer users expect the panes to respond to clicks              |
 | 2026-10-20 | Wide code, Mermaid diagrams, and tables pan with `h` / `l` and the horizontal wheel instead of wrapping, stacking, or falling back to source | NG-2, CT-1, CT-2, VC-2               | Sequence diagrams ignore the width budget and showed as source   |
 | 2026-10-20 | `[[tab]]` maps folders to tabs before specs; keys `1` … `9` select tabs in order                                                             | CT-2, CT-4                           | Projects keep plans and other documents in other folders         |
+| 2026-10-20 | Every tab, specs included, is a `[[tab]]` path tree with optional `folder`, `kinds`, and `companions`; `Diff` on every tab                   | CT-2, CT-4                           | Projects name their own document kinds and companions            |

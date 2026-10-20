@@ -261,17 +261,16 @@ impl State {
     fn docs(&self, worktree: &Path) -> Reply {
         let corpus = self.library.corpus(worktree);
         json(&DocsJson {
-            changed_specs: corpus.changed_specs,
-            folders: corpus
-                .folders
+            changed: corpus.changed,
+            project: corpus.project,
+            tabs: corpus
+                .tabs
                 .iter()
-                .map(|folder| FolderJson {
-                    name: &folder.name,
-                    nodes: folder.nodes.iter().map(|node| self.node(node)).collect(),
+                .map(|tab| TabJson {
+                    name: &tab.name,
+                    nodes: tab.nodes.iter().map(|node| self.node(node)).collect(),
                 })
                 .collect(),
-            project: corpus.project,
-            specs: corpus.specs.iter().map(|node| self.node(node)).collect(),
         })
     }
 
@@ -358,6 +357,7 @@ impl State {
             kind: node.kind.clone(),
             status: self.status(node.status.as_ref()),
             archived: node.archived.unwrap_or(false),
+            companion: node.companion,
             children: node
                 .children
                 .as_ref()
@@ -466,23 +466,22 @@ struct NodeJson {
     #[serde(skip_serializing_if = "Option::is_none")]
     status: Option<StatusJson>,
     archived: bool,
+    companion: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     children: Option<Vec<NodeJson>>,
 }
 
 #[derive(Serialize)]
-struct FolderJson<'a> {
+struct TabJson<'a> {
     name: &'a str,
     nodes: Vec<NodeJson>,
 }
 
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 struct DocsJson<'a> {
-    changed_specs: Option<Vec<String>>,
-    folders: Vec<FolderJson<'a>>,
+    changed: Option<Vec<String>>,
     project: String,
-    specs: Vec<NodeJson>,
+    tabs: Vec<TabJson<'a>>,
 }
 
 #[derive(Serialize)]

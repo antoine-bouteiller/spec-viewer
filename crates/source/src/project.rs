@@ -4,25 +4,10 @@ use std::process::{Command, Stdio};
 
 use super::js::{starts, take_while, terminator, trim};
 use super::{Project, Worktree};
+use spec_viewer_config::ParseConfig;
 
 // Pathspec `*` also matches `/`.
-const SPEC_PATHS: [&str; 6] = [
-    "*.spec.md",
-    "*.spec.mdx",
-    "*.discovery.md",
-    "*.discovery.mdx",
-    "*.examples.md",
-    "*.examples.mdx",
-];
-
-/// Spec patterns outside `folders`, whose files their own tabs list.
-pub(super) fn spec_pathspecs(folders: &[String]) -> Vec<String> {
-    folders
-        .iter()
-        .map(|folder| format!(":(exclude,literal){folder}/"))
-        .chain(SPEC_PATHS.map(str::to_owned))
-        .collect()
-}
+pub(super) const MARKDOWN: [&str; 2] = ["*.md", "*.mdx"];
 
 pub(super) fn git(root: &Path, args: &[&str]) -> io::Result<String> {
     let output = Command::new("git")
@@ -99,7 +84,8 @@ pub fn project_of(root: &Path) -> io::Result<Project> {
     })
 }
 
-pub fn changed_specs(worktree: &Path, folders: &[String]) -> Option<Vec<String>> {
+/// Tab documents changed since the merge base with the remote `main`, committed or not.
+pub fn changed(worktree: &Path, config: &ParseConfig) -> Option<Vec<String>> {
     let refs = git(worktree, &["for-each-ref", "--format=%(refname)", "refs/remotes"]).ok()?;
     let refs: Vec<_> = refs.split('\n').filter(|reference| reference.ends_with("/main")).collect();
     let remote = refs
@@ -107,11 +93,16 @@ pub fn changed_specs(worktree: &Path, folders: &[String]) -> Option<Vec<String>>
         .find(|&&reference| reference == "refs/remotes/origin/main")
         .or_else(|| refs.first())?;
     let base = git(worktree, &["merge-base", "HEAD", remote]).ok()?;
-    let pathspecs = spec_pathspecs(folders);
     let mut args = vec!["diff", "--name-only", "-z", trim(&base), "--"];
-    args.extend(pathspecs.iter().map(String::as_str));
+    args.extend(MARKDOWN);
     let output = git(worktree, &args).ok()?;
-    Some(output.split('\0').filter(|value| !value.is_empty()).map(str::to_owned).collect())
+    Some(
+        output
+            .split('\0')
+            .filter(|path| config.tab_of(path).is_some())
+            .map(str::to_owned)
+            .collect(),
+    )
 }
 
 /// A fixed project identity whose currently accessible worktrees are refreshed on demand.
@@ -205,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn committed_and_working_tree_spec_changes_from_remote_main() {
+    fn committed_and_working_tree_tab_changes_from_remote_main() {
         let root = repository();
         for (name, content) in [
             ("first.spec.md", "first\n"),
@@ -230,9 +221,9 @@ mod tests {
         fs::write(root.path().join(".plan/plan.examples.md"), "changed plan\n").unwrap();
         run(root.path(), &["add", "second.spec.md"]);
         run(root.path(), &["commit", "-qm", "change second spec"]);
-        let mut changed = changed_specs(root.path(), &[".plan".into()]).unwrap();
+        let mut changed = changed(root.path(), &ParseConfig::default()).unwrap();
         changed.sort();
-        assert_eq!(changed, ["first.spec.md", "second.spec.md"]);
+        assert_eq!(changed, [".plan/plan.examples.md", "first.spec.md", "second.spec.md"]);
     }
 
     #[test]
@@ -247,6 +238,6 @@ mod tests {
 
     #[test]
     fn no_remote_main_ref() {
-        assert_eq!(changed_specs(repository().path(), &[]), None);
+        assert_eq!(changed(repository().path(), &ParseConfig::default()), None);
     }
 }

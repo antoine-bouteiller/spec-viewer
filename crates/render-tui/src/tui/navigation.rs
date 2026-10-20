@@ -111,7 +111,7 @@ pub(super) fn rows(
             if context.flat {
                 let descendants: Vec<_> = children(node)
                     .iter()
-                    .filter(|child| !(node.path.is_some() && matches!(child.kind.as_str(), "examples" | "discovery")))
+                    .filter(|child| !(node.path.is_some() && child.companion))
                     .cloned()
                     .collect();
                 collect(&descendants, context, &key, depth + 1, result);

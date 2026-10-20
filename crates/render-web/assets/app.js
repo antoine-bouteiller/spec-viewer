@@ -2,7 +2,7 @@
 const MERMAID = 'https://cdn.jsdelivr.net/npm/mermaid@12/dist/mermaid.esm.min.mjs'
 const THEME_KEY = 'spec-viewer.theme'
 const UNKNOWN_TONE = 'var(--status-unknown)'
-const NO_DOCS = { changedSpecs: null, folders: [], project: '', specs: [] }
+const NO_DOCS = { changed: null, project: '', tabs: [] }
 
 const $ = (id) => document.getElementById(id)
 const page = $('page')
@@ -74,11 +74,11 @@ const state = {
   treeId: '',
 }
 
-// Folder tabs in config order, then specs; an unknown `tab` falls back to the first.
-const tabs = () => [...state.docs.folders, { name: 'specs', nodes: state.docs.specs }]
-const tab = () => (tabs().find((item) => item.name === url.tab) ?? tabs()[0]).name
+// Tabs in config order; an unknown `tab` falls back to the first.
+const tabs = () => state.docs.tabs
+const tab = () => (tabs().find((item) => item.name === url.tab) ?? tabs()[0])?.name
 const worktree = () => state.project?.worktrees.find((item) => item.path === url.wt)
-const listed = () => tabs().find((item) => item.name === tab()).nodes
+const listed = () => tabs().find((item) => item.name === tab())?.nodes ?? []
 
 // Tree model.
 
@@ -114,7 +114,7 @@ const ancestorKeys = (nodes, active, parentKey = '') => {
   return []
 }
 
-// An examples or discovery document attached to its owner is reached through the owner's row, not listed on its own.
+// A companion attached to its owner is reached through the owner's row, not listed on its own.
 const matchingDocuments = (nodes, needle, paths) =>
   nodes.flatMap((node) => [
     ...(node.path &&
@@ -123,7 +123,7 @@ const matchingDocuments = (nodes, needle, paths) =>
       ? [node]
       : []),
     ...matchingDocuments(
-      (node.children ?? []).filter((child) => !(node.path && (child.kind === 'examples' || child.kind === 'discovery'))),
+      (node.children ?? []).filter((child) => !(node.path && child.companion)),
       needle,
       paths
     ),
@@ -144,7 +144,7 @@ const familyOf = (node, path) => {
 
 const activeOwner = () => tabs().flatMap((item) => item.nodes).find((node) => findNode(node, url.doc ?? null)) ?? null
 
-const changedFilter = () => (tab() === 'specs' && url.diff === 'true' && state.docs.changedSpecs ? new Set(state.docs.changedSpecs) : undefined)
+const changedFilter = () => (url.diff === 'true' && state.docs.changed ? new Set(state.docs.changed) : undefined)
 
 // Shared fragments.
 
@@ -241,8 +241,7 @@ const renderSidebar = () => {
   syncTreeFocus(hadFocus)
 
   filter.placeholder = `Filter ${tab()}…`
-  diffToggle.hidden = tab() !== 'specs'
-  diffToggle.disabled = state.docs.changedSpecs === null
+  diffToggle.disabled = state.docs.changed === null
   diffToggle.setAttribute('aria-pressed', String(url.diff === 'true'))
 }
 

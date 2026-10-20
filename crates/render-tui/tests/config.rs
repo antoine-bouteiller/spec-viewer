@@ -239,7 +239,7 @@ fn vc_5_headings_chip_label_is_configured_and_zero_chips_are_omitted() {
     app.open(".plan/a.md");
     let buffer = draw(&mut app);
     let screen = text(&buffer);
-    assert!(screen.contains("plan · 2 milestones"));
+    assert!(screen.contains("leaf · 2 milestones"));
     assert!(!screen.contains("Empty meter"));
     assert!(!screen.contains("empty count"));
     assert!(!screen.contains("phases"));

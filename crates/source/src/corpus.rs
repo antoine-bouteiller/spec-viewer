@@ -1,21 +1,15 @@
 use std::path::{Path, PathBuf};
 
-use super::js::{name_order, spec_path};
-use super::project::{git, spec_pathspecs};
+use spec_viewer_config::ParseConfig;
+
+use super::js::name_order;
+use super::project::{MARKDOWN, git};
 use super::{DocError, ResolvedDoc};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
     pub path: String,
     pub real: PathBuf,
-    pub kind: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Listing {
-    /// One list per folder, in the order given.
-    pub folders: Vec<Vec<Entry>>,
-    pub specs: Vec<Entry>,
 }
 
 /// Node's resolve(root, path): normalize lexically before following any symlinks.
@@ -42,27 +36,23 @@ fn contained(file: &Path, root: &Path) -> bool {
     file.strip_prefix(root).is_ok_and(|rel| !rel.as_os_str().is_empty())
 }
 
-fn is_allowed(file: &Path, root: &Path, folders: &[String]) -> bool {
-    if !contained(file, root) {
-        return false;
-    }
-    let rel = file.strip_prefix(root).expect("contained path").to_string_lossy();
-    (rel.ends_with(".md") && folders.iter().any(|folder| rel.starts_with(&format!("{folder}/")))) || spec_path(&rel)
-}
-
 fn real_file_in_root(file: &Path, root: &Path) -> Option<PathBuf> {
     let file = std::fs::canonicalize(file).ok()?;
     let root = std::fs::canonicalize(root).ok()?;
     contained(&file, &root).then_some(file)
 }
 
-pub fn resolve(worktree: &Path, rel: &str, folders: &[String]) -> Result<ResolvedDoc, DocError> {
+pub fn resolve(worktree: &Path, rel: &str, config: &ParseConfig) -> Result<ResolvedDoc, DocError> {
     if rel.contains('\0') || Path::new(rel).is_absolute() {
         return Err(DocError::Forbidden);
     }
     let root = lexical(worktree);
     let file = lexical(&root.join(rel));
-    if !is_allowed(&file, &root, folders) {
+    if !contained(&file, &root) {
+        return Err(DocError::Forbidden);
+    }
+    let root_path = file.strip_prefix(&root).expect("contained path").to_string_lossy().into_owned();
+    if config.tab_of(&root_path).is_none() {
         return Err(DocError::Forbidden);
     }
     let real = std::fs::canonicalize(&file).map_err(|_| DocError::NotFound)?;
@@ -70,65 +60,62 @@ pub fn resolve(worktree: &Path, rel: &str, folders: &[String]) -> Result<Resolve
     if !contained(&real, &real_root) {
         return Err(DocError::Forbidden);
     }
-    let root_path = file.strip_prefix(&root).expect("allowed path").to_string_lossy().into_owned();
     Ok(ResolvedDoc { file, real, root_path })
 }
 
-fn list_plans(dir: &Path, root: &Path, kind: &str) -> Vec<Entry> {
-    let Ok(entries) = std::fs::read_dir(dir) else { return vec![] };
+/// Every file below `dir`, depth-first in name order, skipping symlinks.
+fn walk(dir: &Path, root: &Path, files: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut entries: Vec<_> = entries.filter_map(Result::ok).map(|entry| entry.file_name()).collect();
     entries.sort_by(|left, right| name_order(&left.to_string_lossy(), &right.to_string_lossy()));
-    let mut plans = vec![];
     for entry in entries {
         let full = dir.join(&entry);
         let Ok(stats) = std::fs::symlink_metadata(&full) else { continue };
-        if stats.is_symlink() {
-            continue;
-        }
         if stats.is_dir() {
-            plans.extend(list_plans(&full, root, "phase"));
-        } else if entry.to_string_lossy().ends_with(".md")
-            && let Some(real) = real_file_in_root(&full, root)
-        {
-            let entry = entry.to_string_lossy();
-            let plan_kind = if kind == "phase" && entry == "index.md" { "plan" } else { kind };
-            let kind = if entry.ends_with(".examples.md") { "examples" } else { plan_kind };
-            let path = full.strip_prefix(root).expect("plan in root").to_string_lossy().into_owned();
-            plans.push(Entry {
-                path,
-                real,
-                kind: Some(kind.to_owned()),
-            });
+            walk(&full, root, files);
+        } else if stats.is_file() {
+            files.push(full.strip_prefix(root).expect("file in root").to_string_lossy().into_owned());
         }
     }
-    plans
 }
 
-pub fn spec_paths(worktree: &Path, folders: &[String]) -> Vec<String> {
-    let pathspecs = spec_pathspecs(folders);
+/// Files of the whole-worktree tabs, from Git's cached and unignored untracked files.
+pub fn git_paths(worktree: &Path, config: &ParseConfig) -> Vec<String> {
+    if config.tabs.iter().all(|tab| tab.folder.is_some()) {
+        return vec![];
+    }
     let mut args = vec!["ls-files", "--cached", "--others", "--exclude-standard", "--"];
-    args.extend(pathspecs.iter().map(String::as_str));
+    args.extend(MARKDOWN);
     let Ok(output) = git(worktree, &args) else { return vec![] };
-    let mut paths: Vec<_> = output.split('\n').filter(|path| !path.is_empty()).map(str::to_owned).collect();
+    let mut paths: Vec<_> = output
+        .split('\n')
+        .filter(|path| config.tab_of(path).is_some_and(|index| config.tabs[index].folder.is_none()))
+        .map(str::to_owned)
+        .collect();
     paths.sort_by(|left, right| name_order(left, right));
+    paths.dedup();
     paths
 }
 
-fn list_specs(root: &Path, folders: &[String]) -> Vec<Entry> {
-    spec_paths(root, folders)
-        .into_iter()
-        .filter_map(|path| real_file_in_root(&root.join(&path), root).map(|real| Entry { path, real, kind: None }))
-        .collect()
-}
-
-pub fn list(worktree: &Path, folders: &[String]) -> Listing {
-    Listing {
-        folders: folders
-            .iter()
-            .map(|folder| list_plans(&worktree.join(folder), worktree, "plan"))
-            .collect(),
-        specs: list_specs(worktree, folders),
+/// One list per configured tab, in order.
+pub fn list(worktree: &Path, config: &ParseConfig) -> Vec<Vec<Entry>> {
+    let mut tabs = vec![vec![]; config.tabs.len()];
+    let mut paths = git_paths(worktree, config);
+    for tab in &config.tabs {
+        if let Some(folder) = &tab.folder {
+            walk(&worktree.join(folder), worktree, &mut paths);
+        }
     }
+    let mut seen = std::collections::HashSet::new();
+    for path in paths {
+        if let Some(index) = config.tab_of(&path)
+            && seen.insert(path.clone())
+            && let Some(real) = real_file_in_root(&worktree.join(&path), worktree)
+        {
+            tabs[index].push(Entry { path, real });
+        }
+    }
+    tabs
 }
 
 #[cfg(test)]
@@ -136,34 +123,70 @@ mod tests {
     use super::*;
     use std::fs;
 
-    fn plan() -> Vec<String> {
-        vec![".plan".into()]
+    fn plan() -> ParseConfig {
+        ParseConfig::default()
+    }
+    fn tab(name: &str, folder: Option<&str>, kinds: Option<&[&str]>, companions: &[&str]) -> spec_viewer_config::TabConfig {
+        let strings = |values: &[&str]| values.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>();
+        spec_viewer_config::TabConfig {
+            name: name.into(),
+            folder: folder.map(Into::into),
+            kinds: kinds.map(strings),
+            companions: strings(companions),
+        }
+    }
+    fn config(tabs: Vec<spec_viewer_config::TabConfig>) -> ParseConfig {
+        ParseConfig {
+            tabs,
+            ..ParseConfig::default()
+        }
     }
 
     #[test]
-    fn folders_decide_which_markdown_files_resolve_and_where_they_are_listed() {
+    fn the_deepest_tab_folder_owns_a_file_and_its_kinds_decide_whether_it_is_listed() {
         let root = tempfile::tempdir().unwrap();
-        for rel in [".plan/a.md", ".plan/b.spec.md", "docs/adr/c.md", "d.spec.md"] {
+        for rel in [
+            ".plan/a.md",
+            ".plan/b.spec.md",
+            "docs/adr/c.md",
+            "docs/adr/c.spec.md",
+            "d.spec.md",
+            "d.examples.mdx",
+            "README.md",
+        ] {
             fs::create_dir_all(root.path().join(rel).parent().unwrap()).unwrap();
             fs::write(root.path().join(rel), "# Test").unwrap();
         }
         for args in [&["init", "-q"][..], &["config", "core.excludesFile", "/dev/null"]] {
             git(root.path(), args).unwrap();
         }
-        let adr = vec!["docs/adr".to_owned()];
+        let adr = config(vec![
+            tab("docs", Some("docs"), None, &[]),
+            tab("adr", Some("docs/adr"), None, &[]),
+            tab("specs", None, Some(&["spec"]), &["examples"]),
+        ]);
         assert!(resolve(root.path(), "docs/adr/c.md", &adr).is_ok());
-        assert_eq!(resolve(root.path(), ".plan/a.md", &adr), Err(DocError::Forbidden));
-        let paths = |entries: &[Entry]| entries.iter().map(|entry| entry.path.clone()).collect::<Vec<_>>();
-        let listing = list(root.path(), &adr);
+        assert_eq!(resolve(root.path(), "README.md", &adr), Err(DocError::Forbidden));
+        let paths = |tabs: Vec<Vec<Entry>>| {
+            tabs.into_iter()
+                .map(|entries| entries.into_iter().map(|entry| entry.path).collect::<Vec<_>>())
+                .collect::<Vec<_>>()
+        };
         assert_eq!(
-            listing.folders.iter().map(|entries| paths(entries)).collect::<Vec<_>>(),
-            [["docs/adr/c.md"]]
+            paths(list(root.path(), &adr)),
+            [
+                vec![],
+                vec!["docs/adr/c.md", "docs/adr/c.spec.md"],
+                vec![".plan/b.spec.md", "d.examples.mdx", "d.spec.md"]
+            ]
         );
-        assert_eq!(paths(&listing.specs), [".plan/b.spec.md", "d.spec.md"]);
-        let listing = list(root.path(), &[]);
-        assert!(listing.folders.is_empty());
-        assert_eq!(paths(&listing.specs), [".plan/b.spec.md", "d.spec.md"]);
-        assert_eq!(paths(&list(root.path(), &plan()).specs), ["d.spec.md"]);
+        assert_eq!(
+            paths(list(root.path(), &plan())),
+            [
+                vec![".plan/a.md", ".plan/b.spec.md"],
+                vec!["d.examples.mdx", "d.spec.md", "docs/adr/c.spec.md"]
+            ]
+        );
     }
     #[test]
     fn resolves_allowed_plan_and_spec() {

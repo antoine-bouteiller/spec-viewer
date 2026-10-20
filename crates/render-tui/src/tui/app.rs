@@ -19,12 +19,9 @@ use spec_viewer_core::{self as core, ChipValue, Docs, Library, Opened, Project};
 
 const PAN_STEP: isize = 8;
 
+/// An index into `Docs::tabs`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tab {
-    /// An index into `Docs::folders`.
-    Folder(usize),
-    Specs,
-}
+pub struct Tab(pub usize);
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Focus {
     Sidebar,
@@ -109,7 +106,7 @@ impl App {
             output: Box::new(output),
             project,
             worktree,
-            tab: Tab::Folder(0),
+            tab: Tab(0),
             docs,
             doc: None,
             filter: String::new(),
@@ -140,9 +137,9 @@ impl App {
         Ok(app)
     }
 
-    /// Folder tabs in config order, then specs.
+    /// Tabs in config order.
     fn all_tabs(&self) -> impl Iterator<Item = Tab> {
-        (0..self.docs.folders.len()).map(Tab::Folder).chain([Tab::Specs])
+        (0..self.docs.tabs.len()).map(Tab)
     }
 
     /// The tabs listing documents; all when none does.
@@ -152,27 +149,15 @@ impl App {
     }
 
     pub fn tab_name(&self, tab: Tab) -> &str {
-        match tab {
-            Tab::Folder(index) => &self.docs.folders[index].name,
-            Tab::Specs => "specs",
-        }
+        &self.docs.tabs[tab.0].name
     }
 
     fn tab_docs(&self, tab: Tab) -> &[core::DocNode] {
-        match tab {
-            Tab::Folder(index) => &self.docs.folders[index].nodes,
-            Tab::Specs => &self.docs.specs,
-        }
+        &self.docs.tabs[tab.0].nodes
     }
 
     fn all_docs(&self) -> Vec<core::DocNode> {
-        self.docs
-            .folders
-            .iter()
-            .flat_map(|folder| &folder.nodes)
-            .chain(&self.docs.specs)
-            .cloned()
-            .collect()
+        self.docs.tabs.iter().flat_map(|tab| &tab.nodes).cloned().collect()
     }
 
     fn settle_tab(&mut self) {
@@ -195,16 +180,12 @@ impl App {
     }
 
     pub fn filtering(&self) -> bool {
-        !self.filter.trim().is_empty() || (self.tab == Tab::Specs && self.diff && self.docs.changed_specs.is_some())
+        !self.filter.trim().is_empty() || (self.diff && self.docs.changed.is_some())
     }
 
     pub fn rows(&self) -> Vec<Row> {
         let needle = self.filter.trim().to_lowercase();
-        let changed = if self.tab == Tab::Specs && self.diff {
-            self.docs.changed_specs.as_deref()
-        } else {
-            None
-        };
+        let changed = if self.diff { self.docs.changed.as_deref() } else { None };
         navigation::rows(
             self.listed(),
             &self.expanded,
@@ -522,7 +503,7 @@ impl App {
                 self.sidebar_selection = 0;
                 self.message = None;
             }
-            KeyCode::Char('d') if self.tab == Tab::Specs && self.docs.changed_specs.is_some() => {
+            KeyCode::Char('d') if self.docs.changed.is_some() => {
                 self.diff = !self.diff;
                 self.sidebar_selection = 0;
             }
@@ -803,16 +784,14 @@ impl App {
             clicks.push((row(1, width(tabs.as_str()) as u16, width(label.as_str())), Click::Tab(tab)));
             tabs.push_str(&label);
         }
-        let diff = if self.tab != Tab::Specs {
-            ""
-        } else if self.docs.changed_specs.is_none() {
+        let diff = if self.docs.changed.is_none() {
             " Diff unavailable"
         } else if self.diff {
             " [Diff]"
         } else {
             " Diff"
         };
-        if self.tab == Tab::Specs && self.docs.changed_specs.is_some() {
+        if self.docs.changed.is_some() {
             clicks.push((
                 row(1, unicode_width::UnicodeWidthStr::width(tabs.as_str()) as u16 + 1, diff.len() - 1),
                 Click::Diff,
@@ -1002,26 +981,16 @@ impl App {
         }
         metrics.push(Span::raw(format!("{} lines", doc.document.meta.lines)));
         header.push(Line::from(metrics));
-        let folder = self
-            .docs
-            .folders
-            .iter()
-            .find(|folder| doc.root_path.starts_with(&format!("{}/", folder.folder)));
-        let kind = self
-            .docs
-            .folders
-            .iter()
-            .find_map(|folder| navigation::find(&folder.nodes, &doc.root_path))
-            .or_else(|| navigation::find(&self.docs.specs, &doc.root_path))
+        let all = self.all_docs();
+        let kind = navigation::find(&all, &doc.root_path)
             .map(|node| node.kind.as_str())
             .or(doc.document.meta.kind.as_deref())
-            .unwrap_or(if folder.is_some() { "plan" } else { "spec" });
+            .unwrap_or("document");
         let mut details = vec![kind.to_string()];
-        if let Some(folder) = folder
-            && let Some(owner) = folder.nodes.iter().find(|node| navigation::contains(node, &doc.root_path))
+        if let Some(owner) = navigation::family(&all, &doc.root_path).and_then(|family| family.into_iter().next())
             && owner.path.as_deref() != Some(doc.root_path.as_str())
         {
-            details.push(owner.name.clone());
+            details.push(owner.name);
         }
         for chip in &doc.document.meta.chips {
             if let ChipValue::Count(count) = chip.value
@@ -1267,7 +1236,7 @@ mod tests {
         }
         assert_eq!(app.filter, "qdw12");
         assert!(!app.quit);
-        assert_eq!(app.tab, Tab::Folder(0));
+        assert_eq!(app.tab, Tab(0));
         assert!(!app.diff);
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         assert!(app.filter.is_empty());
@@ -1326,7 +1295,7 @@ mod tests {
         let mut app = app_at(&root);
         app.open(".plan/second.md");
         app.handle_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
-        assert_eq!(app.tab, Tab::Specs);
+        assert_eq!(app.tab, Tab(1));
         assert_eq!(app.doc.as_ref().unwrap().root_path, ".plan/second.md");
         assert!(app.navigator);
         assert_eq!(app.focus, Focus::Sidebar);
@@ -1336,34 +1305,40 @@ mod tests {
     }
 
     #[test]
-    fn configured_folder_tabs_precede_specs_and_take_number_keys_in_order() {
+    fn configured_tabs_take_number_keys_in_order() {
         let (root, _) = app();
         add_spec(&root);
         std::fs::create_dir_all(root.path().join("docs/adr")).unwrap();
         std::fs::write(root.path().join("docs/adr/one.md"), "## One\n").unwrap();
         let mut config = core::ParseConfig::default();
-        config.tabs.push(spec_viewer_config::TabConfig {
-            name: "adr".into(),
-            folder: "docs/adr".into(),
-        });
+        config.tabs.insert(
+            1,
+            spec_viewer_config::TabConfig {
+                name: "adr".into(),
+                folder: Some("docs/adr".into()),
+                kinds: None,
+                companions: vec![],
+            },
+        );
         let mut app = App::new(Library::new(root.path(), config).unwrap(), Theme::default(), io::sink()).unwrap();
-        assert_eq!(app.tabs(), [Tab::Folder(0), Tab::Folder(1), Tab::Specs]);
+        assert_eq!(app.tabs(), [Tab(0), Tab(1), Tab(2)]);
         app.handle_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
-        assert_eq!(app.tab, Tab::Folder(1));
+        assert_eq!(app.tab, Tab(1));
         assert_eq!(app.rows()[0].node.path.as_deref(), Some("docs/adr/one.md"));
         app.handle_key(KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE));
-        assert_eq!(app.tab, Tab::Specs);
+        assert_eq!(app.tab, Tab(2));
         app.handle_key(KeyEvent::new(KeyCode::Char('4'), KeyModifiers::NONE));
-        assert_eq!(app.tab, Tab::Specs);
+        assert_eq!(app.tab, Tab(2));
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
         terminal.draw(|frame| app.draw(frame)).unwrap();
         let screen: String = terminal.backend().buffer().content.iter().map(|cell| cell.symbol()).collect();
         assert!(screen.contains("plans adr [specs]"), "{screen}");
 
         let mut config = core::ParseConfig::default();
-        config.tabs.clear();
+        config.tabs.remove(0);
         let app = App::new(Library::new(root.path(), config).unwrap(), Theme::default(), io::sink()).unwrap();
-        assert_eq!(app.tabs(), [Tab::Specs]);
+        assert_eq!(app.tabs(), [Tab(0)]);
+        assert_eq!(app.tab_name(Tab(0)), "specs");
         assert!(app.rows().iter().all(|row| row.node.path.as_deref() != Some(".plan/first.md")));
     }
 
@@ -1371,14 +1346,14 @@ mod tests {
     fn a_tab_without_documents_is_hidden() {
         let (root, mut app) = app();
         app.handle_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
-        assert_eq!(app.tab, Tab::Folder(0));
+        assert_eq!(app.tab, Tab(0));
         let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
         terminal.draw(|frame| app.draw(frame)).unwrap();
         let screen: String = terminal.backend().buffer().content.iter().map(|cell| cell.symbol()).collect();
         assert!(screen.contains("[plans]") && !screen.contains("specs"), "{screen}");
         std::fs::remove_dir_all(root.path().join(".plan")).unwrap();
         add_spec(&root);
-        assert_eq!(app_at(&root).tab, Tab::Specs);
+        assert_eq!(app_at(&root).tab, Tab(1));
     }
 
     #[test]
@@ -1457,10 +1432,10 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         };
         app.handle_mouse(down(10));
-        assert_eq!(app.tab, Tab::Specs);
+        assert_eq!(app.tab, Tab(1));
         terminal.draw(|frame| app.draw(frame)).unwrap();
         app.handle_mouse(down(2));
-        assert_eq!(app.tab, Tab::Folder(0));
+        assert_eq!(app.tab, Tab(0));
     }
 
     #[test]

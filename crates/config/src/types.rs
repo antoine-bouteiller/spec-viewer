@@ -34,24 +34,89 @@ pub struct ChipConfig {
     pub sections: Vec<String>,
 }
 
-/// A sidebar tab listing every `.md` below `folder`, a worktree-relative directory.
+const EXTENSIONS: [&str; 2] = ["md", "mdx"];
+
+/// A sidebar tab listing the `.md` and `.mdx` files below `folder`, as a path tree rooted there.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TabConfig {
     pub name: String,
-    pub folder: String,
+    /// Worktree-relative; `None` is the whole worktree, listed through Git so ignored files stay out.
+    #[serde(default)]
+    pub folder: Option<String>,
+    /// The `<kind>` of `<name>.<kind>.md` files listed as documents; `None` lists every file.
+    #[serde(default)]
+    pub kinds: Option<Vec<String>>,
+    /// Kinds nested under the document sharing their stem.
+    #[serde(default)]
+    pub companions: Vec<String>,
+}
+impl TabConfig {
+    /// The worktree-relative folder, `""` for the whole worktree.
+    pub fn root(&self) -> &str {
+        self.folder.as_deref().unwrap_or("")
+    }
+    fn contains(&self, path: &str) -> bool {
+        self.folder
+            .as_ref()
+            .is_none_or(|folder| path.strip_prefix(folder.as_str()).is_some_and(|rest| rest.starts_with('/')))
+    }
+    fn suffixed<'a>(path: &'a str, kinds: &[String]) -> Option<(&'a str, &'a str)> {
+        kinds.iter().find_map(|kind| {
+            EXTENSIONS.iter().find_map(|ext| {
+                let stem = path.strip_suffix(&format!(".{kind}.{ext}"))?;
+                Some((stem, &path[stem.len() + 1..stem.len() + 1 + kind.len()]))
+            })
+        })
+    }
+    /// The companion kind of `path`, if it is one.
+    pub fn companion<'a>(&self, path: &'a str) -> Option<&'a str> {
+        Self::suffixed(path, &self.companions).map(|(_, kind)| kind)
+    }
+    /// `path` without its `.<kind>.<ext>` or `.<ext>` suffix.
+    pub fn stem<'a>(&self, path: &'a str) -> &'a str {
+        if let Some((stem, _)) =
+            Self::suffixed(path, &self.companions).or_else(|| self.kinds.as_deref().and_then(|kinds| Self::suffixed(path, kinds)))
+        {
+            return stem;
+        }
+        EXTENSIONS
+            .iter()
+            .find_map(|ext| path.strip_suffix(&format!(".{ext}")))
+            .unwrap_or(path)
+    }
+    /// The paths a document with stem `stem` may have.
+    pub fn documents(&self, stem: &str) -> Vec<String> {
+        let kinds = self.kinds.iter().flatten().map(|kind| format!(".{kind}"));
+        kinds
+            .chain([String::new()])
+            .flat_map(|kind| EXTENSIONS.map(|ext| format!("{stem}{kind}.{ext}")))
+            .collect()
+    }
+    fn accepts(&self, path: &str) -> bool {
+        match &self.kinds {
+            Some(kinds) => Self::suffixed(path, kinds).is_some() || self.companion(path).is_some(),
+            None => EXTENSIONS.iter().any(|ext| path.ends_with(&format!(".{ext}"))),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 pub struct ParseConfig {
     pub statuses: Vec<StatusConfig>,
     pub chips: Vec<ChipConfig>,
-    /// Folder tabs in order; the specs tab follows them.
     pub tabs: Vec<TabConfig>,
 }
 impl ParseConfig {
-    pub fn folders(&self) -> Vec<String> {
-        self.tabs.iter().map(|tab| tab.folder.clone()).collect()
+    /// The tab listing worktree-relative `path`: the one with the deepest folder containing it, if it accepts the file.
+    pub fn tab_of(&self, path: &str) -> Option<usize> {
+        let (index, tab) = self
+            .tabs
+            .iter()
+            .enumerate()
+            .filter(|(_, tab)| tab.contains(path))
+            .max_by_key(|(_, tab)| tab.root().len())?;
+        tab.accepts(path).then_some(index)
     }
 }
 impl Default for ParseConfig {

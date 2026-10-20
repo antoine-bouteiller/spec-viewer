@@ -68,10 +68,10 @@ fn serves_client_api_and_confines_reads() {
 
     let (_, docs) = get(address, &format!("/api/docs?wt={wt}"));
     let docs: serde_json::Value = serde_json::from_str(&docs).unwrap();
-    assert_eq!(docs["folders"][0]["name"], "plans");
-    assert_eq!(docs["folders"][0]["nodes"][0]["name"], "Alpha");
-    assert_eq!(docs["folders"][0]["nodes"][0]["status"]["name"], "done");
-    assert_eq!(docs["folders"][0]["nodes"][0]["status"]["known"], true);
+    assert_eq!(docs["tabs"][0]["name"], "plans");
+    assert_eq!(docs["tabs"][0]["nodes"][0]["name"], "Alpha");
+    assert_eq!(docs["tabs"][0]["nodes"][0]["status"]["name"], "done");
+    assert_eq!(docs["tabs"][0]["nodes"][0]["status"]["known"], true);
 
     let (status, doc) = get(address, &format!("/api/doc?wt={wt}&path=.plan%2Fa.md"));
     assert_eq!(status, 200);

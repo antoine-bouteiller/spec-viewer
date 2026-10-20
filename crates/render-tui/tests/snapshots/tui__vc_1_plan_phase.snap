@@ -3,9 +3,9 @@ source: crates/render-tui/tests/tui.rs
 expression: draw(&mut app)
 ---
 ┌Files─────────────────────────────────┐┌Document──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│API rollout [index]                   ││Design phase [ready]                                                                                                  │
+│rollout [index]                       ││Design phase [ready]                                                                                                  │
 │Design phase                          ││AC 1/2 ▮▮▯▯▯  T 1/2 ▮▮▯▯▯  14 lines                                                                                   │
-│  § Why                               ││phase · API rollout · 1 phases · Fixture Author · 2026-01-02                                                          │
+│  § Why                               ││phase · rollout · 1 phases · Fixture Author · 2026-01-02                                                              │
 │  § Acceptance criteria               ││related: spec/standalone.spec.md                                                                                      │
 │  § Implementation                    ││.plan/rollout/01-design.md  y path · Y name                                                                           │
 │    § Design                          ││──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│

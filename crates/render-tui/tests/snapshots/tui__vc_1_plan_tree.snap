@@ -4,11 +4,11 @@ expression: draw(&mut app)
 ---
 ┌corpus · Plans────────────────────────┐┌Document──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │feature (main) ▾                      ││API rollout [in-progress]                                                                                             │
-│[plans] specs                         ││AC 1/2 ▮▮▯▯▯  T 1/2 ▮▮▯▯▯  15 lines                                                                                   │
+│[plans] specs Diff                    ││AC 1/2 ▮▮▯▯▯  T 1/2 ▮▮▯▯▯  15 lines                                                                                   │
 │/                                     ││plan · 2 phases · Fixture Author · 2026-01-02                                                                         │
 │  Actions [draft]                     ││related: spec/standalone.spec.md                                                                                      │
-│  API rollout [in-progress]           ││.plan/rollout/index.md  y path · Y name                                                                               │
-│  Legacy rollout [done]               ││──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│  Legacy rollout [done]               ││.plan/rollout/index.md  y path · Y name                                                                               │
+│  rollout [in-progress]               ││──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
 │  Old design [archived]               ││Why                                                                                                                   │
 │                                      ││                                                                                                                      │
 │                                      ││Deploy safely.                                                                                                        │

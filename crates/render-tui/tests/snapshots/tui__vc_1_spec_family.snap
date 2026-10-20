@@ -5,7 +5,7 @@ expression: draw(&mut app)
 ┌Files─────────────────────────────────┐┌Document──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │Viewer umbrella [index]               ││Tree leaf [amended]                                                                                                   │
 │Tree leaf                             ││3 lines                                                                                                               │
-│  § Tree                              ││leaf                                                                                                                  │
+│  § Tree                              ││leaf · Viewer umbrella                                                                                                │
 │Viewer examples [examples]            ││doc/architecture/tree.spec.md  y path · Y name                                                                        │
 │Viewer discovery                      ││──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
 │                                      ││Tree                                                                                                                  │

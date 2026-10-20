@@ -158,7 +158,7 @@ fn vc_2_filter_is_flat_with_paths_and_without_attached_companions() {
 }
 
 #[test]
-fn vc_2_diff_is_specs_only_and_restricts_to_changed_paths() {
+fn vc_2_diff_applies_to_every_tab_and_restricts_to_changed_paths() {
     let fixture = Fixture::new();
     let mut app = App::new(
         Library::new(&fixture.root, ParseConfig::default()).unwrap(),
@@ -167,15 +167,15 @@ fn vc_2_diff_is_specs_only_and_restricts_to_changed_paths() {
     )
     .unwrap();
     key(&mut app, KeyCode::Char('d'));
-    assert!(!app.diff);
+    assert!(app.diff);
+    assert!(app.rows().is_empty());
     key(&mut app, KeyCode::Char('2'));
-    key(&mut app, KeyCode::Char('d'));
     let paths: Vec<_> = app.rows().into_iter().map(|row| row.node.path.unwrap()).collect();
     assert_eq!(paths, ["spec/standalone.spec.md"]);
     let screen = draw(&mut app);
     assert!(screen.contains("[Diff]"));
     assert!(screen.contains("spec/standalone.spec.md"));
-    app.docs.changed_specs = None;
+    app.docs.changed = None;
     key(&mut app, KeyCode::Char('d'));
     assert!(app.diff);
     assert!(!app.filtering());
@@ -207,7 +207,7 @@ fn vc_2_worktree_switch_clears_document_and_tabs_keep_it_with_filter_and_diff() 
     assert!(app.diff);
     app.open("spec/standalone.spec.md");
     key(&mut app, KeyCode::Char('1'));
-    assert_eq!(app.tab, Tab::Folder(0));
+    assert_eq!(app.tab, Tab(0));
     assert_eq!(app.doc.as_ref().unwrap().root_path, "spec/standalone.spec.md");
     assert_eq!(app.filter, "standalone");
     assert!(app.diff);
@@ -230,7 +230,7 @@ fn vc_2_phase_opened_from_rail_keeps_owner_current_and_documents_never_expand() 
     )
     .unwrap();
     key(&mut app, KeyCode::Char('/'));
-    type_text(&mut app, "API rollout");
+    type_text(&mut app, "rollout/index");
     key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Enter);
     key(&mut app, KeyCode::Esc);
@@ -316,7 +316,7 @@ fn vc_3_live_reload_adds_plan_refreshes_body_and_preserves_scroll() {
     key(&mut app, KeyCode::PageDown);
     let scroll = app.scroll;
     assert!(scroll > 0);
-    let watcher = watch(&fixture.root, &ParseConfig::default().folders()).unwrap();
+    let watcher = watch(&fixture.root, &ParseConfig::default()).unwrap();
     write(
         &fixture.root,
         ".plan/new.md",

@@ -12,7 +12,7 @@ mod types;
 pub use corpus::docs;
 pub use document::Opened;
 pub use library::Library;
-pub use spec_viewer_config::ParseConfig;
+pub use spec_viewer_config::{ParseConfig, TabConfig};
 pub use spec_viewer_parser::{
     Align, Block, Chip, ChipValue, CodeTab, ComparisonOption, Component, ComponentBody, Degraded, Document, Inline, ListItem, MarginNote,
     Meta, NodeDetail, Status, Step, TocEntry, body_below_header, parse, parse_meta,

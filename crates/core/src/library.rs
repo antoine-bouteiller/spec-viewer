@@ -60,6 +60,6 @@ impl Library {
     }
 
     pub fn watch(&self, worktree: &Path) -> WatchResult<Watch> {
-        spec_viewer_source::watch(worktree, &self.config.folders())
+        spec_viewer_source::watch(worktree, &self.config)
     }
 }

@@ -36,18 +36,3 @@ pub(super) fn take_while(source: &str, predicate: impl Fn(char) -> bool) -> usiz
         .find(|(_, character)| !predicate(*character))
         .map_or(source.len(), |(index, _)| index)
 }
-
-pub(super) fn spec_stem(path: &str) -> &str {
-    for kind in ["spec", "discovery", "examples"] {
-        for ext in ["md", "mdx"] {
-            if let Some(stem) = path.strip_suffix(&format!(".{kind}.{ext}")) {
-                return stem;
-            }
-        }
-    }
-    path
-}
-
-pub(super) fn spec_path(path: &str) -> bool {
-    spec_stem(path) != path
-}

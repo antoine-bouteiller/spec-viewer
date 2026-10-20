@@ -106,7 +106,7 @@ pub fn start(library: Library, config: &Config, preferred: Option<u16>) -> io::R
 | `GET /`, `/app.js`, `/app.css` | Embedded client assets                                                              |
 | `GET /theme.css`               | Per-mode `--tone-N` status colours and highlighting rules                           |
 | `GET /api/projects`            | `{ projects: [{ name, path, worktrees: [{ name, main, path }] }] }`                 |
-| `GET /api/docs?wt=`            | `{ changedSpecs, project, folders: { name, nodes: Node[] }[], specs: Node[] }`      |
+| `GET /api/docs?wt=`            | `{ changed, project, tabs: { name, nodes: Node[] }[] }`; `Node.companion` marks companions |
 | `GET /api/doc?wt=&path=`       | `{ path, rootPath, meta, html, toc: [{ id, text, depth }], hasMermaid, degraded }`  |
 | `GET /api/events?wt=`          | `text/event-stream`: `data: reload` per debounced change burst, `: ping` every 15 s |
 
@@ -136,7 +136,7 @@ Kind: type · Anchor: `crates/render-web/assets/app.js`
 ```
 
 ```text
-URL state: ?wt=<worktree path>&tab=<folder tab name>|specs&doc=<worktree-relative path>&diff=true
+URL state: ?wt=<worktree path>&tab=<tab name>&doc=<worktree-relative path>&diff=true
 ```
 
 The tree, filter, Diff, family rail, and header follow `spec/terminal-ui.spec.md` `[CT-2]`. A

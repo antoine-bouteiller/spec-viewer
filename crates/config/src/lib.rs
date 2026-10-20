@@ -233,31 +233,42 @@ impl Config {
         let mut tab_names = HashSet::new();
         for (index, tab) in self.parse.tabs.iter().enumerate() {
             let name = tab.name.trim().to_lowercase();
-            if name.is_empty() || name == "specs" || !tab_names.insert(name) {
-                return Err(self.error(
-                    &format!("tab[{index}].name"),
-                    format!("empty, duplicate, or reserved tab name {:?}", tab.name),
-                ));
+            if name.is_empty() || !tab_names.insert(name) {
+                return Err(self.error(&format!("tab[{index}].name"), format!("empty or duplicate tab name {:?}", tab.name)));
             }
-            if !tab.folder.split('/').all(|part| !part.is_empty() && part != "." && part != "..") {
+            if let Some(folder) = &tab.folder
+                && !folder.split('/').all(|part| !part.is_empty() && part != "." && part != "..")
+            {
                 return Err(self.error(
                     &format!("tab[{index}].folder"),
-                    format!("expected a relative folder like \".plan\", got {:?}", tab.folder),
+                    format!("expected a relative folder like \".plan\", got {folder:?}"),
                 ));
             }
-            for (other, earlier) in self.parse.tabs[..index].iter().enumerate() {
-                let nested = |outer: &str, inner: &str| inner == outer || inner.starts_with(&format!("{outer}/"));
-                if nested(&earlier.folder, &tab.folder) || nested(&tab.folder, &earlier.folder) {
-                    return Err(self.error(
-                        &format!("tab[{index}].folder"),
-                        format!("{:?} overlaps tab[{other}].folder {:?}", tab.folder, earlier.folder),
-                    ));
+            if let Some(other) = self.parse.tabs[..index].iter().position(|earlier| earlier.folder == tab.folder) {
+                return Err(self.error(
+                    &format!("tab[{index}].folder"),
+                    format!("same folder as tab[{other}]: {:?}", tab.root()),
+                ));
+            }
+            let mut kinds = HashSet::new();
+            for (key, values) in [("kinds", tab.kinds.as_deref()), ("companions", Some(tab.companions.as_slice()))] {
+                let values = values.unwrap_or_default();
+                if key == "kinds" && tab.kinds.is_some() && values.is_empty() {
+                    return Err(self.error(&format!("tab[{index}].kinds"), "omit it to list every file"));
+                }
+                for value in values {
+                    if value.is_empty() || value.contains(['.', '/']) || !kinds.insert(value.as_str()) {
+                        return Err(self.error(
+                            &format!("tab[{index}].{key}"),
+                            format!("empty, duplicate, or dotted kind {value:?}"),
+                        ));
+                    }
                 }
             }
         }
-        // Keys 1-9 select tabs; the specs tab takes the last one.
-        if self.parse.tabs.len() > 8 {
-            return Err(self.error("tab", "at most 8 folder tabs"));
+        // Keys 1-9 select tabs.
+        if !(1..=9).contains(&self.parse.tabs.len()) {
+            return Err(self.error("tab", "expected 1 to 9 tabs"));
         }
         // A name may be added only for one mode. Validate that it exists here;
         // resolve() checks the palette for the mode actually selected (including CLI overrides).

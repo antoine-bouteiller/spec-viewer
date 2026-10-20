@@ -17,21 +17,22 @@ pub struct DocNode {
     pub kind: String,
     pub status: Option<Status>,
     pub archived: Option<bool>,
+    /// Nested under the document sharing its stem, per the tab's `companions`.
+    pub companion: bool,
     pub children: Option<Vec<DocNode>>,
 }
 
-/// A configured folder tab and the documents below its folder.
+/// A configured tab and its documents.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FolderDocs {
+pub struct TabDocs {
     pub name: String,
-    pub folder: String,
     pub nodes: Vec<DocNode>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Docs {
-    pub changed_specs: Option<Vec<String>>,
-    pub folders: Vec<FolderDocs>,
+    /// Tab documents changed from the remote `main`; `None` when unknown.
+    pub changed: Option<Vec<String>>,
     pub project: String,
-    pub specs: Vec<DocNode>,
+    pub tabs: Vec<TabDocs>,
 }

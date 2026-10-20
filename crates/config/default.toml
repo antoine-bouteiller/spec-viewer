@@ -6,7 +6,7 @@ bind = "127.0.0.1"             # an IP, or a hostname to bind all interfaces; un
 # key = "key.pem"
 
 [tui]
-diff = false                   # start with Diff on: the specs tab lists only changed specs
+diff = false                   # start with Diff on: tabs list only changed documents
 
 [theme]
 mode = "auto"                  # auto | light | dark; auto = OSC 11 reply, else dark; --theme overrides
@@ -50,12 +50,21 @@ oq = "bright_magenta"
 ex = "bright_cyan"
 other = "bright_black"
 
-# Folder tabs, in order; `tab = []` in a later layer removes them. Each lists every .md below its
-# worktree-relative folder; a subfolder's index.md owns the other files there. The specs tab follows and lists the
-# *.spec|discovery|examples.md[x] files outside every folder.
+# Tabs, in order (1 to 9); a later layer's `[[tab]]` list replaces this one. Each tab shows a path tree of the
+# .md and .mdx files below its folder, minus those under another tab's deeper folder.
+#   folder      worktree-relative; omitted = the whole worktree, listed through Git (ignored files excluded)
+#   kinds       list only <name>.<kind>.md[x] files of these kinds; omitted = every file
+#   companions  kinds nested under the document with the same <name>; unmatched ones stay listed
+# A subfolder's index.md owns the other files there.
 [[tab]]
 name = "plans"
 folder = ".plan"
+companions = ["examples"]
+
+[[tab]]
+name = "specs"
+kinds = ["spec"]
+companions = ["examples", "discovery"]
 
 [[status]]
 name = "draft"

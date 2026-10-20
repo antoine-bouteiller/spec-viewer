@@ -1,12 +1,30 @@
+use std::collections::HashSet;
 use std::path::Path;
 
-use spec_viewer_source::{Entry, changed_specs, list};
+use spec_viewer_source::{Entry, changed, list};
 
 use crate::js::label;
-use crate::{DocMeta, Docs, FolderDocs, ParseConfig, build_tree, parse_meta};
+use crate::{DocMeta, Docs, ParseConfig, TabConfig, TabDocs, build_tree, parse_meta};
 
-fn to_doc_meta(entry: Entry, config: &ParseConfig) -> DocMeta {
-    let Entry { real, path, kind } = entry;
+/// A companion's kind, else `plan` for a subfolder's `index.md` and `phase` for the files it owns.
+fn derived_kind(path: &str, tab: &TabConfig, listed: &HashSet<&str>) -> Option<String> {
+    if let Some(kind) = tab.companion(path) {
+        return Some(kind.to_owned());
+    }
+    let relative = path.strip_prefix(tab.root())?.trim_start_matches('/');
+    let (directory, name) = path.rsplit_once('/').filter(|_| relative.contains('/'))?;
+    if matches!(name, "index.md" | "index.mdx") {
+        Some("plan".into())
+    } else {
+        ["index.md", "index.mdx"]
+            .iter()
+            .any(|index| listed.contains(format!("{directory}/{index}").as_str()))
+            .then(|| "phase".into())
+    }
+}
+
+fn to_doc_meta(entry: Entry, kind: Option<String>, config: &ParseConfig) -> DocMeta {
+    let Entry { real, path } = entry;
     let meta = std::fs::read(&real)
         .ok()
         .map(|source| parse_meta(&String::from_utf8_lossy(&source), &real, config));
@@ -21,40 +39,34 @@ fn to_doc_meta(entry: Entry, config: &ParseConfig) -> DocMeta {
 }
 
 pub fn docs(worktree: &Path, project_name: &str, config: &ParseConfig) -> Docs {
-    let folders = config.folders();
-    let changed_specs = changed_specs(worktree, &folders);
-    let listing = list(worktree, &folders);
     Docs {
-        changed_specs,
-        folders: config
+        changed: changed(worktree, config),
+        project: project_name.to_owned(),
+        tabs: config
             .tabs
             .iter()
-            .zip(listing.folders)
-            .map(|(tab, entries)| FolderDocs {
-                name: tab.name.clone(),
-                folder: tab.folder.clone(),
-                nodes: build_tree(
-                    &entries.into_iter().map(|entry| to_doc_meta(entry, config)).collect::<Vec<_>>(),
-                    true,
-                ),
+            .zip(list(worktree, config))
+            .map(|(tab, entries)| {
+                let listed: HashSet<&str> = entries.iter().map(|entry| entry.path.as_str()).collect();
+                let kinds: Vec<_> = entries.iter().map(|entry| derived_kind(&entry.path, tab, &listed)).collect();
+                let docs: Vec<_> = entries
+                    .into_iter()
+                    .zip(kinds)
+                    .map(|(entry, kind)| to_doc_meta(entry, kind, config))
+                    .collect();
+                TabDocs {
+                    name: tab.name.clone(),
+                    nodes: build_tree(&docs, tab),
+                }
             })
             .collect(),
-        project: project_name.to_owned(),
-        specs: build_tree(
-            &listing
-                .specs
-                .into_iter()
-                .map(|entry| to_doc_meta(entry, config))
-                .collect::<Vec<_>>(),
-            false,
-        ),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use spec_viewer_source::spec_paths;
+    use spec_viewer_source::git_paths;
     use std::fs;
 
     fn git(root: &Path, args: &[&str]) -> std::io::Result<()> {
@@ -65,7 +77,7 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn corpus_scan_folder_plans_unignored_specs_and_wire_null() {
+    fn corpus_scan_tab_trees_unignored_specs_and_wire_null() {
         let root = tempfile::tempdir().unwrap();
         git(root.path(), &["init", "-qb", "main"]).unwrap();
         git(root.path(), &["config", "core.excludesFile", "/dev/null"]).unwrap();
@@ -90,12 +102,17 @@ mod tests {
         }
         let result = docs(root.path(), "Project", &ParseConfig::default());
         assert_eq!(result.project, "Project");
-        assert_eq!(result.folders.len(), 1);
-        assert_eq!(result.folders[0].nodes.len(), 1);
-        let plan = &result.folders[0].nodes[0];
+        assert_eq!(result.tabs.iter().map(|tab| &*tab.name).collect::<Vec<_>>(), ["plans", "specs"]);
+        assert_eq!(result.tabs[0].nodes.len(), 1);
+        let plan = &result.tabs[0].nodes[0];
         assert_eq!(
-            (&*plan.name, &*plan.kind, plan.status.as_ref().map(|status| status.name.as_str())),
-            ("Folder", "plan", Some("ready"))
+            (
+                &*plan.name,
+                &*plan.kind,
+                plan.path.as_deref(),
+                plan.status.as_ref().map(|status| status.name.as_str())
+            ),
+            ("folder", "plan", Some(".plan/folder/index.md"), Some("ready"))
         );
         assert_eq!(
             plan.children
@@ -106,11 +123,12 @@ mod tests {
                 .collect::<Vec<_>>(),
             [("Z phase", "phase"), ("A phase", "phase"), ("Examples", "examples")]
         );
-        assert_eq!(result.specs.len(), 2);
-        assert_eq!((&*result.specs[0].name, &*result.specs[0].kind), ("Spec", "unknown"));
-        assert_eq!(result.changed_specs, None);
+        let specs = &result.tabs[1].nodes;
+        assert_eq!(specs.len(), 2);
+        assert_eq!((&*specs[0].name, &*specs[0].kind), ("Spec", "unknown"));
+        assert_eq!(result.changed, None);
         assert_eq!(
-            spec_paths(root.path(), &[".plan".into()]),
+            git_paths(root.path(), &ParseConfig::default()),
             ["tracked.spec.mdx", "untracked.spec.md"]
         );
     }

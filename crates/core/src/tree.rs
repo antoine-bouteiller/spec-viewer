@@ -1,9 +1,9 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
-use super::js::{name_order, spec_stem};
+use super::js::name_order;
 use super::sort::adaptive_sort;
-use super::{DocMeta, DocNode};
+use super::{DocMeta, DocNode, TabConfig};
 
 struct Node {
     wire: DocNode,
@@ -14,6 +14,7 @@ struct Node {
 }
 
 struct Tree<'a> {
+    tab: &'a TabConfig,
     nodes: Vec<Node>,
     directories: Vec<(String, usize)>,
     directory_ids: HashMap<String, usize>,
@@ -22,35 +23,18 @@ struct Tree<'a> {
     represented: HashMap<usize, usize>,
 }
 
-fn companion(kind: &str) -> bool {
-    matches!(kind, "examples" | "discovery")
-}
-fn companion_order(kind: &str) -> u8 {
-    match kind {
-        "examples" => 1,
-        "discovery" => 2,
-        _ => 0,
-    }
-}
-fn kind_of(doc: &DocMeta) -> String {
+fn kind_of(doc: &DocMeta, tab: &TabConfig) -> String {
     if let Some(kind) = &doc.kind
         && !kind.is_empty()
     {
         return kind.clone();
     }
-    if doc.path.ends_with(".discovery.md") || doc.path.ends_with(".discovery.mdx") {
-        "discovery"
-    } else if doc.path.ends_with(".examples.md") || doc.path.ends_with(".examples.mdx") {
-        "examples"
-    } else {
-        "leaf"
-    }
-    .to_owned()
+    tab.companion(&doc.path).unwrap_or("leaf").to_owned()
 }
 fn plain(node: &Node) -> bool {
     node.directory && node.wire.path.is_none()
 }
-fn compare(first: &Node, second: &Node) -> Ordering {
+fn compare(tab: &TabConfig, first: &Node, second: &Node) -> Ordering {
     if plain(first) != plain(second) {
         return if plain(first) { Ordering::Less } else { Ordering::Greater };
     }
@@ -65,10 +49,15 @@ fn compare(first: &Node, second: &Node) -> Ordering {
         return first.order.cmp(&second.order);
     }
     if let (Some(left), Some(right)) = (&first.wire.path, &second.wire.path)
-        && spec_stem(left) == spec_stem(right)
-        && (companion(&first.wire.kind) || companion(&second.wire.kind))
+        && tab.stem(left) == tab.stem(right)
+        && (first.wire.companion || second.wire.companion)
     {
-        let order = companion_order(&first.wire.kind).cmp(&companion_order(&second.wire.kind));
+        let rank = |path: &str| {
+            tab.companion(path)
+                .and_then(|kind| tab.companions.iter().position(|c| c == kind))
+                .map_or(0, |i| i + 1)
+        };
+        let order = rank(left).cmp(&rank(right));
         if order != Ordering::Equal {
             return order;
         }
@@ -86,6 +75,7 @@ impl<'a> Tree<'a> {
                 kind: "dir".into(),
                 status: None,
                 archived: None,
+                companion: false,
                 children: None,
             },
             children: vec![],
@@ -117,7 +107,11 @@ impl<'a> Tree<'a> {
     }
     fn add_documents(&mut self, docs: &'a [DocMeta]) {
         for (order, doc) in docs.iter().enumerate() {
-            let segments: Vec<_> = doc.path.split('/').filter(|segment| !segment.is_empty()).collect();
+            let relative = doc
+                .path
+                .strip_prefix(self.tab.root())
+                .map_or(doc.path.as_str(), |rest| rest.trim_start_matches('/'));
+            let segments: Vec<_> = relative.split('/').filter(|segment| !segment.is_empty()).collect();
             if segments.is_empty() {
                 continue;
             }
@@ -144,9 +138,10 @@ impl<'a> Tree<'a> {
                 wire: DocNode {
                     name: doc.title.clone(),
                     path: Some(doc.path.clone()),
-                    kind: kind_of(doc),
+                    kind: kind_of(doc, self.tab),
                     status: doc.status.clone(),
                     archived: doc.archived,
+                    companion: self.tab.companion(&doc.path).is_some(),
                     children: None,
                 },
                 children: vec![],
@@ -162,13 +157,15 @@ impl<'a> Tree<'a> {
     fn meta(&self, node: usize) -> Option<&DocMeta> {
         self.metadata.iter().find(|(id, _)| *id == node).map(|(_, doc)| *doc)
     }
-    /// The spec or plan for `<stem>[.<topic>…].<companion>.<ext>`, preferring the longest stem.
+    /// The document for `<stem>[.<topic>…].<companion>.<ext>`, preferring the longest stem.
     fn owner(&self, path: &str) -> Option<usize> {
-        let mut stem = spec_stem(path);
+        let mut stem = self.tab.stem(path);
         loop {
-            let found = [".spec.md", ".spec.mdx", ".md"]
+            let found = self
+                .tab
+                .documents(stem)
                 .iter()
-                .find_map(|suffix| self.documents.get(&format!("{stem}{suffix}")).copied());
+                .find_map(|candidate| self.documents.get(candidate).copied());
             if found.is_some() {
                 return found;
             }
@@ -183,13 +180,13 @@ impl<'a> Tree<'a> {
         if child_doc.parent_spec.as_deref() == Some(&umbrella_doc.path) {
             return true;
         }
-        companion(&self.nodes[child].wire.kind)
+        self.nodes[child].wire.companion
             && self
                 .owner(&child_doc.path)
                 .and_then(|id| self.meta(id))
                 .is_some_and(|doc| doc.parent_spec.as_deref() == Some(&umbrella_doc.path))
     }
-    fn attach_umbrellas(&mut self, flat: bool) {
+    fn attach_umbrellas(&mut self) {
         for (path, directory) in self.directories.clone() {
             let children = &self.nodes[directory].children;
             let nested = children.iter().any(|&id| self.nodes[id].directory);
@@ -213,7 +210,7 @@ impl<'a> Tree<'a> {
                 let covers = self.nodes[umbrella].wire.kind != "umbrella"
                     || children.iter().all(|&id| id == umbrella || self.resolves_to_umbrella(id, umbrella));
                 if !path.is_empty() && !nested && covers {
-                    let name = if flat || self.nodes[umbrella].wire.kind == "umbrella" {
+                    let name = if self.nodes[umbrella].wire.kind == "umbrella" {
                         self.nodes[umbrella].wire.name.clone()
                     } else {
                         self.nodes[directory].wire.name.clone()
@@ -230,7 +227,7 @@ impl<'a> Tree<'a> {
     }
     fn attach_companions(&mut self) {
         for (node, doc) in self.metadata.clone() {
-            if companion(&self.nodes[node].wire.kind)
+            if self.nodes[node].wire.companion
                 && let Some(owner) = self.owner(&doc.path)
             {
                 self.append(self.represented(owner), node);
@@ -277,21 +274,11 @@ impl<'a> Tree<'a> {
             }
         }
     }
-    fn hoisted(&self, nodes: &[usize]) -> Vec<usize> {
-        nodes
-            .iter()
-            .flat_map(|&id| {
-                if plain(&self.nodes[id]) {
-                    self.hoisted(&self.nodes[id].children)
-                } else {
-                    vec![id]
-                }
-            })
-            .collect()
-    }
     fn sort(&mut self, node: usize) {
         let mut children = self.nodes[node].children.clone();
-        adaptive_sort(&mut children, |left, right| compare(&self.nodes[left], &self.nodes[right]).is_lt());
+        adaptive_sort(&mut children, |left, right| {
+            compare(self.tab, &self.nodes[left], &self.nodes[right]).is_lt()
+        });
         self.nodes[node].children = children.clone();
         for child in children {
             self.sort(child);
@@ -308,8 +295,10 @@ impl<'a> Tree<'a> {
     }
 }
 
-pub fn build_tree(docs: &[DocMeta], flat: bool) -> Vec<DocNode> {
+/// A path tree of `docs`, rooted at the tab's folder.
+pub fn build_tree(docs: &[DocMeta], tab: &TabConfig) -> Vec<DocNode> {
     let mut tree = Tree {
+        tab,
         nodes: vec![],
         directories: vec![],
         directory_ids: HashMap::new(),
@@ -321,18 +310,11 @@ pub fn build_tree(docs: &[DocMeta], flat: bool) -> Vec<DocNode> {
     tree.directories.push((String::new(), 0));
     tree.directory_ids.insert(String::new(), 0);
     tree.add_documents(docs);
-    tree.attach_umbrellas(flat);
+    tree.attach_umbrellas();
     tree.attach_companions();
     tree.attach_parents();
-    if flat {
-        tree.nodes[0].children = tree.hoisted(&tree.nodes[0].children);
-        for child in tree.nodes[0].children.clone() {
-            tree.nodes[child].parent = Some(0);
-        }
-    } else {
-        for child in tree.nodes[0].children.clone() {
-            tree.compact(child);
-        }
+    for child in tree.nodes[0].children.clone() {
+        tree.compact(child);
     }
     tree.sort(0);
     tree.nodes[0].children.iter().map(|&id| tree.wire(id)).collect()
@@ -341,6 +323,12 @@ pub fn build_tree(docs: &[DocMeta], flat: bool) -> Vec<DocNode> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn specs() -> TabConfig {
+        crate::ParseConfig::default().tabs[1].clone()
+    }
+    fn plans() -> TabConfig {
+        crate::ParseConfig::default().tabs[0].clone()
+    }
     fn doc(path: &str, title: &str) -> DocMeta {
         DocMeta {
             path: path.into(),
@@ -361,7 +349,7 @@ mod tests {
                 doc("docs/guides/intro.spec.md", "Introduction"),
                 doc("docs/reference/api.spec.md", "API"),
             ],
-            false,
+            &specs(),
         );
         assert_eq!(tree.len(), 1);
         assert_eq!((&*tree[0].name, &*tree[0].kind), ("docs", "dir"));
@@ -398,7 +386,10 @@ mod tests {
             name: "active".into(),
             known: false,
         });
-        let tree = build_tree(&[umbrella, parent(doc("area/child.spec.md", "Child"), "area/area.spec.md")], false);
+        let tree = build_tree(
+            &[umbrella, parent(doc("area/child.spec.md", "Child"), "area/area.spec.md")],
+            &specs(),
+        );
         assert_eq!(tree.len(), 1);
         assert_eq!(
             (
@@ -419,7 +410,7 @@ mod tests {
                 parent(doc("area/linked.spec.md", "Linked"), "area/area.spec.md"),
                 doc("area/unlinked.spec.md", "Unlinked"),
             ],
-            false,
+            &specs(),
         );
         assert_eq!(tree.len(), 1);
         assert_eq!((&*tree[0].kind, &*tree[0].name, tree[0].path.as_deref()), ("dir", "area", None));
@@ -434,7 +425,7 @@ mod tests {
                 parent(doc("area/child.spec.md", "Child"), "area/area.spec.md"),
                 doc("area/child.discovery.md", "Child discovery"),
             ],
-            false,
+            &specs(),
         );
         assert_eq!(tree.len(), 1);
         assert_eq!((&*tree[0].kind, tree[0].path.as_deref()), ("umbrella", Some("area/area.spec.md")));
@@ -447,7 +438,7 @@ mod tests {
                 kind(doc("settings/settings.spec.md", "Settings"), "umbrella"),
                 kind(doc("settings/custom-fields/custom-fields.spec.md", "Custom Fields"), "umbrella"),
             ],
-            false,
+            &specs(),
         );
         assert_eq!((&*tree[0].kind, &*tree[0].name, tree[0].path.as_deref()), ("dir", "settings", None));
         assert_eq!(
@@ -468,7 +459,7 @@ mod tests {
                 parent(kind(doc("area/z.spec.md", "Later umbrella"), "umbrella"), "area/a.spec.md"),
                 kind(doc("area/a.spec.md", "First umbrella"), "umbrella"),
             ],
-            false,
+            &specs(),
         );
         assert_eq!(tree[0].path.as_deref(), Some("area/a.spec.md"));
         assert_eq!(paths(children(&tree[0])), ["area/z.spec.md"]);
@@ -482,7 +473,7 @@ mod tests {
                 doc("guide.discovery.md", "Guide discovery"),
                 doc("guide.examples.md", "Guide examples"),
             ],
-            false,
+            &specs(),
         );
         assert_eq!(tree.len(), 1);
         assert_eq!(
@@ -507,20 +498,20 @@ mod tests {
                 doc("graph/labels.spec.mdx", "Labels"),
                 doc("graph/labels.KD-1-ownership.discovery.mdx", "Ownership discovery"),
             ],
-            false,
+            &specs(),
         );
         let spec = &children(&tree[0])[0];
         assert_eq!(spec.path.as_deref(), Some("graph/labels.spec.mdx"));
         assert_eq!(paths(children(spec)), ["graph/labels.KD-1-ownership.discovery.mdx"]);
     }
     #[test]
-    fn plan_examples_attach_in_flat_tree() {
+    fn plan_examples_attach_to_their_plan() {
         let tree = build_tree(
             &[
                 kind(doc(".plan/guide.md", "Guide"), "plan"),
                 kind(doc(".plan/guide.examples.md", "Guide examples"), "examples"),
             ],
-            true,
+            &plans(),
         );
         assert_eq!(tree.len(), 1);
         assert_eq!((&*tree[0].kind, tree[0].path.as_deref()), ("plan", Some(".plan/guide.md")));
@@ -528,7 +519,7 @@ mod tests {
     }
     #[test]
     fn orphan_companion_remains_in_directory() {
-        let tree = build_tree(&[doc("guides/orphan.examples.md", "Orphan examples")], false);
+        let tree = build_tree(&[doc("guides/orphan.examples.md", "Orphan examples")], &specs());
         assert_eq!(tree.len(), 1);
         assert_eq!((&*tree[0].kind, &*tree[0].name), ("dir", "guides"));
         assert_eq!(
@@ -543,7 +534,7 @@ mod tests {
                 doc("parent.spec.md", "Parent"),
                 parent(doc("child.spec.md", "Child"), "parent.spec.md"),
             ],
-            false,
+            &specs(),
         );
         assert_eq!(tree.len(), 1);
         assert_eq!(tree[0].path.as_deref(), Some("parent.spec.md"));
@@ -551,7 +542,7 @@ mod tests {
     }
     #[test]
     fn leaves_unlisted_parent_in_place() {
-        let tree = build_tree(&[parent(doc("guides/child.spec.md", "Child"), "missing.spec.md")], false);
+        let tree = build_tree(&[parent(doc("guides/child.spec.md", "Child"), "missing.spec.md")], &specs());
         assert_eq!((&*tree[0].kind, &*tree[0].name), ("dir", "guides"));
         assert_eq!(paths(children(&tree[0])), ["guides/child.spec.md"]);
     }
@@ -562,7 +553,7 @@ mod tests {
                 parent(doc("a.spec.md", "A"), "b.spec.md"),
                 parent(doc("b.spec.md", "B"), "a.spec.md"),
             ],
-            false,
+            &specs(),
         );
         assert_eq!(tree.len(), 1);
         assert_eq!(tree[0].path.as_deref(), Some("b.spec.md"));
@@ -570,7 +561,7 @@ mod tests {
     }
     #[test]
     fn compacts_single_child_directory_chain() {
-        let tree = build_tree(&[doc("docs/architecture/specs/guide.spec.md", "Guide")], false);
+        let tree = build_tree(&[doc("docs/architecture/specs/guide.spec.md", "Guide")], &specs());
         assert_eq!(tree.len(), 1);
         assert_eq!((&*tree[0].kind, &*tree[0].name), ("dir", "docs/architecture/specs"));
         assert_eq!(paths(children(&tree[0])), ["docs/architecture/specs/guide.spec.md"]);
@@ -583,7 +574,7 @@ mod tests {
                 doc("docs/area/plan/a.spec.md", "A"),
                 doc("docs/area/plan/b.spec.md", "B"),
             ],
-            false,
+            &specs(),
         );
         assert_eq!(tree.len(), 1);
         assert_eq!(
@@ -593,18 +584,18 @@ mod tests {
         assert_eq!(paths(children(&tree[0])), ["docs/area/plan/a.spec.md", "docs/area/plan/b.spec.md"]);
     }
     #[test]
-    fn flat_hoists_plan_index_with_phases() {
+    fn tab_tree_is_rooted_at_its_folder() {
         let tree = build_tree(
             &[
                 kind(doc(".plan/area/plan/index.md", "Plan"), "plan"),
                 kind(doc(".plan/area/plan/a.md", "A"), "phase"),
                 kind(doc(".plan/loose.md", "Loose"), "plan"),
             ],
-            true,
+            &plans(),
         );
-        assert_eq!(tree.iter().map(|node| &*node.name).collect::<Vec<_>>(), ["Loose", "Plan"]);
-        assert_eq!(paths(&tree), [".plan/loose.md", ".plan/area/plan/index.md"]);
-        assert_eq!(paths(children(&tree[1])), [".plan/area/plan/a.md"]);
+        assert_eq!(tree.iter().map(|node| &*node.name).collect::<Vec<_>>(), ["area/plan", "Loose"]);
+        assert_eq!(paths(&tree), [".plan/area/plan/index.md", ".plan/loose.md"]);
+        assert_eq!(paths(children(&tree[0])), [".plan/area/plan/a.md"]);
     }
     #[test]
     fn archived_umbrella_directories_sort_last() {
@@ -613,7 +604,7 @@ mod tests {
                 archived(kind(doc("archived/archived.spec.md", "Archived"), "umbrella")),
                 kind(doc("active/active.spec.md", "Active"), "umbrella"),
             ],
-            false,
+            &specs(),
         );
         assert_eq!(paths(&tree), ["active/active.spec.md", "archived/archived.spec.md"]);
     }
@@ -626,7 +617,7 @@ mod tests {
                 doc("alpha.spec.md", "Alpha"),
                 archived(doc("old.spec.md", "Aardvark")),
             ],
-            false,
+            &specs(),
         );
         assert_eq!(
             tree.iter()
@@ -642,16 +633,16 @@ mod tests {
     }
     #[test]
     fn non_total_archived_order_preserves_established_order() {
-        let mut explicit_false = doc("other/16.spec.md", "中");
+        let mut explicit_false = doc("16.spec.md", "中");
         explicit_false.archived = Some(false);
         let tree = build_tree(
             &[
-                doc("other/11.spec.md", "éclair"),
-                doc("dir/14.spec.md", "2 title"),
-                doc("dir/15.spec.md", "Zulu"),
+                doc("11.spec.md", "éclair"),
                 explicit_false,
+                doc("14.spec.md", "2 title"),
+                doc("15.spec.md", "Zulu"),
             ],
-            true,
+            &specs(),
         );
         assert_eq!(
             tree.iter().map(|node| node.name.as_str()).collect::<Vec<_>>(),
@@ -668,7 +659,7 @@ mod tests {
                 kind(doc(".plan/p/2.md", "Alpha"), "phase"),
                 kind(doc("custom.spec.md", "Custom"), "unexpected"),
             ],
-            true,
+            &plans(),
         );
         assert_eq!(tree[0].kind, "unexpected");
         assert_eq!(
