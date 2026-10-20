@@ -274,6 +274,21 @@ fn bracketed_text_xrefs_drop_brackets() {
 }
 
 #[test]
+fn template_xrefs_require_brackets() {
+    let document = render("`[C-N+1]` `[VC-N.1]` `[PREFIX-N]` [C-N] [KD-N+12] C-N C-N+1 [C-N+] [C-Nx] `[C-M]`");
+    assert_eq!(
+        Nodes::document(&document).xrefs(),
+        [
+            ("C-N+1", "c"),
+            ("VC-N.1", "vc"),
+            ("PREFIX-N", "other"),
+            ("C-N", "c"),
+            ("KD-N+12", "kd")
+        ]
+    );
+}
+
+#[test]
 fn xrefs_protect_code_and_unknown_bare_prefixes() {
     let document = render("```text\nAC-001 VC-1\n```\n\n`VC-1` `before [KD-1] after` ZZ-001");
     assert!(Nodes::document(&document).xrefs().is_empty());

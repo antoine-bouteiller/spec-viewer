@@ -177,7 +177,7 @@ fn bracketed(value: &str) -> Option<(&str, &str)> {
     }
     let mut parts = number.split('.');
     let first = parts.next()?;
-    if first.is_empty() || !first.bytes().all(|byte| byte.is_ascii_digit()) {
+    if !digits(first) && placeholder(first) != Some(first.len()) {
         return None;
     }
     if let Some(second) = parts.next()
@@ -189,6 +189,18 @@ fn bracketed(value: &str) -> Option<(&str, &str)> {
         return None;
     }
     Some((id, prefix))
+}
+fn digits(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
+}
+/// Length of a leading `N` or `N+<digits>` template number, as in `[C-N+1]`.
+fn placeholder(value: &str) -> Option<usize> {
+    let rest = value.strip_prefix('N')?;
+    let Some(offset) = rest.strip_prefix('+') else {
+        return Some(1);
+    };
+    let count = offset.bytes().take_while(u8::is_ascii_digit).count();
+    (count > 0).then_some(2 + count)
 }
 fn word(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
@@ -206,6 +218,11 @@ fn chipify(value: &str) -> Vec<Inline> {
                 let count = number.bytes().take_while(u8::is_ascii_digit).count();
                 let end = index + prefix.len() + 1 + count;
                 if (1..=4).contains(&count) && (end == bytes.len() || !word(bytes[end])) {
+                    return Some((end, *prefix));
+                }
+                let count = placeholder(number)?;
+                let end = index + prefix.len() + 1 + count;
+                if index > 0 && bytes[index - 1] == b'[' && bytes.get(end) == Some(&b']') {
                     Some((end, *prefix))
                 } else {
                     None
