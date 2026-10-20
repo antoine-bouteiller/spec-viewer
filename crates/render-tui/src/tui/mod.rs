@@ -2,7 +2,7 @@ mod app;
 mod navigation;
 mod theme;
 
-pub use app::{App, Focus, Hint, RailEntry, Tab};
+pub use app::{App, Focus, Hint, RailEntry, Search, Tab};
 
 use std::{
     io::{self, Write},

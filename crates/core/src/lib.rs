@@ -5,6 +5,7 @@ mod corpus;
 pub mod document;
 mod js;
 mod library;
+mod search;
 mod sort;
 mod tree;
 mod types;
@@ -12,6 +13,7 @@ mod types;
 pub use corpus::docs;
 pub use document::Opened;
 pub use library::Library;
+pub use search::{Hit, search};
 pub use spec_viewer_config::{ParseConfig, TabConfig};
 pub use spec_viewer_parser::{
     Align, Block, Chip, ChipValue, CodeTab, ComparisonOption, Component, ComponentBody, Degraded, Document, Inline, ListItem, MarginNote,

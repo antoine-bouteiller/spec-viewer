@@ -73,6 +73,18 @@ fn serves_client_api_and_confines_reads() {
     assert_eq!(docs["tabs"][0]["nodes"][0]["status"]["name"], "done");
     assert_eq!(docs["tabs"][0]["nodes"][0]["status"]["known"], true);
 
+    let (_, search) = get(address, &format!("/api/search?wt={wt}&q=alp"));
+    let search: serde_json::Value = serde_json::from_str(&search).unwrap();
+    assert_eq!(
+        search,
+        serde_json::json!({ "total": 1, "hits": [{
+            "tab": "plans", "name": "Alpha", "path": ".plan/a.md", "archived": false,
+            "status": docs["tabs"][0]["nodes"][0]["status"], "titleMatches": [0, 1, 2], "pathMatches": [],
+        }] })
+    );
+    assert_eq!(get(address, &format!("/api/search?wt={wt}&q=zzz")).1, r#"{"total":1,"hits":[]}"#);
+    assert_eq!(get(address, "/api/search?wt=/&q=a").0, 403);
+
     let (status, doc) = get(address, &format!("/api/doc?wt={wt}&path=.plan%2Fa.md"));
     assert_eq!(status, 200);
     let doc: serde_json::Value = serde_json::from_str(&doc).unwrap();

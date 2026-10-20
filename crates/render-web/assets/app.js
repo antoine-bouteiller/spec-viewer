@@ -9,8 +9,12 @@ const page = $('page')
 const nav = $('nav')
 const rail = $('rail')
 const content = $('content')
-const filter = $('filter')
 const diffToggle = $('diff')
+const searchTrigger = $('search-open')
+const searchDialog = $('search')
+const searchInput = $('search-input')
+const searchResults = $('search-results')
+const searchCount = $('search-count')
 
 const ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
 const esc = (value) => String(value).replace(/[&<>"']/g, (character) => ENTITIES[character])
@@ -70,7 +74,6 @@ const state = {
   focusedKey: null,
   pending: false,
   project: null,
-  query: '',
   treeId: '',
 }
 
@@ -115,16 +118,11 @@ const ancestorKeys = (nodes, active, parentKey = '') => {
 }
 
 // A companion attached to its owner is reached through the owner's row, not listed on its own.
-const matchingDocuments = (nodes, needle, paths) =>
+const matchingDocuments = (nodes, paths) =>
   nodes.flatMap((node) => [
-    ...(node.path &&
-    (!needle || node.name.toLowerCase().includes(needle) || node.path.toLowerCase().includes(needle)) &&
-    (!paths || paths.has(node.path))
-      ? [node]
-      : []),
+    ...(node.path && paths.has(node.path) ? [node] : []),
     ...matchingDocuments(
       (node.children ?? []).filter((child) => !(node.path && child.companion)),
-      needle,
       paths
     ),
   ])
@@ -209,11 +207,10 @@ const renderSidebar = () => {
         .map(({ name }) => rowButton(tab() === name, `data-tab="${esc(name)}"`, esc(name), ' doc-tab'))
         .join('')}</div>`
     )
-    const needle = state.query.trim().toLowerCase()
     const paths = changedFilter()
     const nodes = listed()
-    if (needle || paths) {
-      const matches = matchingDocuments(nodes, needle, paths)
+    if (paths) {
+      const matches = matchingDocuments(nodes, paths)
       parts.push(
         matches.length
           ? `<ul>${matches
@@ -240,7 +237,6 @@ const renderSidebar = () => {
   nav.innerHTML = parts.join('')
   syncTreeFocus(hadFocus)
 
-  filter.placeholder = `Filter ${tab()}…`
   diffToggle.disabled = state.docs.changed === null
   diffToggle.setAttribute('aria-pressed', String(url.diff === 'true'))
 }
@@ -371,9 +367,125 @@ nav.addEventListener('keydown', (event) => {
   }
 })
 
-filter.addEventListener('input', () => {
-  state.query = filter.value
-  renderSidebar()
+// Search dialog: the server ranks matches with the terminal's search (`spec_viewer_core::search`).
+
+const search = { hits: [], request: 0, selection: 0, total: 0 }
+
+const highlight = (text, matches) => {
+  const matched = new Set(matches)
+  return Array.from(text)
+    .map((character, index) => (matched.has(index) ? `<mark>${esc(character)}</mark>` : esc(character)))
+    .join('')
+}
+
+const renderSearch = () => {
+  searchCount.textContent = `${search.hits.length}/${search.total}`
+  searchResults.innerHTML = search.hits.length
+    ? search.hits
+        .map((hit, index) => {
+          const selected = index === search.selection
+          return `<li id="search-hit-${index}" role="option" class="search-hit${selected ? ' is-selected' : ''}" aria-selected="${selected}" data-index="${index}"><span class="search-hit-name">${highlight(
+            hit.name,
+            hit.titleMatches
+          )}</span>${statusBadge(hit.status, hit.archived, true)}<span class="search-hit-path">${highlight(hit.path, hit.pathMatches)}</span><span class="search-hit-tab">${esc(
+            hit.tab
+          )}</span></li>`
+        })
+        .join('')
+    : '<li class="list-empty">no matching documents</li>'
+  searchInput.setAttribute('aria-activedescendant', search.hits.length ? `search-hit-${search.selection}` : '')
+  searchResults.querySelector('.is-selected')?.scrollIntoView({ block: 'nearest' })
+}
+
+const runSearch = async () => {
+  const request = ++search.request
+  let result = { hits: [], total: search.total }
+  try {
+    result = await getJson('/api/search', { q: searchInput.value, wt: url.wt })
+  } catch {
+    // An unreachable server shows no matches.
+  }
+  if (request === search.request) {
+    search.hits = result.hits
+    search.total = result.total
+    search.selection = Math.min(search.selection, Math.max(search.hits.length - 1, 0))
+    renderSearch()
+  }
+}
+
+const openSearch = () => {
+  if (!url.wt || searchDialog.open) {
+    return
+  }
+  searchInput.value = ''
+  search.selection = 0
+  searchDialog.showModal()
+  searchInput.focus()
+  void runSearch()
+}
+
+const moveSearch = (delta) => {
+  search.selection = Math.min(Math.max(search.selection + delta, 0), Math.max(search.hits.length - 1, 0))
+  renderSearch()
+}
+
+const chooseHit = (index) => {
+  const hit = search.hits[index]
+  if (!hit) {
+    return
+  }
+  searchDialog.close()
+  setUrl({ doc: hit.path, tab: hit.tab })
+  resetTree()
+  void loadDoc()
+}
+
+searchTrigger.addEventListener('click', openSearch)
+
+searchInput.addEventListener('input', () => {
+  search.selection = 0
+  void runSearch()
+})
+
+searchInput.addEventListener('keydown', (event) => {
+  const control = event.ctrlKey && !event.metaKey && !event.altKey
+  const key = event.key
+  if (key === 'ArrowDown' || (control && (key === 'n' || key === 'j'))) {
+    moveSearch(1)
+  } else if (key === 'ArrowUp' || (control && (key === 'p' || key === 'k'))) {
+    moveSearch(-1)
+  } else if (key === 'Enter') {
+    chooseHit(search.selection)
+  } else if (control && key === 'u') {
+    searchInput.value = ''
+    search.selection = 0
+    void runSearch()
+  } else {
+    return
+  }
+  event.preventDefault()
+})
+
+searchResults.addEventListener('click', (event) => {
+  const hit = event.target.closest('[data-index]')
+  if (hit) {
+    chooseHit(Number(hit.dataset.index))
+  }
+})
+
+searchDialog.addEventListener('click', (event) => {
+  if (event.target === searchDialog) {
+    searchDialog.close()
+  }
+})
+
+addEventListener('keydown', (event) => {
+  const typing = event.target.closest?.('input, select, textarea, [contenteditable]')
+  const shortcut = (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey) || ((event.ctrlKey || event.metaKey) && event.key === 'k')
+  if (shortcut && !typing && !searchDialog.open) {
+    event.preventDefault()
+    openSearch()
+  }
 })
 
 diffToggle.addEventListener('click', () => {
@@ -689,6 +801,9 @@ const connectEvents = () => {
   events?.addEventListener('message', () => {
     void loadDocs()
     void loadDoc()
+    if (searchDialog.open) {
+      void runSearch()
+    }
   })
 }
 

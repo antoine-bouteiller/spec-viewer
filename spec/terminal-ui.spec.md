@@ -44,7 +44,7 @@ statuses and header chips. Discovery, metadata, the tree, and confinement live i
 ## Outcome
 
 - `[SO-1]` `spec-viewer` in any worktree shows, navigable by keyboard, the worktree picker, tabs,
-  corpus tree with status chips, filter, `Diff`, structure rail, document header, and rendered
+  corpus tree with status chips, search dialog, `Diff`, structure rail, document header, and rendered
   body. — demonstrated by `[VC-1]`, `[VC-2]`
 - `[SO-2]` A corpus change refreshes the tree and the open document, keeping its scroll position.
   — demonstrated by `[VC-3]`
@@ -104,16 +104,16 @@ Kind: type · Anchor: `crates/render-tui/src/tui/app.rs#App`
 ┌ sidebar or rail ───────┬ document ──────────────────────────────┐
 │ worktree ▾ (main)      │ Title  [status]                         │
 │ [plans] specs   Diff   │ AC 3/5 ▮▮▯ T 2/9 ▮▯▯  N lines           │
-│ / filter               │ kind · owner · N phases · author · date │
+│ / search all tabs      │ kind · owner · N phases · author · date │
 │ ▸ doc/architecture     │ related: …   path  y path · Y name      │
 │   spec title  [chip]   │ rendered body                           │
 └────────────────────────┴─────────────────────────────────────────┘
 ```
 
 ```text
-state: worktree, tab, doc, filter, diff, expanded, navigator, panel, focus (sidebar|rail|document), scroll, pan
+state: worktree, tab, doc, search, diff, expanded, navigator, panel, focus (sidebar|rail|document), scroll, pan
 Tab / S-Tab   toggle focus           1 … 9    tabs in config order (keeps doc)
-w             worktree picker (clears doc)     /        filter; Esc clears
+w             worktree picker (clears doc)     /        search dialog ([CT-6])
 d             Diff toggle; disabled when changed documents are unknown
 ↑↓ jk         move   → ← lh  expand / collapse; in the document, pan wide blocks 8 columns   Enter  open
 PgUp PgDn g G scroll document        f        hint mode (open link / copy xref)
@@ -122,12 +122,12 @@ o             open the current view in the web app (spec/web-ui.spec.md)
 b             hide / show the left pane (open document only)
 q / C-c       quit
 click         focus a pane; in the left pane, activate the worktree line (w), a tab (1 … 9),
-              Diff (d), the filter (/), or a row or rail entry (select + Enter)
+              Diff (d), the search line (/), or a row or rail entry (select + Enter)
 ```
 
 One pane left of the document shows either the sidebar (the corpus tree) or the rail, never both.
-Opening a document shows the rail; `e` swaps them, and `/`, a tab key, or clearing the document
-shows the sidebar. `b` hides the pane so the document takes the full width; `e`, `/`, a tab key, or
+Opening a document shows the rail; `e` swaps them, and a tab key or clearing the document
+shows the sidebar. `b` hides the pane so the document takes the full width; `e`, a tab key, or
 clearing the document shows it again. The pane is at least 30 columns wide. Each header line is
 cut to the pane width with `…`; the title is cut before its status, and the path before
 `y path · Y name`. The footer lists the
@@ -148,9 +148,9 @@ Tree semantics: every tab nests by path below its folder, compacts single-child 
 nests a document under the document its `parent-spec` resolves to, and lets an umbrella own a
 directory it fully explains. A subfolder's `index.md` is a `plan` owning the other files there as
 its `phase` files. Companions (`<stem>[.<topic>].<companion>.*`) sit under the document of the
-longest stem that has one, in `companions` order. A non-empty filter or `Diff` shows a
+longest stem that has one, in `companions` order. `Diff` shows a
 flat list with paths and omits attached companions. A document row never expands. A family member
-keeps its owner row current, and ancestors of the open document expand. Filter and `Diff` persist
+keeps its owner row current, and ancestors of the open document expand. `Diff` persists
 across tab and worktree switches; `tui.diff` sets `Diff` at start-up. A tab without documents is
 hidden and its key ignored, unless all are empty; start-up and a corpus change select a shown tab. A worktree switch clears the document and expansion; a tab
 switch keeps the open document and selects its row when the tab lists it. An archived document
@@ -167,7 +167,7 @@ as `N <label>` in the details line; it is omitted when zero.
 Statuses: the status head (trimmed, lower-cased, cut at `;`, `,`, `—`, or `-`) matches a
 `[[status]]` name or alias case-insensitively and shows as `[<name>]` in that entry's colour. An
 unmatched head shows as-is in `status_unknown`. Focus borders, the current row, and the active
-rail entry use `accent`. Unfocused borders, the filter, paths, header details, and the footer use
+rail entry use `accent`. Unfocused borders, the search line, paths, header details, and the footer use
 `muted`. Hint labels use `hint_fg` on `hint_bg`.
 
 ### [CT-3] Live reload
@@ -218,14 +218,43 @@ exit 1: unresolvable or non-directory ROOT, invalid --theme, config error per [C
 also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 ```
 
+### [CT-6] Search
+
+Kind: api · Anchor: `crates/core/src/search.rs#search`
+
+```rust
+pub fn search(tabs: &[TabDocs], query: &str) -> Vec<Hit>;
+pub struct Hit { tab: usize, node: DocNode, path: String, title_matches: Vec<usize>, path_matches: Vec<usize> }
+```
+
+```text
+┌ Search ─────────────────────────────── 3/16 ┐
+│ > roll des▏                                  │
+└──────────────────────────────────────────────┘
+┌ Results ─────────────────────────────────────┐
+│ > Design phase [ready]  .plan/rollout/01-design.md
+│   …                                          │
+└──────────────────────────────────────────────┘
+↑↓ C-n C-p C-j C-k  move    Enter  open in its tab    C-u  clear    C-w  delete word    Esc  close
+```
+
+`/` opens a centered dialog over every tab's documents, companions included. Each
+whitespace-separated term must match the title or the path as a case-insensitive subsequence;
+a blank query lists every document in tab order. Each term scores in the title or the path,
+whichever is higher, the title on a tie. Hits rank by score: 16 per matched character,
+8 more at a word start or right after the previous match, less the gaps inside the match window;
+equal scores rank the shorter path first. Matched characters (indices in code points) show in
+bold `accent`. The counter shows matches over all documents. The web app's dialog uses the same
+function through `/api/search` (`spec/web-ui.spec.md` `[CT-2]`).
+
 ## Acceptance
 
 - `[VC-1]` Given the shared fixture rendered by `TestBackend` at 160×48 under the default config,
   then snapshots show the sidebar tree with status chips after `e`, the header fields, the rail as a
   family list for a plan phase and as a section outline for a standalone spec, and every `[CT-1]`
   construct of `fixtures/dialect.spec.mdx`. — demonstrates `[SO-1]`
-- `[VC-2]` Given key sequences on the fixture, then: a filter shows a flat list with paths and
-  without attached companions; `d` restricts the tab to the changed set; `w` switches worktree and
+- `[VC-2]` Given key sequences on the fixture, then: `/` from the plans tab finds a spec by a
+  fuzzy title, and Enter opens it and selects the specs tab, while Esc keeps the open document; `d` restricts the tab to the changed set; `w` switches worktree and
   clears the document; `1` and `2` keep the open document; `b` hides the left pane; opening a phase
   keeps its plan row current; hint mode on an xref writes an OSC 52 sequence carrying the ID; hint
   mode on a doc link opens its target; clicking a pane focuses it and clicking a left-pane row or
@@ -277,3 +306,4 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 | 2026-10-20 | Wide code, Mermaid diagrams, and tables pan with `h` / `l` and the horizontal wheel instead of wrapping, stacking, or falling back to source | NG-2, CT-1, CT-2, VC-2               | Sequence diagrams ignore the width budget and showed as source   |
 | 2026-10-20 | `[[tab]]` maps folders to tabs before specs; keys `1` … `9` select tabs in order                                                             | CT-2, CT-4                           | Projects keep plans and other documents in other folders         |
 | 2026-10-20 | Every tab, specs included, is a `[[tab]]` path tree with optional `folder`, `kinds`, and `companions`; `Diff` on every tab                   | CT-2, CT-4                           | Projects name their own document kinds and companions            |
+| 2026-10-20 | `/` opens a fuzzy title and path search over every tab, shared with the web app (`[CT-6]`); the per-tab filter is removed               | SO-1, CT-2, CT-6, VC-2               | Finding a document should not depend on knowing its tab          |

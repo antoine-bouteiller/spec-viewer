@@ -23,7 +23,7 @@ browser client, and the per-project port. Discovery, metadata, the tree, and con
 - `[NG-1]` No editing: the server never writes to the worktree.
 - `[NG-2]` No authentication: a non-loopback bind is opt-in from the user config only.
 - `[NG-3]` No headless server mode: the web app lives as long as a terminal session.
-- `[NG-4]` No full-text search: navigation is the tree plus a title and path filter.
+- `[NG-4]` No full-text search: navigation is the tree plus a fuzzy title and path search.
 - `[NG-5]` No offline diagrams: Mermaid loads from a CDN, and offline shows source.
 
 ## Design
@@ -107,6 +107,7 @@ pub fn start(library: Library, config: &Config, preferred: Option<u16>) -> io::R
 | `GET /theme.css`               | Per-mode `--tone-N` status colours and highlighting rules                           |
 | `GET /api/projects`            | `{ projects: [{ name, path, worktrees: [{ name, main, path }] }] }`                 |
 | `GET /api/docs?wt=`            | `{ changed, project, tabs: { name, nodes: Node[] }[] }`; `Node.companion` marks companions |
+| `GET /api/search?wt=&q=`       | `{ total, hits: [{ tab, name, path, status?, archived, titleMatches, pathMatches }] }` per `spec/terminal-ui.spec.md` `[CT-6]` |
 | `GET /api/doc?wt=&path=`       | `{ path, rootPath, meta, html, toc: [{ id, text, depth }], hasMermaid, degraded }`  |
 | `GET /api/events?wt=`          | `text/event-stream`: `data: reload` per debounced change burst, `: ping` every 15 s |
 
@@ -128,7 +129,7 @@ Kind: type · Anchor: `crates/render-web/assets/app.js`
 ```text
 ┌ sidebar ───────────────┬ rail ──────────┬ page ─────────────────────────────────┐
 │ Specs.  light dark sys │ Files          │ ▔▔▔▔▔ status-coloured bar ▔▔▔▔▔▔▔▔▔▔▔▔ │
-│ / filter        [Diff] │  index         │ Title  [status]   AC 3/5 ▮▮▯  N lines │
+│ search all tabs [Diff] │  index         │ Title  [status]   AC 3/5 ▮▮▯  N lines │
 │ worktree ▾ (main)      │  phase-1       │ kind · owner · N phases · author · date│
 │ [plans] specs          │   Why          │ related: …   path [path] [name]        │
 │ ▸ doc/architecture     │   Design       │ rendered body                          │
@@ -139,7 +140,11 @@ Kind: type · Anchor: `crates/render-web/assets/app.js`
 URL state: ?wt=<worktree path>&tab=<tab name>&doc=<worktree-relative path>&diff=true
 ```
 
-The tree, filter, Diff, family rail, and header follow `spec/terminal-ui.spec.md` `[CT-2]`. A
+The tree, Diff, family rail, and header follow `spec/terminal-ui.spec.md` `[CT-2]`. `/`, Ctrl-K,
+or Cmd-K outside a text field, or a click on the search line, opens a modal dialog that queries
+`/api/search` on each input, so its ranking is the terminal's `[CT-6]`. Arrows, Ctrl-N, Ctrl-P,
+Ctrl-J, and Ctrl-K move; Enter or a click opens the hit in its tab; Ctrl-U clears; Esc or a click
+outside closes. A reload event reruns an open search. A
 missing or unlisted `wt` selects the main worktree; a missing `wt` keeps `doc`. A tree row takes
 focus with arrows, expands with right and left, and opens with Enter. The rail highlights the
 section under the top of the page. A click on an xref chip copies its ID; a click on a doc link opens
@@ -200,8 +205,8 @@ fails the server start per `[CT-5]`.
   and data attribute, both Mermaid fences are `<pre class="mermaid">` with `has_mermaid`, bash is
   highlighted, and the unknown lexer stays escaped. A document that fails MDX parsing starts with the
   degraded banner. — demonstrates `[SO-3]`
-- `[VC-3]` Given a served Git worktree, then `/`, `/theme.css`, `/api/projects`, `/api/docs`, and
-  `/api/doc` return the `[CT-2]` shapes, a path escaping the worktree is `403`, a missing document is
+- `[VC-3]` Given a served Git worktree, then `/`, `/theme.css`, `/api/projects`, `/api/docs`,
+  `/api/search`, and `/api/doc` return the `[CT-2]` shapes, a path escaping the worktree is `403`, a missing document is
   `404`, and an unlisted `wt` is `403`. — demonstrates `[SO-4]`
 - `[VC-4]` Given an open events stream, when a `.plan/*.md` file is written, then the stream sends
   `data: reload` within 5 s. — demonstrates `[SO-4]`

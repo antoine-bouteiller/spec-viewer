@@ -74,29 +74,20 @@ pub struct Row {
     pub current: bool,
 }
 
-pub(super) fn rows(
-    nodes: &[DocNode],
-    expanded: &HashSet<String>,
-    active: Option<&str>,
-    needle: &str,
-    changed: Option<&[String]>,
-) -> Vec<Row> {
+pub(super) fn rows(nodes: &[DocNode], expanded: &HashSet<String>, active: Option<&str>, changed: Option<&[String]>) -> Vec<Row> {
     struct Context<'a> {
         expanded: &'a HashSet<String>,
         active: Option<&'a str>,
-        needle: &'a str,
         changed: Option<&'a [String]>,
         flat: bool,
     }
     fn collect(nodes: &[DocNode], context: &Context<'_>, parent: &str, depth: usize, result: &mut Vec<Row>) {
         for node in nodes {
             let key = node.path.clone().unwrap_or_else(|| format!("{parent}/{}", node.name));
-            let matches = node.path.as_ref().is_some_and(|path| {
-                (context.needle.is_empty()
-                    || node.name.to_lowercase().contains(context.needle)
-                    || path.to_lowercase().contains(context.needle))
-                    && context.changed.is_none_or(|changed| changed.contains(path))
-            });
+            let matches = node
+                .path
+                .as_ref()
+                .is_some_and(|path| context.changed.is_none_or(|changed| changed.contains(path)));
             if !context.flat || matches {
                 result.push(Row {
                     node: node.clone(),
@@ -126,9 +117,8 @@ pub(super) fn rows(
         &Context {
             expanded,
             active,
-            needle,
             changed,
-            flat: !needle.is_empty() || changed.is_some(),
+            flat: changed.is_some(),
         },
         "",
         0,

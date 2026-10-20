@@ -32,7 +32,9 @@
               <path d="M17 17L21 21" />
               <path d="M19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11C3 15.4183 6.58172 19 11 19C15.4183 19 19 15.4183 19 11Z" />
             </svg>
-            <input id="filter" class="filter-input" placeholder="Filter plans…" />
+            <button id="search-open" type="button" class="filter-input search-trigger" aria-haspopup="dialog">
+              Search all tabs…<kbd class="search-key">/</kbd>
+            </button>
           </div>
           <button
             id="diff"
@@ -53,6 +55,27 @@
         <div id="content"></div>
       </main>
     </div>
+    <dialog id="search" class="search-dialog" aria-label="Search documents">
+      <div class="search-prompt">
+        <svg class="filter-icon" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
+          <path d="M17 17L21 21" />
+          <path d="M19 11C19 6.58172 15.4183 3 11 3C6.58172 3 3 6.58172 3 11C3 15.4183 6.58172 19 11 19C15.4183 19 19 15.4183 19 11Z" />
+        </svg>
+        <input
+          id="search-input"
+          class="search-input"
+          placeholder="Search titles and paths in every tab…"
+          autocomplete="off"
+          spellcheck="false"
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="search-results"
+        />
+        <span id="search-count" class="search-count"></span>
+      </div>
+      <ul id="search-results" class="search-results" role="listbox" aria-label="Matching documents"></ul>
+      <footer class="search-footer">↑↓ move · Enter open · Ctrl-u clear · Esc close</footer>
+    </dialog>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

@@ -49,4 +49,4 @@ expression: draw(&mut app)
 │                                      ││                                                                                                                      │
 │                                      ││                                                                                                                      │
 └──────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-Tab focus · 1/2 tabs · w worktree · / filter · d Diff · f links · y/Y copy · e files · b panel · q quit
+Tab focus · 1/2 tabs · w worktree · / search · d Diff · f links · y/Y copy · e files · b panel · q quit

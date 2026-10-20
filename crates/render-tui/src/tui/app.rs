@@ -10,12 +10,12 @@ use ratatui::{
     layout::{Constraint, Layout, Position, Rect},
     style::{Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
 
 use super::navigation::{self, Row};
 use crate::terminal::{Target, TargetSpan, TermDoc, Theme, to_terminal, wrap};
-use spec_viewer_core::{self as core, ChipValue, Docs, Library, Opened, Project};
+use spec_viewer_core::{self as core, ChipValue, Docs, Hit, Library, Opened, Project};
 
 const PAN_STEP: isize = 8;
 
@@ -27,6 +27,13 @@ pub enum Focus {
     Sidebar,
     Rail,
     Document,
+}
+
+/// The search dialog's state.
+#[derive(Clone, Debug, Default)]
+pub struct Search {
+    pub query: String,
+    pub selection: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -41,7 +48,7 @@ enum Click {
     Worktree,
     Tab(Tab),
     Diff,
-    Filter,
+    Search,
     Row(usize),
     Entry(usize),
 }
@@ -60,7 +67,8 @@ pub struct App {
     pub tab: Tab,
     pub docs: Docs,
     pub doc: Option<Opened>,
-    pub filter: String,
+    /// The open search dialog.
+    pub search: Option<Search>,
     pub diff: bool,
     pub expanded: HashSet<String>,
     pub focus: Focus,
@@ -79,7 +87,6 @@ pub struct App {
     theme: Theme,
     sidebar_selection: usize,
     rail_selection: usize,
-    filter_editing: bool,
     picker: Option<usize>,
     hint_input: Option<String>,
     viewport: Rect,
@@ -109,7 +116,7 @@ impl App {
             tab: Tab(0),
             docs,
             doc: None,
-            filter: String::new(),
+            search: None,
             diff: false,
             expanded: HashSet::new(),
             focus: Focus::Sidebar,
@@ -125,7 +132,6 @@ impl App {
             theme,
             sidebar_selection: 0,
             rail_selection: 0,
-            filter_editing: false,
             picker: None,
             hint_input: None,
             viewport: Rect::default(),
@@ -180,19 +186,25 @@ impl App {
     }
 
     pub fn filtering(&self) -> bool {
-        !self.filter.trim().is_empty() || (self.diff && self.docs.changed.is_some())
+        self.diff && self.docs.changed.is_some()
     }
 
     pub fn rows(&self) -> Vec<Row> {
-        let needle = self.filter.trim().to_lowercase();
         let changed = if self.diff { self.docs.changed.as_deref() } else { None };
         navigation::rows(
             self.listed(),
             &self.expanded,
             self.doc.as_ref().map(|doc| doc.root_path.as_str()),
-            &needle,
             changed,
         )
+    }
+
+    /// The search dialog's matches across every tab, best first.
+    pub fn hits(&self) -> Vec<Hit> {
+        self.search
+            .as_ref()
+            .map(|search| core::search(&self.docs.tabs, &search.query))
+            .unwrap_or_default()
     }
 
     pub fn rail_entries(&self) -> Vec<RailEntry> {
@@ -451,20 +463,8 @@ impl App {
             }
             return;
         }
-        if self.filter_editing {
-            match key.code {
-                KeyCode::Esc => {
-                    self.filter.clear();
-                    self.filter_editing = false;
-                }
-                KeyCode::Enter => self.filter_editing = false,
-                KeyCode::Backspace => {
-                    self.filter.pop();
-                }
-                KeyCode::Char(character) if !key.modifiers.contains(KeyModifiers::CONTROL) => self.filter.push(character),
-                _ => {}
-            }
-            self.sidebar_selection = 0;
+        if self.search.is_some() {
+            self.search_key(key);
             return;
         }
         match key.code {
@@ -492,17 +492,8 @@ impl App {
                     self.picker = Some(self.worktree);
                 }
             }
-            KeyCode::Char('/') => {
-                self.filter_editing = true;
-                self.navigator = true;
-                self.panel = true;
-                self.focus = Focus::Sidebar;
-            }
-            KeyCode::Esc => {
-                self.filter.clear();
-                self.sidebar_selection = 0;
-                self.message = None;
-            }
+            KeyCode::Char('/') => self.search = Some(Search::default()),
+            KeyCode::Esc => self.message = None,
             KeyCode::Char('d') if self.docs.changed.is_some() => {
                 self.diff = !self.diff;
                 self.sidebar_selection = 0;
@@ -555,6 +546,47 @@ impl App {
         }
     }
 
+    fn search_key(&mut self, key: KeyEvent) {
+        let hits = self.hits();
+        let count = hits.len();
+        let Some(search) = &mut self.search else {
+            return;
+        };
+        let control = key.modifiers.contains(KeyModifiers::CONTROL);
+        match key.code {
+            KeyCode::Esc => self.search = None,
+            KeyCode::Enter => {
+                if let Some(hit) = hits.into_iter().nth(search.selection) {
+                    self.search = None;
+                    self.tab = Tab(hit.tab);
+                    self.open(&hit.path);
+                }
+            }
+            KeyCode::Up => search.selection = search.selection.saturating_sub(1),
+            KeyCode::Char('p' | 'k') if control => search.selection = search.selection.saturating_sub(1),
+            KeyCode::Down => search.selection = (search.selection + 1).min(count.saturating_sub(1)),
+            KeyCode::Char('n' | 'j') if control => search.selection = (search.selection + 1).min(count.saturating_sub(1)),
+            KeyCode::Char('u') if control => {
+                search.query.clear();
+                search.selection = 0;
+            }
+            KeyCode::Char('w') if control => {
+                let kept = search.query.trim_end().rfind(char::is_whitespace).map_or(0, |index| index + 1);
+                search.query.truncate(kept);
+                search.selection = 0;
+            }
+            KeyCode::Backspace => {
+                search.query.pop();
+                search.selection = 0;
+            }
+            KeyCode::Char(character) if !control => {
+                search.query.push(character);
+                search.selection = 0;
+            }
+            _ => {}
+        }
+    }
+
     pub fn handle_mouse(&mut self, mouse: MouseEvent) {
         match mouse.kind {
             MouseEventKind::ScrollLeft => self.pan_by(-PAN_STEP),
@@ -563,14 +595,15 @@ impl App {
             MouseEventKind::ScrollDown if mouse.modifiers.contains(KeyModifiers::SHIFT) => self.pan_by(PAN_STEP),
             MouseEventKind::ScrollUp => self.scroll_by(-3),
             MouseEventKind::ScrollDown => self.scroll_by(3),
-            MouseEventKind::Down(MouseButton::Left) if self.picker.is_none() => self.click(Position::new(mouse.column, mouse.row)),
+            MouseEventKind::Down(MouseButton::Left) if self.picker.is_none() && self.search.is_none() => {
+                self.click(Position::new(mouse.column, mouse.row));
+            }
             _ => {}
         }
     }
 
     fn click(&mut self, position: Position) {
         self.cancel_hints();
-        self.filter_editing = false;
         let press = |app: &mut Self, character| app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
         if self.document_area.contains(position) {
             self.focus = Focus::Document;
@@ -590,7 +623,7 @@ impl App {
                 press(self, char::from(b'1' + index as u8));
             }
             Click::Diff => press(self, 'd'),
-            Click::Filter => press(self, '/'),
+            Click::Search => press(self, '/'),
             Click::Row(index) => {
                 self.sidebar_selection = index;
                 self.activate();
@@ -703,13 +736,15 @@ impl App {
         self.draw_document(frame, panes[1]);
         let footer = if let Some(input) = &self.hint_input {
             format!("Hint: {input}  Esc cancel")
+        } else if self.search.is_some() {
+            "Search all tabs · ↑↓ C-n/C-p move · Enter open · C-u clear · Esc close".to_owned()
         } else {
             self.message.clone().unwrap_or_else(|| {
                 let mut keys = vec![
                     "Tab focus".to_owned(),
                     "1/2 tabs".into(),
                     "w worktree".into(),
-                    "/ filter".into(),
+                    "/ search".into(),
                     "d Diff".into(),
                     "f links".into(),
                     "y/Y copy".into(),
@@ -752,6 +787,90 @@ impl App {
                 &mut ListState::default().with_selected(Some(selection)),
             );
         }
+        self.draw_search(frame, vertical[0]);
+    }
+
+    /// A centered prompt over a results list, after Telescope's layout without a preview.
+    fn draw_search(&mut self, frame: &mut Frame, area: Rect) {
+        let hits = self.hits();
+        let total = core::search(&self.docs.tabs, "").len();
+        let Some(search) = &mut self.search else {
+            return;
+        };
+        search.selection = search.selection.min(hits.len().saturating_sub(1));
+        let width = (area.width * 4 / 5).max(area.width.min(50)).min(100);
+        let height = (area.height * 4 / 5).max(area.height.min(10));
+        let popup = Rect::new(
+            area.x + (area.width - width) / 2,
+            area.y + (area.height - height) / 2,
+            width,
+            height,
+        );
+        frame.render_widget(Clear, popup);
+        let [prompt, results] = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).areas(popup);
+        let accent = Style::default().fg(self.theme.roles.accent);
+        let muted = Style::default().fg(self.theme.roles.muted);
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("> ", accent),
+                Span::raw(format!("{}▏", search.query)),
+            ]))
+            .block(
+                Block::bordered()
+                    .border_type(BorderType::Rounded)
+                    .border_style(accent)
+                    .title(" Search ")
+                    .title(Line::from(format!(" {}/{total} ", hits.len())).right_aligned()),
+            ),
+            prompt,
+        );
+        let block = Block::bordered()
+            .border_type(BorderType::Rounded)
+            .border_style(muted)
+            .title(" Results ");
+        let inner = block.inner(results);
+        frame.render_widget(block, results);
+        if hits.is_empty() {
+            frame.render_widget(Paragraph::new("no matching documents").style(muted), inner);
+            return;
+        }
+        let matched = accent.add_modifier(Modifier::BOLD);
+        let highlight = |text: &str, matches: &[usize], style: Style| -> Vec<Span<'static>> {
+            text.chars()
+                .enumerate()
+                .map(|(index, character)| {
+                    Span::styled(
+                        character.to_string(),
+                        if matches.binary_search(&index).is_ok() { matched } else { style },
+                    )
+                })
+                .collect()
+        };
+        let width = usize::from(inner.width.saturating_sub(2));
+        let items: Vec<_> = hits
+            .iter()
+            .map(|hit| {
+                let mut spans = highlight(&hit.node.name, &hit.title_matches, Style::default());
+                if hit.node.archived == Some(true) {
+                    spans.push(Span::styled(" [archived]", Style::default().fg(self.theme.roles.status_unknown)));
+                } else if let Some(status) = &hit.node.status {
+                    spans.push(Span::styled(
+                        format!(" [{}]", status.name),
+                        Style::default().fg(self.theme.status_color(Some(status))),
+                    ));
+                }
+                spans.push(Span::raw("  "));
+                spans.extend(highlight(&hit.path, &hit.path_matches, muted));
+                ListItem::new(truncate_line(Line::from(spans), width))
+            })
+            .collect();
+        frame.render_stateful_widget(
+            List::new(items)
+                .highlight_symbol(Line::styled("> ", accent))
+                .highlight_style(Style::default().add_modifier(Modifier::REVERSED)),
+            inner,
+            &mut ListState::default().with_selected(Some(search.selection)),
+        );
     }
 
     fn pane(&self, title: &str, focused: bool) -> Block<'static> {
@@ -771,7 +890,7 @@ impl App {
         let row = |line: u16, x: u16, width: usize| Rect::new(header.x + x, header.y + line, width as u16, 1).intersection(header);
         let mut clicks = vec![
             (row(0, 0, usize::from(header.width)), Click::Worktree),
-            (row(2, 0, usize::from(header.width)), Click::Filter),
+            (row(2, 0, usize::from(header.width)), Click::Search),
         ];
         let mut tabs = String::new();
         for tab in self.tabs() {
@@ -800,10 +919,7 @@ impl App {
         let heading = vec![
             Line::raw(format!("{}{} ▾", worktree.name, if worktree.main { " (main)" } else { "" })),
             Line::raw(format!("{tabs}{diff}")),
-            Line::styled(
-                format!("/ {}{}", self.filter, if self.filter_editing { "▏" } else { "" }),
-                Style::default().fg(self.theme.roles.muted),
-            ),
+            Line::styled("/ search all tabs", Style::default().fg(self.theme.roles.muted)),
         ];
         frame.render_widget(Paragraph::new(heading), regions[0]);
         let items: Vec<_> = self
@@ -1228,18 +1344,18 @@ mod tests {
     }
 
     #[test]
-    fn modal_filter_input_and_key_release_do_not_trigger_global_shortcuts() {
+    fn modal_search_input_and_key_release_do_not_trigger_global_shortcuts() {
         let (_root, mut app) = app();
         app.handle_key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
         for character in "qdw12".chars() {
             app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
         }
-        assert_eq!(app.filter, "qdw12");
+        assert_eq!(app.search.as_ref().unwrap().query, "qdw12");
         assert!(!app.quit);
         assert_eq!(app.tab, Tab(0));
         assert!(!app.diff);
         app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
-        assert!(app.filter.is_empty());
+        assert!(app.search.is_none());
         let mut released = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE);
         released.kind = KeyEventKind::Release;
         app.handle_key(released);
@@ -1412,9 +1528,9 @@ mod tests {
         app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
         terminal.draw(|frame| app.draw(frame)).unwrap();
         click(&mut app, 3, 3);
-        assert!(app.filter_editing);
+        assert!(app.search.is_some());
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         click(&mut app, 3, 1);
-        assert!(!app.filter_editing);
         assert_eq!(app.picker, Some(app.worktree));
     }
 

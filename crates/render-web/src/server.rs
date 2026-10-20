@@ -223,6 +223,10 @@ impl State {
             "/api/docs" => self
                 .worktree(&query)
                 .map_or_else(|| text(403, "forbidden"), |worktree| self.docs(&worktree)),
+            "/api/search" => self.worktree(&query).map_or_else(
+                || text(403, "forbidden"),
+                |worktree| self.search(&worktree, query.get("q").as_deref().unwrap_or("")),
+            ),
             "/api/doc" => self.worktree(&query).map_or_else(
                 || text(403, "forbidden"),
                 |worktree| self.doc(&worktree, query.get("path").as_deref().unwrap_or("")),
@@ -269,6 +273,26 @@ impl State {
                 .map(|tab| TabJson {
                     name: &tab.name,
                     nodes: tab.nodes.iter().map(|node| self.node(node)).collect(),
+                })
+                .collect(),
+        })
+    }
+
+    fn search(&self, worktree: &Path, query: &str) -> Reply {
+        let corpus = self.library.corpus(worktree);
+        let hits = spec_viewer_core::search(&corpus.tabs, query);
+        json(&SearchJson {
+            total: spec_viewer_core::search(&corpus.tabs, "").len(),
+            hits: hits
+                .iter()
+                .map(|hit| HitJson {
+                    tab: &corpus.tabs[hit.tab].name,
+                    name: &hit.node.name,
+                    path: &hit.path,
+                    status: self.status(hit.node.status.as_ref()),
+                    archived: hit.node.archived.unwrap_or(false),
+                    title_matches: &hit.title_matches,
+                    path_matches: &hit.path_matches,
                 })
                 .collect(),
         })
@@ -482,6 +506,26 @@ struct DocsJson<'a> {
     changed: Option<Vec<String>>,
     project: String,
     tabs: Vec<TabJson<'a>>,
+}
+
+#[derive(Serialize)]
+struct SearchJson<'a> {
+    total: usize,
+    hits: Vec<HitJson<'a>>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HitJson<'a> {
+    tab: &'a str,
+    name: &'a str,
+    path: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    status: Option<StatusJson>,
+    archived: bool,
+    /// Character (code point) indices into `name` and `path`.
+    title_matches: &'a [usize],
+    path_matches: &'a [usize],
 }
 
 #[derive(Serialize)]

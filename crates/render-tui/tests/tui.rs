@@ -125,7 +125,7 @@ fn vc_1_every_dialect_construct_across_document_pages() {
 }
 
 #[test]
-fn vc_2_filter_is_flat_with_paths_and_without_attached_companions() {
+fn vc_2_search_dialog_matches_titles_and_paths_across_every_tab() {
     let fixture = Fixture::new();
     let mut app = App::new(
         Library::new(&fixture.root, ParseConfig::default()).unwrap(),
@@ -133,28 +133,22 @@ fn vc_2_filter_is_flat_with_paths_and_without_attached_companions() {
         io::sink(),
     )
     .unwrap();
+    assert_eq!(app.tab, Tab(0));
     key(&mut app, KeyCode::Char('/'));
-    type_text(&mut app, "rollout");
+    type_text(&mut app, "stndln");
+    insta::assert_snapshot!("vc_2_search_dialog", draw(&mut app));
+    let paths: Vec<_> = app.hits().into_iter().map(|hit| hit.path).collect();
+    assert_eq!(paths, ["spec/standalone.spec.md"]);
     key(&mut app, KeyCode::Enter);
-    let screen = draw(&mut app);
-    assert!(app.filtering());
-    let rows = app.rows();
-    assert!(rows.iter().all(|row| row.depth == 0 && row.node.path.is_some()));
-    assert!(
-        rows.iter()
-            .any(|row| row.node.path.as_deref() == Some(".plan/rollout/01-design.md"))
-    );
-    assert!(rows.iter().all(|row| row.node.kind != "examples"));
-    assert!(screen.contains(".plan/rollout/index.md"));
-    assert!(!screen.contains("Rollout examples"));
+    assert!(app.search.is_none());
+    assert_eq!(app.tab, Tab(1));
+    assert_eq!(app.doc.as_ref().unwrap().root_path, "spec/standalone.spec.md");
+    key(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "rollout design");
+    assert_eq!(app.hits()[0].path, ".plan/rollout/01-design.md");
     key(&mut app, KeyCode::Esc);
-    assert!(!app.filtering());
-    key(&mut app, KeyCode::Char('2'));
-    key(&mut app, KeyCode::Char('/'));
-    type_text(&mut app, "viewer");
-    key(&mut app, KeyCode::Enter);
-    let paths: Vec<_> = app.rows().into_iter().filter_map(|row| row.node.path).collect();
-    assert_eq!(paths, ["doc/architecture/viewer.spec.md"]);
+    assert!(app.search.is_none());
+    assert_eq!(app.doc.as_ref().unwrap().root_path, "spec/standalone.spec.md");
 }
 
 #[test]
@@ -182,7 +176,7 @@ fn vc_2_diff_applies_to_every_tab_and_restricts_to_changed_paths() {
 }
 
 #[test]
-fn vc_2_worktree_switch_clears_document_and_tabs_keep_it_with_filter_and_diff() {
+fn vc_2_worktree_switch_clears_document_and_tabs_keep_it_with_diff() {
     let fixture = Fixture::new();
     let mut app = App::new(
         Library::new(&fixture.root.join(".plan/rollout"), ParseConfig::default()).unwrap(),
@@ -193,23 +187,18 @@ fn vc_2_worktree_switch_clears_document_and_tabs_keep_it_with_filter_and_diff() 
     assert_eq!(app.worktree_path(), fixture.root);
     key(&mut app, KeyCode::Char('2'));
     key(&mut app, KeyCode::Char('d'));
-    key(&mut app, KeyCode::Char('/'));
-    type_text(&mut app, "standalone");
     key(&mut app, KeyCode::Enter);
-    key(&mut app, KeyCode::Enter);
-    assert!(app.doc.is_some());
+    assert_eq!(app.doc.as_ref().unwrap().root_path, "spec/standalone.spec.md");
     key(&mut app, KeyCode::Char('w'));
     key(&mut app, KeyCode::Down);
     key(&mut app, KeyCode::Enter);
     assert_eq!(app.worktree_path(), fixture.sibling);
     assert!(app.doc.is_none());
-    assert_eq!(app.filter, "standalone");
     assert!(app.diff);
     app.open("spec/standalone.spec.md");
     key(&mut app, KeyCode::Char('1'));
     assert_eq!(app.tab, Tab(0));
     assert_eq!(app.doc.as_ref().unwrap().root_path, "spec/standalone.spec.md");
-    assert_eq!(app.filter, "standalone");
     assert!(app.diff);
     let sibling = App::new(
         Library::new(&fixture.sibling.join("spec"), ParseConfig::default()).unwrap(),
@@ -230,10 +219,9 @@ fn vc_2_phase_opened_from_rail_keeps_owner_current_and_documents_never_expand() 
     )
     .unwrap();
     key(&mut app, KeyCode::Char('/'));
-    type_text(&mut app, "rollout/index");
+    type_text(&mut app, "rollout/index.md");
     key(&mut app, KeyCode::Enter);
-    key(&mut app, KeyCode::Enter);
-    key(&mut app, KeyCode::Esc);
+    assert_eq!(app.doc.as_ref().unwrap().root_path, ".plan/rollout/index.md");
     draw(&mut app);
     let count = app.rows().len();
     key(&mut app, KeyCode::Right);
