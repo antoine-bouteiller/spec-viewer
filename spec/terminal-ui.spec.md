@@ -16,7 +16,8 @@ statuses and header chips. Discovery, metadata, the tree, and confinement live i
 `parser`, and `core` crates; this spec states the behaviour the screen relies on.
 
 - `[NG-1]` No image diagrams: Mermaid renders as box-drawing text, or as source when it fails.
-- `[NG-2]` No mouse interaction beyond wheel scrolling and left clicks on the panes and the left pane.
+- `[NG-2]` No mouse interaction beyond wheel scrolling (vertical, horizontal, and Shift+wheel) and left
+  clicks on the panes and the left pane.
 - `[NG-3]` No editing: the viewer never writes to the worktree.
 - `[NG-4]` No config hot reload: the config is read once per session.
 
@@ -58,30 +59,42 @@ Kind: api · Anchor: `crates/render-tui/src/terminal.rs#to_terminal`
 
 ```rust
 pub fn to_terminal(document: &spec_viewer_core::Document, width: u16, theme: &Theme) -> TermDoc;
-pub struct TermDoc { lines: Vec<Line<'static>>, toc: Vec<(TocEntry, usize)>, targets: Vec<TargetSpan> }
+pub struct TermDoc { lines: Vec<Line<'static>>, toc: Vec<(TocEntry, usize)>, targets: Vec<TargetSpan>, wide: Vec<WideBlock> }
+pub struct WideBlock { line: usize, column: usize, width: usize, rows: Vec<Line<'static>>, targets: Vec<TargetSpan> }
 pub struct TargetSpan { target: Target, line: usize, column: usize, length: usize } // terminal columns
 pub enum Target { Doc(String), Xref(String) }
+impl TermDoc {
+    fn line(&self, index: usize, pan: usize) -> Line<'static>; // wide blocks panned
+    fn targets_at(&self, pan: usize) -> Vec<TargetSpan>;      // visible columns only
+    fn max_pan(&self) -> usize;
+}
 ```
 
-| Construct                      | Terminal form                                                     |
-| ------------------------------ | ----------------------------------------------------------------- |
-| Headings                       | Bold, coloured by `roles.headings[depth - 1]` (last entry reused) |
-| Paragraphs, lists, task lists  | Wrapped to width; `[x]`/`[ ]` markers                             |
-| GFM tables                     | Box-drawn in `muted`, cells wrapped; stacked when too narrow      |
-| Code fences                    | Highlighted by ANSI slot, boxed on `code_bg`, border in `muted`   |
-| Mermaid fences                 | Box-drawn diagram labelled `mermaid`; source on error or overflow |
-| Inline code                    | `inline_code`                                                     |
-| Xref IDs                       | `roles.xref.<family>`, family `g ng pi kd so ct vc c oq ex other` |
-| Doc links                      | Underlined hint targets                                           |
-| `CodeTabs`                     | Each tab as a labelled code block                                 |
-| `Comparison` / `Option`        | Titled cards side by side; bordered blocks when too narrow        |
-| `DecisionMatrix`               | Table carrying the score                                          |
-| `AnnotatedDiff` / `MarginNote` | Diff block followed by numbered notes, line labels `annotation`   |
-| `Flowchart` / `NodeDetail`     | Mermaid diagram, then the node details as cards                   |
-| `StepRail` / `Step`            | `○` title per step on a `│` rail                                  |
-| Unknown component              | `warning` box `Unsupported <Name>`; inline `{expr}`, `<Name>…`    |
-| Raw HTML                       | Dimmed source text                                                |
-| Degraded document              | `warning` banner line above the plain-markdown fallback           |
+A wide block is content wider than its window: a code fence with a longer line, a Mermaid diagram,
+or a GFM table whose columns cannot fit. Every line still fits the width; the block's full rows are
+shown through its window, panned by `pan` columns and clamped to its own overflow. A framed block
+keeps its border and label; `‹` and `›` replace the frame's inner padding while content is hidden on
+that side.
+
+| Construct                      | Terminal form                                                                                             |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| Headings                       | Bold, coloured by `roles.headings[depth - 1]` (last entry reused)                                         |
+| Paragraphs, lists, task lists  | Wrapped to width; `[x]`/`[ ]` markers                                                                     |
+| GFM tables                     | Box-drawn in `muted`, cells wrapped; columns keep their longest word, the table pans when they cannot fit |
+| Code fences                    | Highlighted by ANSI slot, boxed on `code_bg`, border in `muted`; long lines pan, never wrap               |
+| Mermaid fences                 | Box-drawn diagram labelled `mermaid`, panned when wider; source on error                                  |
+| Inline code                    | `inline_code`                                                                                             |
+| Xref IDs                       | `roles.xref.<family>`, family `g ng pi kd so ct vc c oq ex other`                                         |
+| Doc links                      | Underlined hint targets                                                                                   |
+| `CodeTabs`                     | Each tab as a labelled code block                                                                         |
+| `Comparison` / `Option`        | Titled cards side by side; bordered blocks when too narrow                                                |
+| `DecisionMatrix`               | Table carrying the score                                                                                  |
+| `AnnotatedDiff` / `MarginNote` | Diff block followed by numbered notes, line labels `annotation`                                           |
+| `Flowchart` / `NodeDetail`     | Mermaid diagram, then the node details as cards                                                           |
+| `StepRail` / `Step`            | `○` title per step on a `│` rail                                                                          |
+| Unknown component              | `warning` box `Unsupported <Name>`; inline `{expr}`, `<Name>…`                                            |
+| Raw HTML                       | Dimmed source text                                                                                        |
+| Degraded document              | `warning` banner line above the plain-markdown fallback                                                   |
 
 ### [CT-2] Screen and keys
 
@@ -98,11 +111,11 @@ Kind: type · Anchor: `crates/render-tui/src/tui/app.rs#App`
 ```
 
 ```text
-state: worktree, tab, doc, filter, diff, expanded, navigator, panel, focus (sidebar|rail|document), scroll
+state: worktree, tab, doc, filter, diff, expanded, navigator, panel, focus (sidebar|rail|document), scroll, pan
 Tab / S-Tab   toggle focus           1 / 2    plans / specs (keeps doc)
 w             worktree picker (clears doc)     /        filter; Esc clears
 d             Diff toggle; specs tab only, disabled when changed specs are unknown
-↑↓ jk         move   → ← lh  expand / collapse   Enter  open
+↑↓ jk         move   → ← lh  expand / collapse; in the document, pan wide blocks 8 columns   Enter  open
 PgUp PgDn g G scroll document        f        hint mode (open link / copy xref)
 y / Y         copy absolute path / file name   e        sidebar / rail (open document only)
 o             open the current view in the web app (spec/web-ui.spec.md)
@@ -118,7 +131,10 @@ shows the sidebar. `b` hides the pane so the document takes the full width; `e`,
 clearing the document shows it again. The pane is at least 30 columns wide. Each header line is
 cut to the pane width with `…`; the title is cut before its status, and the path before
 `y path · Y name`. The footer lists the
-key hints that fit whole, ending with `…` when some are dropped. A live reload keeps the shown
+key hints that fit whole, ending with `…` when some are dropped; `←→ pan` is listed while the
+document has a wide block. Every wide block pans together. Horizontal wheel and Shift+wheel pan
+the same way. Opening another document or resizing the pane resets the pan; a live reload keeps it.
+A live reload keeps the shown
 pane and focus.
 
 Tree semantics: the specs tab nests by path, compacts single-child directory chains, nests a spec
@@ -170,8 +186,8 @@ first: default < `$XDG_CONFIG_HOME/spec-viewer/config.toml` (else `~/.config/spe
 | `theme.roles.*`, `theme.roles.xref.*`   | Palette names for `accent`, `muted`, `inline_code`, `code_bg`, `annotation`, `warning`, `headings`, `meter_progress`, `meter_complete`, `hint_fg`, `hint_bg`, `status_unknown`, and each xref family |
 | `[[status]]`                            | `name`, optional `aliases`, `color` (palette name); names and aliases unique across entries                                                                                                          |
 | `[[chip]]`                              | `label`, `kind` (`checklist` or `headings`), `sections` (`##` names, any case)                                                                                                                       |
-| `tui.diff`                              | `true` starts with `Diff` on                                                                                                                                                                        |
-| `[web]`                                 | User config only: `bind`, `cert`, `key` per `spec/web-ui.spec.md` `[CT-6]`                                                                                                                          |
+| `tui.diff`                              | `true` starts with `Diff` on                                                                                                                                                                         |
+| `[web]`                                 | User config only: `bind`, `cert`, `key` per `spec/web-ui.spec.md` `[CT-6]`                                                                                                                           |
 
 A palette value that is an ANSI slot name means the terminal's own colour for that slot, not
 another palette entry: palette values do not chain. Under `mode = "auto"`, every role and status
@@ -205,7 +221,8 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
   keeps its plan row current; hint mode on an xref writes an OSC 52 sequence carrying the ID; hint
   mode on a doc link opens its target; clicking a pane focuses it and clicking a left-pane row or
   tab activates it; opening a document replaces the sidebar with the rail and `e`
-  swaps them back. — demonstrates `[SO-1]`
+  swaps them back; `l` and `h` in the document pan a long code line inside its frame, up to its
+  end. — demonstrates `[SO-1]`
 - `[VC-3]` Given an open document, when a new `.plan/*.md` file is written and the open file is
   edited, then a reload arrives, the tree lists the new plan, the body shows the edit, and the
   scroll position is kept. — demonstrates `[SO-2]`
@@ -235,16 +252,17 @@ also serves the web app for the session (spec/web-ui.spec.md [CT-5])
 
 ## Changelog
 
-| Date       | Amendment                                                                                                                        | Sections affected                    | Reason                                                           |
-| ---------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------- |
-| 2026-10-18 | Moved out of spec-kit; dropped `parent-spec`; tree semantics stated in `[CT-2]`                                                  | Why, Design, CT-2                    | `spec-viewer` became its own repository and owns this behaviour  |
-| 2026-10-18 | `to_terminal` takes the semantic `Document`; module paths follow the workspace crates                                            | CT-1, CT-3                           | The HTML-shaped tree existed only for parity with the Bun viewer |
-| 2026-10-18 | Layered config for theme, statuses, and header chips (`[KD-5]`, `[KD-8]`, `[KD-9]`, `[CT-4]`)                                    | Design, CT-2, CT-4, CT-5, Acceptance | Projects use other statuses, header sections, and colours        |
-| 2026-10-19 | `o` opens the web app; the session also serves it                                                                                | CT-2, CT-5                           | The browser view moved into `spec-viewer` (spec/web-ui.spec.md)  |
-| 2026-10-19 | Code blocks boxed on `code_bg` and highlighted by ANSI slot; Mermaid drawn as text; Catppuccin built-ins and code themes removed | CT-1, CT-4, Design, VC-6, C-3        | Colours follow the configured palette                            |
-| 2026-10-19 | The sidebar and the rail share one pane; opening a document shows the rail, `e` swaps them; `surface` defaults to hex            | Design, CT-2, VC-1, VC-2, C-3        | Wider document; code blocks stand out on any terminal background |
-| 2026-10-19 | Inline expressions stay in the paragraph; comparison and node-detail cards side by side; step rail; `muted` table borders        | CT-1                                 | Closer to the web rendering                                      |
-| 2026-10-19 | Tab switches keep the open document; `b` hides the left pane; the pane is at least 30 columns; the footer drops whole hints      | CT-2, VC-2                           | Browsing the other tab lost the document; narrow terminals       |
-| 2026-10-19 | `tui.diff` sets the initial `Diff`; a tab without documents is hidden                                                            | CT-2, CT-4                           | Diff-first review; an empty tab is noise                         |
-| 2026-10-19 | Header lines truncate instead of wrapping, keeping the status and the copy keys                                                  | CT-2                                 | A wrapping header pushed the body down on narrow panes           |
-| 2026-10-19 | Left clicks focus panes and activate left-pane rows, tabs, `Diff`, the filter, and the worktree line                             | NG-2, CT-2, VC-2                     | Pointer users expect the panes to respond to clicks              |
+| Date       | Amendment                                                                                                                                    | Sections affected                    | Reason                                                           |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------- |
+| 2026-10-18 | Moved out of spec-kit; dropped `parent-spec`; tree semantics stated in `[CT-2]`                                                              | Why, Design, CT-2                    | `spec-viewer` became its own repository and owns this behaviour  |
+| 2026-10-18 | `to_terminal` takes the semantic `Document`; module paths follow the workspace crates                                                        | CT-1, CT-3                           | The HTML-shaped tree existed only for parity with the Bun viewer |
+| 2026-10-18 | Layered config for theme, statuses, and header chips (`[KD-5]`, `[KD-8]`, `[KD-9]`, `[CT-4]`)                                                | Design, CT-2, CT-4, CT-5, Acceptance | Projects use other statuses, header sections, and colours        |
+| 2026-10-19 | `o` opens the web app; the session also serves it                                                                                            | CT-2, CT-5                           | The browser view moved into `spec-viewer` (spec/web-ui.spec.md)  |
+| 2026-10-19 | Code blocks boxed on `code_bg` and highlighted by ANSI slot; Mermaid drawn as text; Catppuccin built-ins and code themes removed             | CT-1, CT-4, Design, VC-6, C-3        | Colours follow the configured palette                            |
+| 2026-10-19 | The sidebar and the rail share one pane; opening a document shows the rail, `e` swaps them; `surface` defaults to hex                        | Design, CT-2, VC-1, VC-2, C-3        | Wider document; code blocks stand out on any terminal background |
+| 2026-10-19 | Inline expressions stay in the paragraph; comparison and node-detail cards side by side; step rail; `muted` table borders                    | CT-1                                 | Closer to the web rendering                                      |
+| 2026-10-19 | Tab switches keep the open document; `b` hides the left pane; the pane is at least 30 columns; the footer drops whole hints                  | CT-2, VC-2                           | Browsing the other tab lost the document; narrow terminals       |
+| 2026-10-19 | `tui.diff` sets the initial `Diff`; a tab without documents is hidden                                                                        | CT-2, CT-4                           | Diff-first review; an empty tab is noise                         |
+| 2026-10-19 | Header lines truncate instead of wrapping, keeping the status and the copy keys                                                              | CT-2                                 | A wrapping header pushed the body down on narrow panes           |
+| 2026-10-19 | Left clicks focus panes and activate left-pane rows, tabs, `Diff`, the filter, and the worktree line                                         | NG-2, CT-2, VC-2                     | Pointer users expect the panes to respond to clicks              |
+| 2026-10-20 | Wide code, Mermaid diagrams, and tables pan with `h` / `l` and the horizontal wheel instead of wrapping, stacking, or falling back to source | NG-2, CT-1, CT-2, VC-2               | Sequence diagrams ignore the width budget and showed as source   |

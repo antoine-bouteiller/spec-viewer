@@ -332,6 +332,37 @@ fn vc_3_live_reload_adds_plan_refreshes_body_and_preserves_scroll() {
 }
 
 #[test]
+fn vc_2_document_focus_pans_wide_blocks_with_h_and_l() {
+    let fixture = Fixture::new();
+    let line = (0..40).map(|index| format!("col{index:02}")).collect::<Vec<_>>().join(" ");
+    write(
+        &fixture.root,
+        ".plan/wide.md",
+        &format!("---\ntitle: Wide\n---\n```text\n{line}\n```\n"),
+    );
+    let mut app = App::new(
+        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
+        Theme::default(),
+        io::sink(),
+    )
+    .unwrap();
+    app.open(".plan/wide.md");
+    let screen = draw(&mut app);
+    assert!(screen.contains("←→ pan"), "{screen}");
+    assert!(!screen.contains("col39"));
+    key(&mut app, KeyCode::Char('l'));
+    assert_eq!(app.pan, 8);
+    assert!(draw(&mut app).contains("│‹l01 col02 col03"));
+    for _ in 0..40 {
+        key(&mut app, KeyCode::Right);
+    }
+    assert_eq!(app.pan, app.rendered.max_pan());
+    assert!(draw(&mut app).contains("col39"));
+    key(&mut app, KeyCode::Char('h'));
+    assert_eq!(app.pan, app.rendered.max_pan() - 8);
+}
+
+#[test]
 fn vc_2_focus_scrolling_expansion_and_quit_state_transitions() {
     let fixture = Fixture::new();
     let mut app = App::new(

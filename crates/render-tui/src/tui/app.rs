@@ -17,6 +17,8 @@ use super::navigation::{self, Row};
 use crate::terminal::{Target, TargetSpan, TermDoc, Theme, to_terminal, wrap};
 use spec_viewer_core::{self as core, ChipValue, Docs, Library, Opened, Project};
 
+const PAN_STEP: isize = 8;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
     Plans,
@@ -65,6 +67,8 @@ pub struct App {
     pub expanded: HashSet<String>,
     pub focus: Focus,
     pub scroll: usize,
+    /// Columns every wide block (code, diagram, table) is panned by.
+    pub pan: usize,
     pub quit: bool,
     /// The file navigator and the rail share one pane; an open document shows the rail.
     pub navigator: bool,
@@ -112,6 +116,7 @@ impl App {
             expanded: HashSet::new(),
             focus: Focus::Sidebar,
             scroll: 0,
+            pan: 0,
             quit: false,
             navigator: true,
             panel: true,
@@ -238,6 +243,7 @@ impl App {
                 self.rendered = to_terminal(&doc.document, self.viewport.width.max(1), &self.theme);
                 self.doc = Some(doc);
                 self.scroll = 0;
+                self.pan = 0;
                 self.navigator = false;
                 if self.focus == Focus::Sidebar {
                     self.focus = Focus::Document;
@@ -268,9 +274,9 @@ impl App {
         self.settle_tab();
         self.expanded.clear();
         if let Some(path) = self.doc.as_ref().map(|doc| doc.root_path.clone()) {
-            let (scroll, navigator, focus) = (self.scroll, self.navigator, self.focus);
+            let (scroll, pan, navigator, focus) = (self.scroll, self.pan, self.navigator, self.focus);
             self.open(&path);
-            (self.scroll, self.navigator, self.focus) = (scroll, navigator, focus);
+            (self.scroll, self.pan, self.navigator, self.focus) = (scroll, pan, navigator, focus);
         }
     }
 
@@ -278,6 +284,7 @@ impl App {
         self.doc = None;
         self.rendered = TermDoc::default();
         self.scroll = 0;
+        self.pan = 0;
         self.rail_selection = 0;
         self.sidebar_selection = 0;
         self.expanded.clear();
@@ -350,14 +357,13 @@ impl App {
     fn start_hints(&mut self) {
         let visible: Vec<_> = self
             .rendered
-            .targets
-            .iter()
+            .targets_at(self.pan)
+            .into_iter()
             .filter(|span| {
                 span.line >= self.scroll
                     && span.line < self.scroll + usize::from(self.viewport.height)
                     && span.column < usize::from(self.viewport.width)
             })
-            .cloned()
             .collect();
         if visible.is_empty() {
             self.message = Some("No visible doc links or xrefs.".into());
@@ -535,6 +541,8 @@ impl App {
             KeyCode::Char('G') => self.scroll = self.max_scroll(),
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(false),
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(true),
+            KeyCode::Right | KeyCode::Char('l') if self.focus == Focus::Document => self.pan_by(PAN_STEP),
+            KeyCode::Left | KeyCode::Char('h') if self.focus == Focus::Document => self.pan_by(-PAN_STEP),
             KeyCode::Right | KeyCode::Char('l') => self.expand(true),
             KeyCode::Left | KeyCode::Char('h') => self.expand(false),
             KeyCode::Enter => self.activate(),
@@ -544,6 +552,10 @@ impl App {
 
     pub fn handle_mouse(&mut self, mouse: MouseEvent) {
         match mouse.kind {
+            MouseEventKind::ScrollLeft => self.pan_by(-PAN_STEP),
+            MouseEventKind::ScrollRight => self.pan_by(PAN_STEP),
+            MouseEventKind::ScrollUp if mouse.modifiers.contains(KeyModifiers::SHIFT) => self.pan_by(-PAN_STEP),
+            MouseEventKind::ScrollDown if mouse.modifiers.contains(KeyModifiers::SHIFT) => self.pan_by(PAN_STEP),
             MouseEventKind::ScrollUp => self.scroll_by(-3),
             MouseEventKind::ScrollDown => self.scroll_by(3),
             MouseEventKind::Down(MouseButton::Left) if self.picker.is_none() => self.click(Position::new(mouse.column, mouse.row)),
@@ -588,6 +600,11 @@ impl App {
 
     pub fn scroll_by(&mut self, delta: isize) {
         self.scroll = self.scroll.saturating_add_signed(delta).min(self.max_scroll());
+        self.cancel_hints();
+    }
+
+    pub fn pan_by(&mut self, delta: isize) {
+        self.pan = self.pan.saturating_add_signed(delta).min(self.rendered.max_pan());
         self.cancel_hints();
     }
 
@@ -692,6 +709,9 @@ impl App {
                     "b panel".into(),
                     "q quit".into(),
                 ];
+                if self.doc.is_some() && self.rendered.max_pan() > 0 {
+                    keys.insert(1, "←→ pan".into());
+                }
                 keys.extend(self.web_url.as_ref().map(|url| format!("o {url}")));
                 fit_keys(&keys, usize::from(area.width))
             })
@@ -997,18 +1017,17 @@ impl App {
         frame.render_widget(Paragraph::new(header), regions[0]);
         if self.viewport.width != regions[1].width {
             self.rendered = to_terminal(&doc.document, regions[1].width.max(1), &self.theme);
+            self.pan = 0;
             self.cancel_hints();
         }
         self.viewport = regions[1];
         self.scroll = self.scroll.min(self.max_scroll());
+        self.pan = self.pan.min(self.rendered.max_pan());
+        let end = (self.scroll + usize::from(self.viewport.height)).min(self.rendered.lines.len());
         frame.render_widget(
             Paragraph::new(Text::from(
-                self.rendered
-                    .lines
-                    .iter()
-                    .skip(self.scroll)
-                    .take(usize::from(self.viewport.height))
-                    .cloned()
+                (self.scroll..end)
+                    .map(|index| self.rendered.line(index, self.pan))
                     .collect::<Vec<_>>(),
             )),
             self.viewport,

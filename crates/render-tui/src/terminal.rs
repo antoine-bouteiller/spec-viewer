@@ -24,9 +24,127 @@ pub struct TargetSpan {
 
 #[derive(Clone, Debug, Default)]
 pub struct TermDoc {
+    /// Every line as shown at pan 0.
     pub lines: Vec<Line<'static>>,
     pub toc: Vec<(TocEntry, usize)>,
+    /// Targets outside wide blocks; see [`TermDoc::targets_at`].
     pub targets: Vec<TargetSpan>,
+    pub wide: Vec<WideBlock>,
+}
+
+/// A block wider than its window: `rows` are shown through `width` columns at `column` of lines
+/// `line..line + rows.len()`.
+#[derive(Clone, Debug)]
+pub struct WideBlock {
+    pub line: usize,
+    pub column: usize,
+    pub width: usize,
+    pub rows: Vec<Line<'static>>,
+    /// Relative to `rows`.
+    pub targets: Vec<TargetSpan>,
+}
+
+impl WideBlock {
+    fn overflow(&self) -> usize {
+        self.rows.iter().map(Line::width).max().unwrap_or(0).saturating_sub(self.width)
+    }
+}
+
+impl TermDoc {
+    /// The furthest useful pan: the largest overflow among wide blocks.
+    pub fn max_pan(&self) -> usize {
+        self.wide.iter().map(WideBlock::overflow).max().unwrap_or(0)
+    }
+
+    /// Line `index` with every wide block panned by `pan` columns, clamped per block.
+    pub fn line(&self, index: usize, pan: usize) -> Line<'static> {
+        let mut line = self.lines[index].clone();
+        for block in &self.wide {
+            if !(block.line..block.line + block.rows.len()).contains(&index) {
+                continue;
+            }
+            let offset = pan.min(block.overflow());
+            let end = block.column + block.width;
+            let mut spans = slice(&line, 0, block.column);
+            spans.extend(slice(&block.rows[index - block.line], offset, block.width));
+            spans.extend(slice(&line, end, line.width().saturating_sub(end)));
+            line = Line::from(spans);
+            if offset > 0 && block.column > 0 {
+                line = mark(&line, block.column - 1, '‹');
+            }
+            if offset < block.overflow() && end < line.width() {
+                line = mark(&line, end, '›');
+            }
+        }
+        line
+    }
+
+    /// Every target, with those in wide blocks moved by `pan` and cut to the visible columns.
+    pub fn targets_at(&self, pan: usize) -> Vec<TargetSpan> {
+        let mut targets = self.targets.clone();
+        for block in &self.wide {
+            let offset = pan.min(block.overflow());
+            for target in &block.targets {
+                let start = target.column.max(offset);
+                let end = (target.column + target.length).min(offset + block.width);
+                if start < end {
+                    targets.push(TargetSpan {
+                        target: target.target.clone(),
+                        line: block.line + target.line,
+                        column: block.column + start - offset,
+                        length: end - start,
+                    });
+                }
+            }
+        }
+        targets.sort_by_key(|target| (target.line, target.column));
+        targets
+    }
+}
+
+/// Columns `start..start + width` of `line`, space-padded; a wide glyph cut by an edge becomes spaces.
+fn slice(line: &Line<'static>, start: usize, width: usize) -> Vec<Span<'static>> {
+    let end = start + width;
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut push = |text: &str, style: Style| {
+        if let Some(span) = spans.last_mut()
+            && span.style == style
+        {
+            span.content.to_mut().push_str(text);
+        } else {
+            spans.push(Span::styled(text.to_string(), style));
+        }
+    };
+    let mut column = 0;
+    for span in &line.spans {
+        let style = line.style.patch(span.style);
+        for character in span.content.chars() {
+            let length = character.width().unwrap_or(0);
+            let (from, to) = (column, column + length);
+            column = to;
+            if from >= start && to <= end && (length > 0 || from < end) {
+                push(character.encode_utf8(&mut [0; 4]), style);
+            } else if from < end && to > start {
+                push(&" ".repeat(to.min(end) - from.max(start)), style);
+            }
+        }
+    }
+    if column < end {
+        push(&" ".repeat(end - column.max(start)), Style::default());
+    }
+    spans
+}
+
+/// Replaces the space at `column` with `marker`, keeping its style; anything else is left alone.
+fn mark(line: &Line<'static>, column: usize, marker: char) -> Line<'static> {
+    let cell = slice(line, column, 1);
+    if cell.first().is_none_or(|span| span.content != " ") {
+        return line.clone();
+    }
+    let mut spans = slice(line, 0, column);
+    spans.push(Span::styled(marker.to_string(), cell[0].style));
+    spans.extend(slice(line, column + 1, line.width().saturating_sub(column + 1)));
+    Line::from(spans)
 }
 
 pub fn to_terminal(document: &Document, width: u16, theme: &Theme) -> TermDoc {
@@ -353,15 +471,40 @@ impl<'a> Renderer<'a> {
         }
     }
 
+    /// Shows `child`, rendered wider than this renderer, through a pannable window between `prefix` and `suffix`.
+    fn wide(&mut self, child: Renderer<'_>, prefix: &str, suffix: &str, style: Style) {
+        let width = self
+            .width
+            .saturating_sub(unicode_width::UnicodeWidthStr::width(prefix) + unicode_width::UnicodeWidthStr::width(suffix))
+            .max(1);
+        let mut window = Self::new(width, self.theme);
+        window.document.lines = child.document.lines.iter().map(|row| Line::from(slice(row, 0, width))).collect();
+        window.document.wide.push(WideBlock {
+            line: 0,
+            column: 0,
+            width,
+            rows: child.document.lines,
+            targets: child.document.targets,
+        });
+        self.embed(window, prefix, suffix, style);
+    }
+
     fn embed(&mut self, child: Renderer<'_>, prefix: &str, suffix: &str, style: Style) {
         let line_offset = self.document.lines.len();
         let column_offset = unicode_width::UnicodeWidthStr::width(prefix);
+        self.document.wide.extend(child.document.wide.into_iter().map(|mut block| {
+            block.line += line_offset;
+            block.column += column_offset;
+            block
+        }));
         for line in child.document.lines {
             let padding = child.width.saturating_sub(line.width());
             let mut spans = vec![Span::styled(prefix.to_string(), style)];
             spans.extend(line.spans);
             if !suffix.is_empty() {
-                spans.push(Span::raw(" ".repeat(padding)));
+                if padding > 0 {
+                    spans.push(Span::raw(" ".repeat(padding)));
+                }
                 spans.push(Span::styled(suffix.to_string(), style));
             }
             self.document.lines.push(Line::from(spans));
@@ -418,7 +561,7 @@ impl<'a> Renderer<'a> {
                     compact: body.inline,
                 })
                 .collect();
-            self.table(&[row]);
+            self.table(&[row], false);
         } else {
             for (title, body) in cards {
                 self.bordered(title, &body.blocks, body.inline, Style::default().fg(self.theme.roles.muted));
@@ -473,7 +616,7 @@ impl<'a> Renderer<'a> {
                             .collect()
                     })
                     .collect::<Vec<_>>();
-                self.table(&table_rows);
+                self.table(&table_rows, true);
             }
             Block::Quote(blocks) => {
                 let prefix = if self.width > 2 { "│ " } else { "" };
@@ -566,12 +709,15 @@ impl<'a> Renderer<'a> {
                 self.cards(&cards);
                 self.blocks_context(blocks, compact);
             }
-            Component::DecisionMatrix { score, blocks } => self.table(&[vec![Cell {
-                blocks: blocks.clone(),
-                title: (!score.is_empty()).then(|| format!("Score: {score}")),
-                heading: false,
-                compact,
-            }]]),
+            Component::DecisionMatrix { score, blocks } => self.table(
+                &[vec![Cell {
+                    blocks: blocks.clone(),
+                    title: (!score.is_empty()).then(|| format!("Score: {score}")),
+                    heading: false,
+                    compact,
+                }]],
+                false,
+            ),
             Component::AnnotatedDiff { blocks, notes } => {
                 self.blocks_context(blocks, compact);
                 for (index, note) in notes.iter().enumerate() {
@@ -642,9 +788,7 @@ impl<'a> Renderer<'a> {
     fn mermaid(&mut self, source: &str) {
         let inner = self.width.saturating_sub(4);
         match mermaid_text::render_with_width(source, Some(inner)) {
-            Ok(diagram)
-                if flowchart_ids_valid(source) && diagram.lines().all(|line| unicode_width::UnicodeWidthStr::width(line) <= inner) =>
-            {
+            Ok(diagram) if flowchart_ids_valid(source) => {
                 let lines = diagram.lines().map(|line| glyphs(line, Style::default(), None)).collect();
                 self.framed("mermaid", lines);
             }
@@ -713,28 +857,59 @@ impl<'a> Renderer<'a> {
         while lines.last().is_some_and(Vec::is_empty) {
             lines.pop();
         }
-        let mut child = Self::new(inner, self.theme);
+        let length = |line: &[Glyph]| line.iter().map(|glyph| glyph.character.width().unwrap_or(0)).sum::<usize>();
+        let full = lines.iter().map(|line| length(line)).max().unwrap_or(0).max(inner);
+        let mut child = Self::new(full, self.theme);
         for line in lines {
-            child.paragraph(line, "", "", true);
-        }
-        for line in child.document.lines {
-            let padding = inner.saturating_sub(line.width());
-            let mut row = glyphs("│ ", border, None);
-            for span in line.spans {
-                row.extend(glyphs(&span.content, base.patch(span.style), None));
-            }
+            let padding = full - length(&line);
+            let mut row: Vec<_> = line
+                .into_iter()
+                .map(|glyph| Glyph {
+                    style: base.patch(glyph.style),
+                    ..glyph
+                })
+                .collect();
             row.extend(glyphs(&" ".repeat(padding), base, None));
-            row.extend(glyphs(" │", border, None));
-            self.line(&row);
+            child.line(&row);
+        }
+        if full > inner {
+            self.wide(child, "│ ", " │", border);
+        } else {
+            self.embed(child, "│ ", " │", border);
         }
         self.line(&glyphs(&format!("└{}┘", "─".repeat(self.width - 2)), border, None));
         self.blank();
     }
 
-    fn table(&mut self, table_rows: &[Vec<Cell>]) {
+    /// A `pan` table keeps each column at least as wide as its longest word, panning when that overflows.
+    fn table(&mut self, table_rows: &[Vec<Cell>], pan: bool) {
         let count = table_rows.iter().map(Vec::len).max().unwrap_or(0);
         if count == 0 {
             return;
+        }
+        let mut minimums = vec![1; count];
+        if pan {
+            for row in table_rows {
+                for (index, cell) in row.iter().enumerate() {
+                    let value = plain_blocks(self.theme, &cell.blocks);
+                    let words = value
+                        .split_whitespace()
+                        .chain(cell.title.as_deref().unwrap_or_default().split_whitespace());
+                    let longest = words.map(unicode_width::UnicodeWidthStr::width).max().unwrap_or(0);
+                    minimums[index] = minimums[index].max(longest);
+                }
+            }
+            let required = minimums.iter().sum::<usize>() + count * 3 + 1;
+            if required > self.width {
+                let mut child = Self::new(required, self.theme);
+                child.table(table_rows, true);
+                while child.document.lines.last().is_some_and(|line| line.width() == 0) {
+                    child.document.lines.pop();
+                }
+                self.wide(child, "", "", Style::default());
+                self.blank();
+                return;
+            }
         }
         if self.width < count * 4 + 1 {
             for row in table_rows {
@@ -758,7 +933,13 @@ impl<'a> Renderer<'a> {
             }
         }
         while widths.iter().sum::<usize>() > available {
-            let index = widths.iter().enumerate().max_by_key(|(_, width)| **width).unwrap().0;
+            let index = widths
+                .iter()
+                .enumerate()
+                .filter(|(index, width)| **width > minimums[*index])
+                .max_by_key(|(_, width)| **width)
+                .unwrap()
+                .0;
             widths[index] -= 1;
         }
         let border = |left: char, middle: char, right: char| {
@@ -823,6 +1004,11 @@ impl<'a> Renderer<'a> {
                 }));
                 self.anchors
                     .extend(cell.anchors.into_iter().map(|(id, line)| (id, line + line_offset)));
+                self.document.wide.extend(cell.document.wide.into_iter().map(|mut block| {
+                    block.line += line_offset;
+                    block.column += column_offset;
+                    block
+                }));
                 column_offset += widths[cell_index] + 3;
             }
             if row_index + 1 < table_rows.len() {
@@ -1054,15 +1240,20 @@ mod tests {
                 "width {width}: {:?}",
                 document.lines
             );
-            assert!(
+            assert!((0..=document.max_pan()).any(|pan| {
                 document
-                    .targets
+                    .targets_at(pan)
                     .iter()
                     .any(|span| span.target == Target::Doc("spec/target.spec.md".into()))
-            );
-            for target in &document.targets {
-                assert!(target.column + target.length <= usize::from(width));
-                assert!(target.line < document.lines.len());
+            }));
+            for pan in [0, document.max_pan()] {
+                for index in 0..document.lines.len() {
+                    assert_eq!(document.line(index, pan).width(), document.lines[index].width(), "width {width}");
+                }
+                for target in &document.targets_at(pan) {
+                    assert!(target.column + target.length <= usize::from(width));
+                    assert!(target.line < document.lines.len());
+                }
             }
         }
         let document = to_terminal(&parsed, 50, &Theme::default());
@@ -1178,6 +1369,66 @@ mod tests {
             );
         }
         assert!(document.targets.iter().any(|span| span.target == Target::Xref("AC-001".into())));
+    }
+
+    fn panned(document: &TermDoc, pan: usize) -> String {
+        (0..document.lines.len())
+            .map(|index| document.line(index, pan).to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn long_code_lines_pan_inside_their_frame() {
+        let parsed = parse("```text\nshort\n0123456789abcdefghijklmnopqrstuvwxyz\n```", "spec/code.spec.md");
+        let document = to_terminal(&parsed, 20, &Theme::default());
+        assert_eq!(document.max_pan(), 36 - 16);
+        let start = panned(&document, 0);
+        assert!(start.contains("│ 0123456789abcdef›│"), "{start}");
+        assert!(start.contains("│ short           ›│"), "{start}");
+        let end = panned(&document, 100);
+        assert!(end.contains("│‹klmnopqrstuvwxyz │"), "{end}");
+        assert!(end.contains("│‹                 │"), "{end}");
+        assert!(end.contains("┌─ text ─"), "{end}");
+    }
+
+    #[test]
+    fn overflowing_sequence_diagram_pans_instead_of_showing_source() {
+        let parsed = parse(
+            "```mermaid\nsequenceDiagram\n    Alice->>Bob: a message label long enough to overflow the frame\n    Bob-->>Carol: reply\n```",
+            "spec/sequence.spec.md",
+        );
+        let document = to_terminal(&parsed, 40, &Theme::default());
+        assert!(document.max_pan() > 0);
+        let start = panned(&document, 0);
+        assert!(start.contains("Alice"), "{start}");
+        assert!(!start.contains("sequenceDiagram"), "{start}");
+        assert!(panned(&document, document.max_pan()).contains("Carol"));
+    }
+
+    #[test]
+    fn narrow_tables_keep_whole_words_and_pan_their_targets() {
+        let parsed = parse(
+            "| Name | Reference |\n| --- | --- |\n| internationalization | [target](target.spec.md) |",
+            "spec/table.spec.md",
+        );
+        let document = to_terminal(&parsed, 20, &Theme::default());
+        let start = panned(&document, 0);
+        assert!(start.contains("│ internationalizati\n"), "{start}");
+        assert!(document.targets_at(0).is_empty());
+        let pan = document.max_pan();
+        let end = panned(&document, pan);
+        assert!(end.contains("│ Reference │"), "{end}");
+        let target = document.targets_at(pan).into_iter().next().unwrap();
+        assert_eq!(target.target, Target::Doc("spec/target.spec.md".into()));
+        let line: String = document
+            .line(target.line, pan)
+            .to_string()
+            .chars()
+            .skip(target.column)
+            .take(target.length)
+            .collect();
+        assert_eq!(line, "target");
     }
 
     #[test]
