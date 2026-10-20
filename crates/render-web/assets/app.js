@@ -486,7 +486,7 @@ const docMarkup = (doc) => {
       meta.date ? `<span class="doc-date">${esc(meta.date)}</span>` : ''
     }${meta.related.length ? `<span class="doc-related">related: ${esc(meta.related.join(', '))}</span>` : ''}<span class="doc-path"><span class="doc-path-text">${esc(
       doc.rootPath
-    )}</span><button type="button" class="copy-chip" data-copy="${esc(doc.path)}" title="${esc(doc.path)}">path</button><button type="button" class="copy-chip" data-copy="${esc(
+    )}</span><button type="button" class="copy-chip" data-copy="${esc(doc.rootPath)}" title="${esc(doc.rootPath)}">path</button><button type="button" class="copy-chip" data-copy="${esc(
       name
     )}">name</button></span></div>
   </header><article class="prose">${doc.html}</article></div>`
