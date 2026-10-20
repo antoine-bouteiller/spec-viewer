@@ -264,3 +264,106 @@ fn tab_errors_name_the_tab_and_key() {
         assert!(error.key.starts_with(key), "{source}: {error}");
     }
 }
+
+#[test]
+fn keys_parse_herdr_strings_and_a_layer_rebinds_one_action() {
+    use spec_viewer_config::{Action, Code, Key, Modifiers};
+    let root = tempfile::tempdir().unwrap();
+    let plain = |code| Key::new(code, Modifiers::default());
+    let ctrl = |character| {
+        Key::new(
+            Code::Char(character),
+            Modifiers {
+                ctrl: true,
+                ..Modifiers::default()
+            },
+        )
+    };
+    let keys = Config::load_layers(None, root.path(), None).unwrap().keys;
+    assert_eq!(keys.action(&plain(Code::Char('q'))), Some((Action::Quit, 0)));
+    assert_eq!(keys.action(&plain(Code::Char('Y'))), Some((Action::CopyName, 0)));
+    assert_eq!(keys.action(&plain(Code::Char('3'))), Some((Action::SwitchTab, 2)));
+    assert_eq!(keys.action(&ctrl('c')), Some((Action::ForceQuit, 0)));
+    assert_eq!(
+        keys.action(&Key::new(
+            Code::Tab,
+            Modifiers {
+                shift: true,
+                ..Modifiers::default()
+            }
+        )),
+        Some((Action::ToggleFocus, 0))
+    );
+
+    std::fs::write(
+        root.path().join(".spec-viewer.toml"),
+        "[keys]\nquit = ['x', 'ctrl+shift+q']\ncopy_name = 'shift+n'\nswitch_tab = 'alt+1..9'\nhints = []\n[keys.search_dialog]\nclose = ['esc', 'ctrl+plus']\n",
+    )
+    .unwrap();
+    let keys = Config::load_layers(None, root.path(), None).unwrap().keys;
+    assert_eq!(keys.action(&plain(Code::Char('x'))), Some((Action::Quit, 0)));
+    assert_eq!(keys.action(&plain(Code::Char('q'))), None);
+    assert_eq!(
+        keys.action(&Key::new(
+            Code::Char('Q'),
+            Modifiers {
+                ctrl: true,
+                ..Modifiers::default()
+            }
+        )),
+        Some((Action::Quit, 0))
+    );
+    assert_eq!(keys.action(&plain(Code::Char('N'))), Some((Action::CopyName, 0)));
+    assert_eq!(keys.action(&plain(Code::Char('1'))), None);
+    assert_eq!(
+        keys.action(&Key::new(
+            Code::Char('9'),
+            Modifiers {
+                alt: true,
+                ..Modifiers::default()
+            }
+        )),
+        Some((Action::SwitchTab, 8))
+    );
+    assert_eq!(keys.action(&plain(Code::Char('f'))), None);
+    assert!(keys.search_dialog.close.matches(&ctrl('+')));
+    assert_eq!(keys.copy_name.label().as_deref(), Some("N"));
+    assert_eq!(keys.search_dialog.clear.label().as_deref(), Some("C-u"));
+    assert_eq!(keys.toggle_focus.0[1].key.label(), "S-Tab");
+    assert!(keys.down.matches(&plain(Code::Char('j'))), "other actions keep their defaults");
+}
+
+#[test]
+fn key_errors_name_the_action() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join(".spec-viewer.toml");
+    for (source, key, message) in [
+        ("[keys]\nquit = 'hyper+q'", "keys.quit", "unknown modifier"),
+        ("[keys]\nquit = 'ctrl+ctrl+q'", "keys.quit", "repeated modifier"),
+        ("[keys]\nquit = 'shift+/'", "keys.quit", "shifted character"),
+        ("[keys]\nquit = 'nope'", "keys.quit", "unknown key name"),
+        ("[keys]\nquit = 3", "keys.quit", "expected a key string"),
+        ("[keys]\nstrange = 'x'", "keys.strange", "unknown field"),
+        ("[keys.search_dialog]\nstrange = 'x'", "keys.search_dialog.strange", "unknown field"),
+        ("[keys]\nhints = 'd'", "keys.hints", "also bound to keys.diff"),
+        ("[keys]\nquit = '3'", "keys.quit", "3 is also bound to keys.switch_tab"),
+        ("[keys]\nswitch_tab = '1'", "keys.switch_tab", "1..9 range"),
+        ("[keys]\nquit = '1..9'", "keys.quit", "only allowed in keys.switch_tab"),
+        (
+            "[keys.search_dialog]\nclear = 'ctrl+c'",
+            "keys.search_dialog.clear",
+            "also bound to keys.force_quit",
+        ),
+        (
+            "[keys.hint_mode]\nclose = 'backspace'",
+            "keys.hint_mode.close",
+            "also bound to keys.hint_mode.delete_char",
+        ),
+    ] {
+        std::fs::write(&file, source).unwrap();
+        let error = Config::load_layers(None, root.path(), None).unwrap_err();
+        assert_eq!(error.file, file, "{source}: {error}");
+        assert!(error.key.starts_with(key), "{source}: {error}");
+        assert!(error.to_string().contains(message), "{source}: {error}");
+    }
+}

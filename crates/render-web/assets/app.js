@@ -15,6 +15,21 @@ const searchDialog = $('search')
 const searchInput = $('search-input')
 const searchResults = $('search-results')
 const searchCount = $('search-count')
+const searchFooter = searchDialog.querySelector('.search-footer')
+
+// Keybindings: the `[keys]` config's `main` and `search_dialog` tables, from `/api/keys`.
+let keys = { main: {}, search_dialog: {} }
+// A single character already carries Shift, as in the terminal.
+const pressed = (event, binding = []) =>
+  binding.some(
+    (chord) =>
+      event.key === chord.key &&
+      event.ctrlKey === chord.ctrl &&
+      event.altKey === chord.alt &&
+      event.metaKey === chord.meta &&
+      ([...chord.key].length === 1 || event.shiftKey === chord.shift)
+  )
+const keyLabel = (binding) => binding?.[0]?.label
 
 const ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
 const esc = (value) => String(value).replace(/[&<>"']/g, (character) => ENTITIES[character])
@@ -332,38 +347,30 @@ nav.addEventListener('keydown', (event) => {
   const expanded = row.getAttribute('aria-expanded') === 'true'
   const group = row.parentElement.querySelector(':scope > .tree-group')
   const parentRow = row.parentElement.parentElement.closest('li')?.querySelector(':scope > .tree-node')
-  switch (event.key) {
-    case 'ArrowDown':
-      event.preventDefault()
-      focusRow(rows[index + 1])
-      break
-    case 'ArrowUp':
-      event.preventDefault()
-      focusRow(rows[index - 1])
-      break
-    case 'ArrowRight':
-      event.preventDefault()
-      if (expandable && !expanded) {
-        toggle(row.dataset.key)
-      } else if (group) {
-        focusRow(group.querySelector('.tree-node'))
-      }
-      break
-    case 'ArrowLeft':
-      event.preventDefault()
-      if (expandable && expanded) {
-        toggle(row.dataset.key)
-      } else {
-        focusRow(parentRow)
-      }
-      break
-    case 'Enter':
-      if (row.dataset.path) {
-        event.preventDefault()
-        open(row.dataset.path)
-      }
-      break
-    default:
+  const main = keys.main
+  if (pressed(event, main.down)) {
+    event.preventDefault()
+    focusRow(rows[index + 1])
+  } else if (pressed(event, main.up)) {
+    event.preventDefault()
+    focusRow(rows[index - 1])
+  } else if (pressed(event, main.right)) {
+    event.preventDefault()
+    if (expandable && !expanded) {
+      toggle(row.dataset.key)
+    } else if (group) {
+      focusRow(group.querySelector('.tree-node'))
+    }
+  } else if (pressed(event, main.left)) {
+    event.preventDefault()
+    if (expandable && expanded) {
+      toggle(row.dataset.key)
+    } else {
+      focusRow(parentRow)
+    }
+  } else if (pressed(event, main.open) && row.dataset.path) {
+    event.preventDefault()
+    open(row.dataset.path)
   }
 })
 
@@ -448,22 +455,30 @@ searchInput.addEventListener('input', () => {
 })
 
 searchInput.addEventListener('keydown', (event) => {
-  const control = event.ctrlKey && !event.metaKey && !event.altKey
-  const key = event.key
-  if (key === 'ArrowDown' || (control && (key === 'n' || key === 'j'))) {
+  const bindings = keys.search_dialog
+  if (pressed(event, bindings.down)) {
     moveSearch(1)
-  } else if (key === 'ArrowUp' || (control && (key === 'p' || key === 'k'))) {
+  } else if (pressed(event, bindings.up)) {
     moveSearch(-1)
-  } else if (key === 'Enter') {
+  } else if (pressed(event, bindings.open)) {
     chooseHit(search.selection)
-  } else if (control && key === 'u') {
+  } else if (pressed(event, bindings.clear)) {
     searchInput.value = ''
     search.selection = 0
     void runSearch()
+  } else if (pressed(event, bindings.close)) {
+    searchDialog.close()
   } else {
     return
   }
   event.preventDefault()
+})
+
+// Escape closes a modal dialog natively; keep it open when `close` does not bind it.
+searchDialog.addEventListener('cancel', (event) => {
+  if (!pressed({ key: 'Escape', ctrlKey: false, altKey: false, metaKey: false, shiftKey: false }, keys.search_dialog.close)) {
+    event.preventDefault()
+  }
 })
 
 searchResults.addEventListener('click', (event) => {
@@ -481,7 +496,7 @@ searchDialog.addEventListener('click', (event) => {
 
 addEventListener('keydown', (event) => {
   const typing = event.target.closest?.('input, select, textarea, [contenteditable]')
-  const shortcut = (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey) || ((event.ctrlKey || event.metaKey) && event.key === 'k')
+  const shortcut = pressed(event, keys.main.search)
   if (shortcut && !typing && !searchDialog.open) {
     event.preventDefault()
     openSearch()
@@ -856,7 +871,32 @@ const selectWorktree = (path, keepDoc = false) => {
 
 addEventListener('focus', () => void loadProjects())
 
+const loadKeys = async () => {
+  try {
+    keys = await getJson('/api/keys', {})
+  } catch {
+    return
+  }
+  const searchKey = searchTrigger.querySelector('.search-key')
+  searchKey.textContent = keyLabel(keys.main.search) ?? ''
+  searchKey.hidden = !searchKey.textContent
+  const dialog = keys.search_dialog
+  const [up, down] = [keyLabel(dialog.up), keyLabel(dialog.down)]
+  const move = up && down ? ([...up].length === 1 && [...down].length === 1 ? up + down : `${up}/${down}`) : undefined
+  searchFooter.textContent = [
+    move && `${move} move`,
+    ...[
+      [dialog.open, 'open'],
+      [dialog.clear, 'clear'],
+      [dialog.close, 'close'],
+    ].map(([binding, action]) => keyLabel(binding) && `${keyLabel(binding)} ${action}`),
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
 const start = async () => {
+  void loadKeys()
   await loadProjects()
   if (worktree() && !events) {
     connectEvents()

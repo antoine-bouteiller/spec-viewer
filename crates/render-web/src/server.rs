@@ -13,7 +13,7 @@ use rustls::{
     pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject},
 };
 use serde::Serialize;
-use spec_viewer_config::{Color, Config, Mode, WebSettings};
+use spec_viewer_config::{Binding, Code, Color, Config, Key, Keys, Mode, WebSettings};
 use spec_viewer_core::{ChipValue, DocError, DocNode, Document, Library, Status, TocEntry};
 
 use crate::html::{Html, to_html};
@@ -166,6 +166,7 @@ struct State {
     library: Library,
     statuses: Vec<String>,
     theme_css: String,
+    keys: serde_json::Value,
     rendered: Mutex<Rendered>,
 }
 
@@ -201,6 +202,7 @@ impl State {
             library,
             statuses,
             theme_css,
+            keys: keys_json(&config.keys),
             rendered: Mutex::default(),
         }
     }
@@ -220,6 +222,7 @@ impl State {
             "/app.css" => asset(APP_CSS, "text/css; charset=utf-8"),
             "/theme.css" => asset(&self.theme_css, "text/css; charset=utf-8"),
             "/api/projects" => self.projects(),
+            "/api/keys" => json(&self.keys),
             "/api/docs" => self
                 .worktree(&query)
                 .map_or_else(|| text(403, "forbidden"), |worktree| self.docs(&worktree)),
@@ -464,6 +467,49 @@ fn text(status: u16, body: &str) -> Reply {
         headers: vec![("Content-Type", "text/plain; charset=utf-8")],
         body: body.as_bytes().to_vec(),
     }
+}
+
+/// The `[keys]` tables the client uses, each action mapping to `{ key, ctrl, alt, shift, meta, label }`
+/// with `key` in `KeyboardEvent.key` terms. Ranges (`switch_tab`) have no web action and are left out.
+fn keys_json(keys: &Keys) -> serde_json::Value {
+    let table = |entries: Vec<(&str, &Binding)>| {
+        entries
+            .into_iter()
+            .map(|(name, binding)| {
+                let chords = binding.0.iter().filter(|chord| !chord.range).map(|chord| {
+                    let Key { code, modifiers } = chord.key;
+                    let key = match code {
+                        Code::Char(character) => character.to_string(),
+                        Code::Enter => "Enter".into(),
+                        Code::Tab => "Tab".into(),
+                        Code::Esc => "Escape".into(),
+                        Code::Backspace => "Backspace".into(),
+                        Code::Delete => "Delete".into(),
+                        Code::Insert => "Insert".into(),
+                        Code::Up => "ArrowUp".into(),
+                        Code::Down => "ArrowDown".into(),
+                        Code::Left => "ArrowLeft".into(),
+                        Code::Right => "ArrowRight".into(),
+                        Code::Home => "Home".into(),
+                        Code::End => "End".into(),
+                        Code::PageUp => "PageUp".into(),
+                        Code::PageDown => "PageDown".into(),
+                        Code::F(number) => format!("F{number}"),
+                    };
+                    serde_json::json!({
+                        "key": key,
+                        "ctrl": modifiers.ctrl,
+                        "alt": modifiers.alt,
+                        "shift": modifiers.shift,
+                        "meta": modifiers.cmd,
+                        "label": chord.key.label(),
+                    })
+                });
+                (name.to_owned(), serde_json::Value::Array(chords.collect()))
+            })
+            .collect::<serde_json::Map<_, _>>()
+    };
+    serde_json::json!({ "main": table(keys.entries()), "search_dialog": table(keys.search_dialog.entries()) })
 }
 
 fn json(value: &impl Serialize) -> Reply {

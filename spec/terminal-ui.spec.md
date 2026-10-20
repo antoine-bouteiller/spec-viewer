@@ -110,6 +110,8 @@ Kind: type · Anchor: `crates/render-tui/src/tui/app.rs#App`
 └────────────────────────┴─────────────────────────────────────────┘
 ```
 
+Default keys, each a `[keys]` action ([CT-4]):
+
 ```text
 state: worktree, tab, doc, search, diff, expanded, navigator, panel, focus (sidebar|rail|document), scroll, pan
 Tab / S-Tab   toggle focus           1 … 9    tabs in config order (keeps doc)
@@ -120,10 +122,14 @@ PgUp PgDn g G scroll document        f        hint mode (open link / copy xref)
 y / Y         copy absolute path / file name   e        sidebar / rail (open document only)
 o             open the current view in the web app (spec/web-ui.spec.md)
 b             hide / show the left pane (open document only)
-q / C-c       quit
+q / C-c       quit (C-c also in every dialog and mode)
 click         focus a pane; in the left pane, activate the worktree line (w), a tab (1 … 9),
               Diff (d), the search line (/), or a row or rail entry (select + Enter)
 ```
+
+Every key hint (footer, search line, header copy keys, dialog footers, worktree picker title) shows
+the first configured key of its action and is dropped when the action is unbound. Tabs show as
+`1/2` for two tabs and `1…N` for more, from the first `switch_tab` key.
 
 One pane left of the document shows either the sidebar (the corpus tree) or the rail, never both.
 Opening a document shows the rail; `e` swaps them, and a tab key or clearing the document
@@ -196,15 +202,24 @@ first: default < `$XDG_CONFIG_HOME/spec-viewer/config.toml` (else `~/.config/spe
 | `[[chip]]`                              | `label`, `kind` (`checklist` or `headings`), `sections` (`##` names, any case)                                                                                                                       |
 | `[[tab]]`                               | `name`, optional `folder` (worktree-relative, no `.` or `..` parts), `kinds`, `companions`; names and folders unique, 1 to 9 tabs                                                                    |
 | `tui.diff`                              | `true` starts with `Diff` on                                                                                                                                                                         |
+| `[keys]`, `keys.<table>.*`              | herdr-style bindings, shared with the web app: `action = "key"` or `["key", …]`, `[]` unbinds. Main-screen actions, then `search_dialog`, `worktree_picker`, and `hint_mode` tables; actions per `default.toml` |
 | `[web]`                                 | User config only: `bind`, `cert`, `key` per `spec/web-ui.spec.md` `[CT-6]`                                                                                                                           |
 
 A palette value that is an ANSI slot name means the terminal's own colour for that slot, not
 another palette entry: palette values do not chain. Under `mode = "auto"`, every role and status
 must resolve in both the light and the dark palette, because the mode is known only after start-up.
 
+A key is a character or a name (`enter`, `tab`, `esc`, `backspace`, `up`, `pageup`, `space`,
+`plus`, `f1`, …) after optional `ctrl+`, `alt+`, `shift+`, and `cmd+`; `shift+y` is `Y`.
+`keys.switch_tab` takes herdr's `1..9` range, as in `alt+1..9`, matching tab 1 to 9. A key is bound
+at most once per table; `force_quit` counts in every table. Tables merge per action, so a layer
+rebinding one action keeps the others' defaults. Printable keys a dialog does not bind type into
+its query or hint label.
+
 A missing user or worktree file is skipped. A missing `--config` file, invalid TOML, an unknown
 key, an unknown theme, a malformed colour, a role or status naming no palette colour, an unknown
-`kind`, or a duplicate status name or alias exits 1 with one stderr line naming the file and the
+`kind`, a duplicate status name or alias, a malformed key, a range outside `switch_tab`, or a key
+bound twice in one table exits 1 with one stderr line naming the file and the
 key, or `line N` for a TOML syntax error.
 
 ### [CT-5] CLI
@@ -281,6 +296,13 @@ function through `/api/search` (`spec/web-ui.spec.md` `[CT-2]`).
   A worktree `[[status]]` list fully replaces the user's. Invalid TOML, an unknown key, or a missing
   `--config` path exits 1 with one stderr line naming the file. — demonstrates `[SO-3]`
 
+- `[VC-8]` Given `[keys]` with `quit = 'x'`, `switch_tab = 'alt+1..9'`, `copy_name = 'shift+n'`,
+  `hints = []`, and `search_dialog.close = 'ctrl+g'`, then `q` does not quit and `x` does, `2`
+  keeps the tab and Alt-2 switches it, `f` starts no hints, Esc in search types nothing and Ctrl-G
+  closes it, and the footer and header show `M-1/M-2 tabs`, `y/N copy`, `x quit`,
+  `y path · N name`, and no `links`. A key bound to two actions exits 1 naming the action a config
+  file set. — demonstrates `[PI-1]`
+
 ## Caveats
 
 - `[C-1]` OSC 52 depends on the terminal; tmux needs `set-clipboard on`.
@@ -307,3 +329,4 @@ function through `/api/search` (`spec/web-ui.spec.md` `[CT-2]`).
 | 2026-10-20 | `[[tab]]` maps folders to tabs before specs; keys `1` … `9` select tabs in order                                                             | CT-2, CT-4                           | Projects keep plans and other documents in other folders         |
 | 2026-10-20 | Every tab, specs included, is a `[[tab]]` path tree with optional `folder`, `kinds`, and `companions`; `Diff` on every tab                   | CT-2, CT-4                           | Projects name their own document kinds and companions            |
 | 2026-10-20 | `/` opens a fuzzy title and path search over every tab, shared with the web app (`[CT-6]`); the per-tab filter is removed               | SO-1, CT-2, CT-6, VC-2               | Finding a document should not depend on knowing its tab          |
+| 2026-10-20 | Every key is a herdr-style `[keys]` binding shared with the web app; hints show the configured keys                                       | CT-2, CT-4, VC-8                     | Users bring their own muscle memory                              |

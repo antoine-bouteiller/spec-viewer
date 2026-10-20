@@ -66,6 +66,16 @@ fn serves_client_api_and_confines_reads() {
     let projects: serde_json::Value = serde_json::from_str(&projects).unwrap();
     assert_eq!(projects["projects"][0]["worktrees"][0]["path"], wt.to_string());
 
+    let (_, keys) = get(address, "/api/keys");
+    let keys: serde_json::Value = serde_json::from_str(&keys).unwrap();
+    assert_eq!(
+        keys["main"]["search"][1],
+        serde_json::json!({ "key": "k", "ctrl": true, "alt": false, "shift": false, "meta": false, "label": "C-k" })
+    );
+    assert_eq!(keys["main"]["up"][0]["key"], "ArrowUp");
+    assert_eq!(keys["main"]["switch_tab"], serde_json::json!([]));
+    assert_eq!(keys["search_dialog"]["close"][0]["key"], "Escape");
+
     let (_, docs) = get(address, &format!("/api/docs?wt={wt}"));
     let docs: serde_json::Value = serde_json::from_str(&docs).unwrap();
     assert_eq!(docs["tabs"][0]["name"], "plans");

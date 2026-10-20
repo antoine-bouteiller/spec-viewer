@@ -106,6 +106,7 @@ pub fn start(library: Library, config: &Config, preferred: Option<u16>) -> io::R
 | `GET /`, `/app.js`, `/app.css` | Embedded client assets                                                              |
 | `GET /theme.css`               | Per-mode `--tone-N` status colours and highlighting rules                           |
 | `GET /api/projects`            | `{ projects: [{ name, path, worktrees: [{ name, main, path }] }] }`                 |
+| `GET /api/keys`                | `{ main, search_dialog }`: action → `[{ key, ctrl, alt, shift, meta, label }]`, `key` as `KeyboardEvent.key`; ranges omitted |
 | `GET /api/docs?wt=`            | `{ changed, project, tabs: { name, nodes: Node[] }[] }`; `Node.companion` marks companions |
 | `GET /api/search?wt=&q=`       | `{ total, hits: [{ tab, name, path, status?, archived, titleMatches, pathMatches }] }` per `spec/terminal-ui.spec.md` `[CT-6]` |
 | `GET /api/doc?wt=&path=`       | `{ path, rootPath, meta, html, toc: [{ id, text, depth }], hasMermaid, degraded }`  |
@@ -140,13 +141,17 @@ Kind: type · Anchor: `crates/render-web/assets/app.js`
 URL state: ?wt=<worktree path>&tab=<tab name>&doc=<worktree-relative path>&diff=true
 ```
 
-The tree, Diff, family rail, and header follow `spec/terminal-ui.spec.md` `[CT-2]`. `/`, Ctrl-K,
-or Cmd-K outside a text field, or a click on the search line, opens a modal dialog that queries
-`/api/search` on each input, so its ranking is the terminal's `[CT-6]`. Arrows, Ctrl-N, Ctrl-P,
-Ctrl-J, and Ctrl-K move; Enter or a click opens the hit in its tab; Ctrl-U clears; Esc or a click
-outside closes. A reload event reruns an open search. A
-missing or unlisted `wt` selects the main worktree; a missing `wt` keeps `doc`. A tree row takes
-focus with arrows, expands with right and left, and opens with Enter. The rail highlights the
+The tree, Diff, family rail, and header follow `spec/terminal-ui.spec.md` `[CT-2]`. Keys come
+from `/api/keys`, the terminal's `[keys]` config (`spec/terminal-ui.spec.md` `[CT-4]`); a single
+character matches whatever Shift state produced it. `keys.search` (default `/`, Ctrl-K, Cmd-K)
+outside a text field, or a click on the search line, opens a modal dialog that queries
+`/api/search` on each input, so its ranking is the terminal's `[CT-6]`. In the dialog
+`keys.search_dialog` applies: `up` and `down` move, `open` or a click opens the hit in its tab,
+`clear` clears, and `close` or a click outside closes; Esc closes only while `close` binds it.
+The search line's key and the dialog footer show the first key of each action. A reload event
+reruns an open search. A missing or unlisted `wt` selects the main worktree; a missing `wt` keeps
+`doc`. A focused tree row moves with `keys.up` and `keys.down`, expands and collapses with
+`keys.right` and `keys.left`, and opens with `keys.open`; the defaults add `j`, `k`, `l`, and `h` to the arrows. The rail highlights the
 section under the top of the page. A click on an xref chip copies its ID; a click on a doc link opens
 its document. A reload event refetches the corpus and the open document, keeping the scroll
 position. A diagram that fails to render, or a CDN that fails to load, leaves its source visible.
@@ -205,7 +210,7 @@ fails the server start per `[CT-5]`.
   and data attribute, both Mermaid fences are `<pre class="mermaid">` with `has_mermaid`, bash is
   highlighted, and the unknown lexer stays escaped. A document that fails MDX parsing starts with the
   degraded banner. — demonstrates `[SO-3]`
-- `[VC-3]` Given a served Git worktree, then `/`, `/theme.css`, `/api/projects`, `/api/docs`,
+- `[VC-3]` Given a served Git worktree, then `/`, `/theme.css`, `/api/projects`, `/api/keys`, `/api/docs`,
   `/api/search`, and `/api/doc` return the `[CT-2]` shapes, a path escaping the worktree is `403`, a missing document is
   `404`, and an unlisted `wt` is `403`. — demonstrates `[SO-4]`
 - `[VC-4]` Given an open events stream, when a `.plan/*.md` file is written, then the stream sends

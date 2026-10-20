@@ -1,8 +1,10 @@
 //! Layered TOML configuration and renderer-neutral theme resolution.
 mod color;
+mod keys;
 mod ports;
 mod types;
 pub use color::{ANSI_SLOTS, Ansi, Color};
+pub use keys::*;
 pub use ports::Ports;
 pub use types::*;
 
@@ -50,6 +52,7 @@ impl std::error::Error for Error {}
 struct Raw {
     web: WebSettings,
     tui: TuiSettings,
+    keys: Keys,
     theme: ThemeSettings,
     status: Vec<StatusConfig>,
     chip: Vec<ChipConfig>,
@@ -60,6 +63,7 @@ struct Raw {
 pub struct Config {
     pub web: WebSettings,
     pub tui: TuiSettings,
+    pub keys: Keys,
     pub theme: ThemeSettings,
     pub parse: ParseConfig,
     origins: BTreeMap<String, PathBuf>,
@@ -146,6 +150,7 @@ impl Config {
         let config = Self {
             web,
             tui: raw.tui,
+            keys: raw.keys,
             theme: raw.theme,
             parse: ParseConfig {
                 statuses: raw.status,
@@ -213,6 +218,19 @@ impl Config {
                     return Err(self.error(&format!("{prefix}.{name}"), format!("malformed colour {value:?}")));
                 }
             }
+        }
+        match self.keys.problem() {
+            Some((key, None, message)) => return Err(self.error(&key, message)),
+            Some((key, Some(other), label)) => {
+                // Blame the binding a config file set, not the default it collides with.
+                let (key, other) = if origin(&self.origins, &key) == Path::new("crates/config/default.toml") {
+                    (other, key)
+                } else {
+                    (key, other)
+                };
+                return Err(self.error(&key, format!("{label} is also bound to {other}")));
+            }
+            None => {}
         }
         if self.theme.roles.headings.is_empty() {
             return Err(self.error("theme.roles.headings", "must contain at least one colour"));

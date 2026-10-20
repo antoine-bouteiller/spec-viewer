@@ -244,3 +244,48 @@ fn vc_5_headings_chip_label_is_configured_and_zero_chips_are_omitted() {
     assert!(!screen.contains("empty count"));
     assert!(!screen.contains("phases"));
 }
+
+#[test]
+fn keys_rebind_actions_and_the_hints_show_them() {
+    let fixture = Fixture::new();
+    std::fs::write(
+        fixture.root.join(".spec-viewer.toml"),
+        "[keys]\nquit='x'\nswitch_tab='alt+1..9'\ncopy_name='shift+n'\nhints=[]\n[keys.search_dialog]\nclose='ctrl+g'",
+    )
+    .unwrap();
+    let config = Config::load_layers(None, &fixture.root, None).unwrap();
+    let mut app = App::new(Library::new(&fixture.root, config.parse).unwrap(), Theme::default(), io::sink()).unwrap();
+    app.keys = config.keys;
+    let press = |app: &mut App, code, modifiers| app.handle_key(KeyEvent::new(code, modifiers));
+    app.open(".plan/rollout/index.md");
+    let screen = text(&draw(&mut app));
+    assert!(screen.contains("M-1/M-2 tabs · w worktree"), "{screen}");
+    assert!(
+        screen.contains("y/N copy") && screen.contains("x quit") && !screen.contains("links"),
+        "{screen}"
+    );
+    assert!(screen.contains("y path · N name"), "{screen}");
+
+    let tab = app.tab;
+    press(&mut app, KeyCode::Char('2'), KeyModifiers::NONE);
+    assert_eq!(app.tab, tab);
+    press(&mut app, KeyCode::Char('2'), KeyModifiers::ALT);
+    assert_ne!(app.tab, tab);
+    app.focus = Focus::Document;
+    press(&mut app, KeyCode::BackTab, KeyModifiers::SHIFT);
+    assert_eq!(app.focus, Focus::Sidebar);
+    press(&mut app, KeyCode::Char('f'), KeyModifiers::NONE);
+    assert!(app.hints.is_empty());
+
+    press(&mut app, KeyCode::Char('/'), KeyModifiers::NONE);
+    press(&mut app, KeyCode::Char('q'), KeyModifiers::NONE);
+    press(&mut app, KeyCode::Esc, KeyModifiers::NONE);
+    assert_eq!(app.search.as_ref().map(|search| search.query.as_str()), Some("q"));
+    assert!(text(&draw(&mut app)).contains("C-g close"));
+    press(&mut app, KeyCode::Char('g'), KeyModifiers::CONTROL);
+    assert!(app.search.is_none());
+    press(&mut app, KeyCode::Char('q'), KeyModifiers::NONE);
+    assert!(!app.quit);
+    press(&mut app, KeyCode::Char('x'), KeyModifiers::NONE);
+    assert!(app.quit);
+}

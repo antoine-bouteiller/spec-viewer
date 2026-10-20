@@ -49,4 +49,4 @@ expression: draw(&mut app)
 │                                      ││                                                                                                                      │
 │                                      ││                                                                                                                      │
 └──────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
-Search all tabs · ↑↓ C-n/C-p move · Enter open · C-u clear · Esc close
+Search all tabs · ↑↓ C-p/C-n move · Enter open · C-u clear · Esc close

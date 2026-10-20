@@ -52,6 +52,19 @@ kinds = ["spec"]            # list only *.spec.md[x]; omit to list every file
 companions = ["examples", "discovery"]
 ```
 
+Every key is configurable in `[keys]`, in herdr's format, for both the terminal and the web app.
+A layer rebinding one action keeps the other defaults; `crates/config/default.toml` lists every action:
+
+```toml
+[keys]
+quit = ["q", "ctrl+q"]
+switch_tab = ["1..9", "alt+1..9"]
+hints = []                  # unbind
+
+[keys.search_dialog]
+close = ["esc", "ctrl+g"]
+```
+
 ## Development
 
 ```sh

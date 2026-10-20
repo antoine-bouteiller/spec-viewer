@@ -15,6 +15,7 @@ use ratatui::{
 
 use super::navigation::{self, Row};
 use crate::terminal::{Target, TargetSpan, TermDoc, Theme, to_terminal, wrap};
+use spec_viewer_config::{Action, Binding, Code, HintAction, Key, Keys, Modifiers, PickerAction, SearchAction};
 use spec_viewer_core::{self as core, ChipValue, Docs, Hit, Library, Opened, Project};
 
 const PAN_STEP: isize = 8;
@@ -84,6 +85,7 @@ pub struct App {
     pub hints: Vec<Hint>,
     pub message: Option<String>,
     pub web_url: Option<String>,
+    pub keys: Keys,
     theme: Theme,
     sidebar_selection: usize,
     rail_selection: usize,
@@ -129,6 +131,7 @@ impl App {
             hints: Vec::new(),
             message: None,
             web_url: None,
+            keys: spec_viewer_config::Config::default().keys,
             theme,
             sidebar_selection: 0,
             rail_selection: 0,
@@ -152,6 +155,18 @@ impl App {
     pub fn tabs(&self) -> Vec<Tab> {
         let tabs: Vec<_> = self.all_tabs().filter(|tab| !self.tab_docs(*tab).is_empty()).collect();
         if tabs.is_empty() { self.all_tabs().collect() } else { tabs }
+    }
+
+    /// The tab keys as `1/2` for two tabs, `1…5` for more; `None` when unbound.
+    fn tab_keys(&self) -> Option<String> {
+        let chord = self.keys.switch_tab.0.first()?;
+        let last = self.docs.tabs.len().saturating_sub(1);
+        let label = |index| chord.nth(index).label();
+        Some(match last {
+            0 => label(0),
+            1 => format!("{}/{}", label(0), label(1)),
+            _ => format!("{}…{}", label(0), label(last)),
+        })
     }
 
     pub fn tab_name(&self, tab: Tab) -> &str {
@@ -407,70 +422,86 @@ impl App {
         self.hint_input = Some(String::new());
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) {
-        if key.kind == KeyEventKind::Release {
+    pub fn handle_key(&mut self, event: KeyEvent) {
+        if event.kind == KeyEventKind::Release {
             return;
         }
-        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        let Some(key) = chord(&event) else {
+            return;
+        };
+        if self.keys.force_quit.matches(&key) {
             self.quit = true;
             return;
         }
         if self.hint_input.is_some() {
-            match key.code {
-                KeyCode::Esc => self.cancel_hints(),
-                KeyCode::Backspace => {
+            match self.keys.hint_mode.action(&key).map(|(action, _)| action) {
+                Some(HintAction::Close) => self.cancel_hints(),
+                Some(HintAction::DeleteChar) => {
                     if let Some(input) = &mut self.hint_input {
                         input.pop();
                     }
                 }
-                KeyCode::Char(character) => {
-                    let input = self.hint_input.as_mut().unwrap();
-                    input.push(character);
-                    let target = self
-                        .hints
-                        .iter()
-                        .find(|hint| hint.label == *input)
-                        .map(|hint| hint.span.target.clone());
-                    if let Some(target) = target {
-                        self.cancel_hints();
-                        match target {
-                            Target::Doc(path) => self.open(&path),
-                            Target::Xref(reference) => self.copy(&reference),
-                        }
-                    } else if !self.hints.iter().any(|hint| hint.label.starts_with(input.as_str())) {
-                        self.cancel_hints();
+                None => {
+                    if let KeyCode::Char(character) = event.code {
+                        self.hint_char(character);
                     }
                 }
-                _ => {}
             }
             return;
         }
         if let Some(selection) = self.picker {
-            match key.code {
-                KeyCode::Esc => self.picker = None,
-                KeyCode::Up | KeyCode::Char('k') => self.picker = Some(selection.saturating_sub(1)),
-                KeyCode::Down | KeyCode::Char('j') => {
-                    self.picker = Some((selection + 1).min(self.project.worktrees.len().saturating_sub(1)))
-                }
-                KeyCode::Enter => {
+            match self.keys.worktree_picker.action(&key).map(|(action, _)| action) {
+                Some(PickerAction::Close) => self.picker = None,
+                Some(PickerAction::Up) => self.picker = Some(selection.saturating_sub(1)),
+                Some(PickerAction::Down) => self.picker = Some((selection + 1).min(self.project.worktrees.len().saturating_sub(1))),
+                Some(PickerAction::Open) => {
                     self.worktree = selection;
                     self.picker = None;
                     self.clear_document();
                     self.docs = self.library.corpus(self.worktree_path());
                     self.settle_tab();
                 }
-                _ => {}
+                None => {}
             }
             return;
         }
         if self.search.is_some() {
-            self.search_key(key);
+            self.search_key(&event, &key);
             return;
         }
-        match key.code {
-            KeyCode::Char('q') => self.quit = true,
-            KeyCode::Char(digit @ '1'..='9') => {
-                let Some(tab) = self.all_tabs().nth(usize::from(digit as u8 - b'1')) else {
+        if let Some((action, index)) = self.keys.action(&key) {
+            self.act(action, index);
+        }
+    }
+
+    fn hint_char(&mut self, character: char) {
+        let Some(input) = self.hint_input.as_mut() else {
+            return;
+        };
+        input.push(character);
+        let target = self
+            .hints
+            .iter()
+            .find(|hint| hint.label == *input)
+            .map(|hint| hint.span.target.clone());
+        if let Some(target) = target {
+            self.cancel_hints();
+            match target {
+                Target::Doc(path) => self.open(&path),
+                Target::Xref(reference) => self.copy(&reference),
+            }
+        } else if !self.hints.iter().any(|hint| hint.label.starts_with(input.as_str())) {
+            self.cancel_hints();
+        }
+    }
+
+    /// Runs a main-screen action; `index` is the tab for `SwitchTab`.
+    fn act(&mut self, action: Action, index: usize) {
+        let page = isize::try_from(self.viewport.height.saturating_sub(1).max(1)).unwrap();
+        match action {
+            Action::ForceQuit | Action::Quit => self.quit = true,
+            Action::SwitchTab => {
+                let Some(tab) = self.all_tabs().nth(index) else {
                     return;
                 };
                 if !self.tabs().contains(&tab) {
@@ -482,7 +513,7 @@ impl App {
                 self.focus = Focus::Sidebar;
                 self.sidebar_selection = self.rows().iter().position(|row| row.current).unwrap_or(0);
             }
-            KeyCode::Char('w') => {
+            Action::Worktrees => {
                 let path = self.worktree_path().to_path_buf();
                 self.project = self.library.refresh_project();
                 if let Some(index) = self.project.worktrees.iter().position(|worktree| worktree.path == path) {
@@ -492,19 +523,19 @@ impl App {
                     self.picker = Some(self.worktree);
                 }
             }
-            KeyCode::Char('/') => self.search = Some(Search::default()),
-            KeyCode::Esc => self.message = None,
-            KeyCode::Char('d') if self.docs.changed.is_some() => {
+            Action::Search => self.search = Some(Search::default()),
+            Action::Dismiss => self.message = None,
+            Action::Diff if self.docs.changed.is_some() => {
                 self.diff = !self.diff;
                 self.sidebar_selection = 0;
             }
-            KeyCode::Char('o') => self.open_browser(),
-            KeyCode::Char('e') if self.doc.is_some() => {
+            Action::OpenWeb => self.open_browser(),
+            Action::ToggleFiles if self.doc.is_some() => {
                 self.navigator = !self.navigator;
                 self.panel = true;
                 self.focus = if self.navigator { Focus::Sidebar } else { Focus::Document };
             }
-            KeyCode::Char('b') if self.doc.is_some() => {
+            Action::TogglePanel if self.doc.is_some() => {
                 self.panel = !self.panel;
                 self.focus = match (self.panel, self.navigator) {
                     (false, _) => Focus::Document,
@@ -512,17 +543,16 @@ impl App {
                     (true, false) => Focus::Rail,
                 };
             }
-            KeyCode::Tab | KeyCode::BackTab if !self.panel => {}
-            KeyCode::Tab | KeyCode::BackTab => {
+            Action::ToggleFocus if self.panel => {
                 self.focus = match self.focus {
                     Focus::Document if self.navigator => Focus::Sidebar,
                     Focus::Document => Focus::Rail,
                     _ => Focus::Document,
                 };
             }
-            KeyCode::Char('y') | KeyCode::Char('Y') => {
+            Action::CopyPath | Action::CopyName => {
                 if let Some(doc) = &self.doc {
-                    let value = if key.code == KeyCode::Char('y') {
+                    let value = if action == Action::CopyPath {
                         doc.path.to_string_lossy().into_owned()
                     } else {
                         doc.path.file_name().unwrap_or_default().to_string_lossy().into_owned()
@@ -530,60 +560,61 @@ impl App {
                     self.copy(&value);
                 }
             }
-            KeyCode::Char('f') => self.start_hints(),
-            KeyCode::PageUp => self.scroll_by(-isize::try_from(self.viewport.height.saturating_sub(1).max(1)).unwrap()),
-            KeyCode::PageDown => self.scroll_by(isize::try_from(self.viewport.height.saturating_sub(1).max(1)).unwrap()),
-            KeyCode::Char('g') => self.scroll = 0,
-            KeyCode::Char('G') => self.scroll = self.max_scroll(),
-            KeyCode::Up | KeyCode::Char('k') => self.move_selection(false),
-            KeyCode::Down | KeyCode::Char('j') => self.move_selection(true),
-            KeyCode::Right | KeyCode::Char('l') if self.focus == Focus::Document => self.pan_by(PAN_STEP),
-            KeyCode::Left | KeyCode::Char('h') if self.focus == Focus::Document => self.pan_by(-PAN_STEP),
-            KeyCode::Right | KeyCode::Char('l') => self.expand(true),
-            KeyCode::Left | KeyCode::Char('h') => self.expand(false),
-            KeyCode::Enter => self.activate(),
-            _ => {}
+            Action::Hints => self.start_hints(),
+            Action::PageUp => self.scroll_by(-page),
+            Action::PageDown => self.scroll_by(page),
+            Action::Top => self.scroll = 0,
+            Action::Bottom => self.scroll = self.max_scroll(),
+            Action::Up => self.move_selection(false),
+            Action::Down => self.move_selection(true),
+            Action::Right if self.focus == Focus::Document => self.pan_by(PAN_STEP),
+            Action::Left if self.focus == Focus::Document => self.pan_by(-PAN_STEP),
+            Action::Right => self.expand(true),
+            Action::Left => self.expand(false),
+            Action::Open => self.activate(),
+            Action::Diff | Action::ToggleFiles | Action::TogglePanel | Action::ToggleFocus => {}
         }
     }
 
-    fn search_key(&mut self, key: KeyEvent) {
+    fn search_key(&mut self, event: &KeyEvent, key: &Key) {
         let hits = self.hits();
         let count = hits.len();
+        let action = self.keys.search_dialog.action(key).map(|(action, _)| action);
         let Some(search) = &mut self.search else {
             return;
         };
-        let control = key.modifiers.contains(KeyModifiers::CONTROL);
-        match key.code {
-            KeyCode::Esc => self.search = None,
-            KeyCode::Enter => {
+        match action {
+            Some(SearchAction::Close) => self.search = None,
+            Some(SearchAction::Open) => {
                 if let Some(hit) = hits.into_iter().nth(search.selection) {
                     self.search = None;
                     self.tab = Tab(hit.tab);
                     self.open(&hit.path);
                 }
             }
-            KeyCode::Up => search.selection = search.selection.saturating_sub(1),
-            KeyCode::Char('p' | 'k') if control => search.selection = search.selection.saturating_sub(1),
-            KeyCode::Down => search.selection = (search.selection + 1).min(count.saturating_sub(1)),
-            KeyCode::Char('n' | 'j') if control => search.selection = (search.selection + 1).min(count.saturating_sub(1)),
-            KeyCode::Char('u') if control => {
+            Some(SearchAction::Up) => search.selection = search.selection.saturating_sub(1),
+            Some(SearchAction::Down) => search.selection = (search.selection + 1).min(count.saturating_sub(1)),
+            Some(SearchAction::Clear) => {
                 search.query.clear();
                 search.selection = 0;
             }
-            KeyCode::Char('w') if control => {
+            Some(SearchAction::DeleteWord) => {
                 let kept = search.query.trim_end().rfind(char::is_whitespace).map_or(0, |index| index + 1);
                 search.query.truncate(kept);
                 search.selection = 0;
             }
-            KeyCode::Backspace => {
+            Some(SearchAction::DeleteChar) => {
                 search.query.pop();
                 search.selection = 0;
             }
-            KeyCode::Char(character) if !control => {
-                search.query.push(character);
-                search.selection = 0;
+            None => {
+                if let KeyCode::Char(character) = event.code
+                    && !event.modifiers.contains(KeyModifiers::CONTROL)
+                {
+                    search.query.push(character);
+                    search.selection = 0;
+                }
             }
-            _ => {}
         }
     }
 
@@ -604,7 +635,6 @@ impl App {
 
     fn click(&mut self, position: Position) {
         self.cancel_hints();
-        let press = |app: &mut Self, character| app.handle_key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
         if self.document_area.contains(position) {
             self.focus = Focus::Document;
             return;
@@ -617,13 +647,10 @@ impl App {
             return;
         };
         match click {
-            Click::Worktree => press(self, 'w'),
-            Click::Tab(tab) => {
-                let index = self.all_tabs().position(|other| other == tab).unwrap_or(0);
-                press(self, char::from(b'1' + index as u8));
-            }
-            Click::Diff => press(self, 'd'),
-            Click::Search => press(self, '/'),
+            Click::Worktree => self.act(Action::Worktrees, 0),
+            Click::Tab(tab) => self.act(Action::SwitchTab, tab.0),
+            Click::Diff => self.act(Action::Diff, 0),
+            Click::Search => self.act(Action::Search, 0),
             Click::Row(index) => {
                 self.sidebar_selection = index;
                 self.activate();
@@ -735,27 +762,51 @@ impl App {
         }
         self.draw_document(frame, panes[1]);
         let footer = if let Some(input) = &self.hint_input {
-            format!("Hint: {input}  Esc cancel")
+            let cancel = hint(&self.keys.hint_mode.close, "cancel").unwrap_or_default();
+            format!("Hint: {input}  {cancel}").trim_end().to_owned()
         } else if self.search.is_some() {
-            "Search all tabs · ↑↓ C-n/C-p move · Enter open · C-u clear · Esc close".to_owned()
+            let keys = &self.keys.search_dialog;
+            let moves = pair(&keys.up, &keys.down, 2);
+            ["Search all tabs".to_owned()]
+                .into_iter()
+                .chain((!moves.is_empty()).then(|| format!("{moves} move")))
+                .chain(
+                    [hint(&keys.open, "open"), hint(&keys.clear, "clear"), hint(&keys.close, "close")]
+                        .into_iter()
+                        .flatten(),
+                )
+                .collect::<Vec<_>>()
+                .join(" · ")
         } else {
             self.message.clone().unwrap_or_else(|| {
-                let mut keys = vec![
-                    "Tab focus".to_owned(),
-                    "1/2 tabs".into(),
-                    "w worktree".into(),
-                    "/ search".into(),
-                    "d Diff".into(),
-                    "f links".into(),
-                    "y/Y copy".into(),
-                    "e files".into(),
-                    "b panel".into(),
-                    "q quit".into(),
-                ];
-                if self.doc.is_some() && self.rendered.max_pan() > 0 {
-                    keys.insert(1, "←→ pan".into());
+                let keys = &self.keys;
+                let copy = [keys.copy_path.label(), keys.copy_name.label()]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>();
+                let mut hints: Vec<String> = [
+                    hint(&keys.toggle_focus, "focus"),
+                    self.tab_keys().map(|tabs| format!("{tabs} tabs")),
+                    hint(&keys.worktrees, "worktree"),
+                    hint(&keys.search, "search"),
+                    hint(&keys.diff, "Diff"),
+                    hint(&keys.hints, "links"),
+                    (!copy.is_empty()).then(|| format!("{} copy", copy.join("/"))),
+                    hint(&keys.toggle_files, "files"),
+                    hint(&keys.toggle_panel, "panel"),
+                    hint(&keys.quit, "quit"),
+                ]
+                .into_iter()
+                .flatten()
+                .collect();
+                let pan = pair(&keys.left, &keys.right, 1);
+                if self.doc.is_some() && self.rendered.max_pan() > 0 && !pan.is_empty() {
+                    hints.insert(hints.len().min(1), format!("{pan} pan"));
                 }
-                keys.extend(self.web_url.as_ref().map(|url| format!("o {url}")));
+                if let Some(url) = &self.web_url {
+                    hints.extend(hint(&keys.open_web, url));
+                }
+                let keys = hints;
                 fit_keys(&keys, usize::from(area.width))
             })
         };
@@ -781,7 +832,16 @@ impl App {
                 .collect();
             frame.render_stateful_widget(
                 List::new(items)
-                    .block(Block::bordered().title("Worktrees · Enter select · Esc cancel"))
+                    .block(
+                        Block::bordered().title(
+                            ["Worktrees".to_owned()]
+                                .into_iter()
+                                .chain(hint(&self.keys.worktree_picker.open, "select"))
+                                .chain(hint(&self.keys.worktree_picker.close, "cancel"))
+                                .collect::<Vec<_>>()
+                                .join(" · "),
+                        ),
+                    )
                     .highlight_style(Style::default().add_modifier(Modifier::REVERSED)),
                 popup,
                 &mut ListState::default().with_selected(Some(selection)),
@@ -919,7 +979,10 @@ impl App {
         let heading = vec![
             Line::raw(format!("{}{} ▾", worktree.name, if worktree.main { " (main)" } else { "" })),
             Line::raw(format!("{tabs}{diff}")),
-            Line::styled("/ search all tabs", Style::default().fg(self.theme.roles.muted)),
+            Line::styled(
+                hint(&self.keys.search, "search all tabs").unwrap_or_else(|| "search all tabs".into()),
+                Style::default().fg(self.theme.roles.muted),
+            ),
         ];
         frame.render_widget(Paragraph::new(heading), regions[0]);
         let items: Vec<_> = self
@@ -1128,10 +1191,18 @@ impl App {
         if !doc.document.meta.related.is_empty() {
             metadata.push(format!("related: {}", doc.document.meta.related.join(", ")));
         }
-        let keys = "  y path · Y name";
+        let keys = [hint(&self.keys.copy_path, "path"), hint(&self.keys.copy_name, "name")]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let keys = if keys.is_empty() { keys } else { format!("  {keys}") };
         metadata.push(format!(
             "{}{keys}",
-            truncate(&doc.root_path, width.saturating_sub(unicode_width::UnicodeWidthStr::width(keys)))
+            truncate(
+                &doc.root_path,
+                width.saturating_sub(unicode_width::UnicodeWidthStr::width(keys.as_str()))
+            )
         ));
         for value in metadata {
             header.push(Line::styled(value, Style::default().fg(self.theme.roles.muted)));
@@ -1262,6 +1333,63 @@ fn fit_keys(keys: &[String], width: usize) -> String {
         footer.push_str(key);
     }
     footer
+}
+
+/// The configured-key form of a terminal key event.
+fn chord(event: &KeyEvent) -> Option<Key> {
+    let code = match event.code {
+        KeyCode::Char(character) => Code::Char(character),
+        KeyCode::Enter => Code::Enter,
+        KeyCode::Tab | KeyCode::BackTab => Code::Tab,
+        KeyCode::Esc => Code::Esc,
+        KeyCode::Backspace => Code::Backspace,
+        KeyCode::Delete => Code::Delete,
+        KeyCode::Insert => Code::Insert,
+        KeyCode::Up => Code::Up,
+        KeyCode::Down => Code::Down,
+        KeyCode::Left => Code::Left,
+        KeyCode::Right => Code::Right,
+        KeyCode::Home => Code::Home,
+        KeyCode::End => Code::End,
+        KeyCode::PageUp => Code::PageUp,
+        KeyCode::PageDown => Code::PageDown,
+        KeyCode::F(number) => Code::F(number),
+        _ => return None,
+    };
+    let modifiers = event.modifiers;
+    Some(Key::new(
+        code,
+        Modifiers {
+            ctrl: modifiers.contains(KeyModifiers::CONTROL),
+            alt: modifiers.contains(KeyModifiers::ALT),
+            shift: modifiers.contains(KeyModifiers::SHIFT) || event.code == KeyCode::BackTab,
+            cmd: modifiers.contains(KeyModifiers::SUPER),
+        },
+    ))
+}
+
+/// `label` after the first key of `binding`, or nothing when the action is unbound.
+fn hint(binding: &Binding, label: &str) -> Option<String> {
+    binding.label().map(|key| format!("{key} {label}"))
+}
+
+/// The first `count` key pairs of two opposite actions: `↑↓` for single glyphs, `C-p/C-n` otherwise.
+fn pair(first: &Binding, second: &Binding, count: usize) -> String {
+    first
+        .0
+        .iter()
+        .zip(&second.0)
+        .take(count)
+        .map(|(first, second)| {
+            let (first, second) = (first.key.label(), second.key.label());
+            if first.chars().count() == 1 && second.chars().count() == 1 {
+                format!("{first}{second}")
+            } else {
+                format!("{first}/{second}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Cuts a styled line to `width` columns, ending with `…` when it overflows.

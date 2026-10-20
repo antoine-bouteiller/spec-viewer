@@ -18,6 +18,7 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 use crate::terminal::Theme;
+use spec_viewer_config::Keys;
 
 struct Restore;
 
@@ -33,8 +34,8 @@ fn restore() {
 }
 
 /// `diff` is the initial state of the `Diff` toggle.
-pub fn run(library: spec_viewer_core::Library, theme: Theme, web_url: Option<String>, diff: bool) -> ExitCode {
-    match start(library, theme, web_url, diff) {
+pub fn run(library: spec_viewer_core::Library, theme: Theme, keys: Keys, web_url: Option<String>, diff: bool) -> ExitCode {
+    match start(library, theme, keys, web_url, diff) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("spec-viewer: {error}");
@@ -43,7 +44,7 @@ pub fn run(library: spec_viewer_core::Library, theme: Theme, web_url: Option<Str
     }
 }
 
-fn start(library: spec_viewer_core::Library, theme: Theme, web_url: Option<String>, diff: bool) -> io::Result<()> {
+fn start(library: spec_viewer_core::Library, theme: Theme, keys: Keys, web_url: Option<String>, diff: bool) -> io::Result<()> {
     let previous_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |information| {
         restore();
@@ -54,6 +55,7 @@ fn start(library: spec_viewer_core::Library, theme: Theme, web_url: Option<Strin
     let (detected, input) = if theme.is_auto() { theme::detect() } else { (None, Vec::new()) };
     let mut app = App::new(library, theme.resolve_auto(detected), io::stdout())?;
     app.web_url = web_url;
+    app.keys = keys;
     app.diff = diff;
     for character in String::from_utf8_lossy(&input).chars() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};

@@ -8,6 +8,57 @@ bind = "127.0.0.1"             # an IP, or a hostname to bind all interfaces; un
 [tui]
 diff = false                   # start with Diff on: tabs list only changed documents
 
+# Keybindings, shared by the terminal and the web app (which uses search, the tree's up, down, left,
+# right, and open, and search_dialog). A value is one key or an array of keys; [] unbinds the action.
+# A key is a character or a name (enter, tab, esc, backspace, delete, insert, up, down, left, right,
+# home, end, pageup, pagedown, space, plus, minus, comma, period, slash, backslash, backtick,
+# semicolon, f1 … f24) after optional ctrl+, alt+, shift+, and cmd+ modifiers: "ctrl+u", "shift+tab".
+# Shift+letter is the upper-case letter: "shift+y" and "Y" are the same key.
+# A key may be bound once per table; force_quit also applies in every other table.
+[keys]
+force_quit = "ctrl+c"
+quit = "q"
+switch_tab = "1..9"            # tabs 1 to 9 in [[tab]] order; every key must end in 1..9
+worktrees = "w"
+search = ["/", "ctrl+k", "cmd+k"]
+diff = "d"
+open_web = "o"
+toggle_files = "e"             # sidebar or rail, with a document open
+toggle_panel = "b"             # hide or show the left pane, with a document open
+toggle_focus = ["tab", "shift+tab"]
+copy_path = "y"
+copy_name = "Y"
+hints = "f"                    # hint mode: type a label to open a link or copy an xref
+dismiss = "esc"                # clear the footer message
+page_up = "pageup"
+page_down = "pagedown"
+top = "g"
+bottom = "G"
+up = ["up", "k"]
+down = ["down", "j"]
+left = ["left", "h"]           # collapse; in the document, pan wide blocks
+right = ["right", "l"]         # expand; in the document, pan wide blocks
+open = "enter"
+
+[keys.search_dialog]           # other printable characters type into the query
+up = ["up", "ctrl+p", "ctrl+k"]
+down = ["down", "ctrl+n", "ctrl+j"]
+open = "enter"
+clear = "ctrl+u"
+delete_word = "ctrl+w"         # terminal only: browsers reserve ctrl+w
+delete_char = "backspace"      # terminal only: the browser input edits itself
+close = "esc"
+
+[keys.worktree_picker]
+up = ["up", "k"]
+down = ["down", "j"]
+open = "enter"
+close = "esc"
+
+[keys.hint_mode]               # other characters type hint labels
+delete_char = "backspace"
+close = "esc"
+
 [theme]
 mode = "auto"                  # auto | light | dark; auto = OSC 11 reply, else dark; --theme overrides
 name = "terminal"              # built-ins: terminal
