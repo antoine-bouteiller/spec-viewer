@@ -4,11 +4,11 @@ expression: draw(&mut app)
 ---
 ┌Files─────────────────────────────────┐┌Document──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │Viewer umbrella [index]               ││Tree leaf [amended]                                                                                                   │
-│Tree leaf                             ││3 lines                                                                                                               │
-│  § Tree                              ││leaf · Viewer umbrella                                                                                                │
-│Viewer examples [examples]            ││doc/architecture/tree.spec.md  y path · Y name                                                                        │
-│Viewer discovery                      ││──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│                                      ││Tree                                                                                                                  │
+│Search leaf                           ││3 lines                                                                                                               │
+│Tree leaf                             ││leaf · Viewer umbrella                                                                                                │
+│  § Tree                              ││doc/architecture/tree.spec.md  y path · Y name                                                                        │
+│Viewer examples [examples]            ││──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│Viewer discovery                      ││Tree                                                                                                                  │
 │                                      ││                                                                                                                      │
 │                                      ││Flat document rows.                                                                                                   │
 │                                      ││                                                                                                                      │

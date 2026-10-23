@@ -7,7 +7,7 @@ use std::{
 /// The shared VC-1 Git corpus: `root` is the main worktree on `feature`, `sibling` is a second
 /// worktree, and `origin/main` contains the committed baseline. Only `spec/standalone.spec.md`
 /// differs from that baseline. Plans exercise phases, examples and legacy metadata; specs exercise
-/// an umbrella family, companions, an unlinked sibling, the checked-in dialect, malformed MDX and
+/// an umbrella family whose leaves nest by position, companions, the checked-in dialect, malformed MDX and
 /// an escaping symlink. All paths are canonical, contents/dates are fixed, and the owning TempDir
 /// keeps both worktrees, the bare origin and the symlink's external target alive for TUI tests.
 pub struct Fixture {
@@ -78,7 +78,7 @@ impl Fixture {
         write(
             &root,
             "doc/architecture/tree.spec.md",
-            "---\ntitle: Tree leaf\nstatus: amended\nparent-spec: doc/architecture/viewer.spec.md\n---\n## Tree\n\nFlat document rows.\n",
+            "---\ntitle: Tree leaf\nstatus: amended\n---\n## Tree\n\nFlat document rows.\n",
         );
         write(
             &root,
@@ -92,8 +92,8 @@ impl Fixture {
         );
         write(
             &root,
-            "doc/architecture/unlinked.spec.md",
-            "---\ntitle: Unlinked sibling\nstatus: draft\n---\n## Independent\n\nNot in the umbrella family.\n",
+            "doc/architecture/search.spec.md",
+            "---\ntitle: Search leaf\nstatus: draft\n---\n## Search\n\nA second leaf.\n",
         );
         write(
             &root,

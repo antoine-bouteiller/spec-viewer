@@ -15,12 +15,13 @@ pub struct Hit {
 
 /// Every document of every tab matching each whitespace-separated term of `query` as a
 /// subsequence of its title or path, best first; all documents in tab order when it is blank.
+/// An umbrella's leaves, and their companions, are reached through the umbrella and never hit.
 pub fn search(tabs: &[TabDocs], query: &str) -> Vec<Hit> {
     let terms: Vec<_> = query.split_whitespace().map(fold).collect();
     let mut hits = Vec::new();
     for (index, tab) in tabs.iter().enumerate() {
         let mut documents = Vec::new();
-        collect(&tab.nodes, &mut documents);
+        collect(&tab.nodes, false, &mut documents);
         hits.extend(documents.into_iter().filter_map(|node| hit(index, node, &terms)));
     }
     if terms.is_empty() {
@@ -35,12 +36,16 @@ pub fn search(tabs: &[TabDocs], query: &str) -> Vec<Hit> {
     hits
 }
 
-fn collect<'a>(nodes: &'a [DocNode], documents: &mut Vec<&'a DocNode>) {
+fn collect<'a>(nodes: &'a [DocNode], under_umbrella: bool, documents: &mut Vec<&'a DocNode>) {
     for node in nodes {
+        let umbrella = node.kind == "umbrella";
+        if under_umbrella && !umbrella && !node.companion {
+            continue;
+        }
         if node.path.is_some() {
             documents.push(node);
         }
-        collect(node.children.as_deref().unwrap_or_default(), documents);
+        collect(node.children.as_deref().unwrap_or_default(), umbrella, documents);
     }
 }
 
@@ -130,6 +135,14 @@ mod tests {
         }
     }
 
+    fn companion(name: &str, path: &str) -> DocNode {
+        DocNode {
+            kind: "discovery".into(),
+            companion: true,
+            ..node(name, path)
+        }
+    }
+
     fn tabs() -> Vec<TabDocs> {
         vec![
             TabDocs {
@@ -153,6 +166,45 @@ mod tests {
     #[test]
     fn blank_query_lists_every_document_in_tab_order() {
         assert_eq!(paths("  "), [".plan/rollout.md", "doc/viewer.spec.md", "doc/tree.spec.md"]);
+    }
+
+    #[test]
+    fn umbrella_leaves_and_their_companions_never_hit() {
+        let tabs = [TabDocs {
+            name: "specs".into(),
+            nodes: vec![
+                DocNode {
+                    children: Some(vec![
+                        DocNode {
+                            children: Some(vec![companion("Leaf notes", "doc/area/leaf.discovery.md")]),
+                            ..node("Area leaf", "doc/area/leaf.spec.md")
+                        },
+                        DocNode {
+                            kind: "umbrella".into(),
+                            ..node("Sub umbrella", "doc/sub/sub.spec.md")
+                        },
+                        companion("Area notes", "doc/area/area.discovery.md"),
+                    ]),
+                    kind: "umbrella".into(),
+                    ..node("Area umbrella", "doc/area/area.spec.md")
+                },
+                DocNode {
+                    children: Some(vec![node("Tree leaf", "doc/tree.spec.md")]),
+                    ..node("Viewer", "doc/viewer.spec.md")
+                },
+            ],
+        }];
+        let paths: Vec<_> = search(&tabs, "").into_iter().map(|hit| hit.path).collect();
+        assert_eq!(
+            paths,
+            [
+                "doc/area/area.spec.md",
+                "doc/sub/sub.spec.md",
+                "doc/area/area.discovery.md",
+                "doc/viewer.spec.md",
+                "doc/tree.spec.md"
+            ]
+        );
     }
 
     #[test]

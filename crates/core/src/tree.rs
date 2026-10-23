@@ -186,8 +186,17 @@ impl<'a> Tree<'a> {
                 .and_then(|id| self.meta(id))
                 .is_some_and(|doc| doc.parent_spec.as_deref() == Some(&umbrella_doc.path))
     }
+    /// The umbrella document a directory already represents.
+    fn representative(&self, directory: usize) -> Option<usize> {
+        self.represented
+            .iter()
+            .find(|&(_, &id)| id == directory)
+            .map(|(&umbrella, _)| umbrella)
+    }
     fn attach_umbrellas(&mut self) {
-        for (path, directory) in self.directories.clone() {
+        let mut directories = self.directories.clone();
+        directories.sort_by_key(|(path, _)| std::cmp::Reverse(path.matches('/').count() + usize::from(!path.is_empty())));
+        for (path, directory) in directories {
             let children = &self.nodes[directory].children;
             let nested = children.iter().any(|&id| self.nodes[id].directory);
             let mut umbrellas: Vec<_> = children
@@ -207,9 +216,19 @@ impl<'a> Tree<'a> {
                 )
             });
             if let Some(&umbrella) = umbrellas.first() {
-                let covers = self.nodes[umbrella].wire.kind != "umbrella"
-                    || children.iter().all(|&id| id == umbrella || self.resolves_to_umbrella(id, umbrella));
-                if !path.is_empty() && !nested && covers {
+                let covers = if self.nodes[umbrella].wire.kind == "umbrella" {
+                    children.iter().all(|&id| {
+                        id == umbrella
+                            || if self.nodes[id].directory {
+                                self.representative(id).is_some_and(|sub| self.resolves_to_umbrella(sub, umbrella))
+                            } else {
+                                self.resolves_to_umbrella(id, umbrella)
+                            }
+                    })
+                } else {
+                    !nested
+                };
+                if !path.is_empty() && covers {
                     let name = if self.nodes[umbrella].wire.kind == "umbrella" {
                         self.nodes[umbrella].wire.name.clone()
                     } else {
@@ -295,8 +314,46 @@ impl<'a> Tree<'a> {
     }
 }
 
+fn directory_of(path: &str) -> &str {
+    path.rsplit_once('/').map_or("", |(directory, _)| directory)
+}
+
+/// Fills each spec's missing `parent_spec` from its position: a leaf's parent is the only
+/// umbrella in its directory, a sub-umbrella's the only umbrella in the parent directory.
+fn with_positional_parents(docs: &[DocMeta], tab: &TabConfig) -> Vec<DocMeta> {
+    let mut umbrellas: HashMap<&str, Option<&str>> = HashMap::new();
+    for doc in docs.iter().filter(|doc| doc.kind.as_deref() == Some("umbrella")) {
+        umbrellas
+            .entry(directory_of(&doc.path))
+            .and_modify(|unique| *unique = None)
+            .or_insert(Some(&doc.path));
+    }
+    docs.iter()
+        .map(|doc| {
+            let mut doc = doc.clone();
+            let positional = doc.parent_spec.as_deref().is_none_or(str::is_empty)
+                && tab.companion(&doc.path).is_none()
+                && !matches!(doc.kind.as_deref(), Some("plan" | "phase"));
+            if positional {
+                let directory = directory_of(&doc.path);
+                let lookup = if doc.kind.as_deref() == Some("umbrella") {
+                    (!directory.is_empty()).then(|| directory_of(directory))
+                } else {
+                    Some(directory)
+                };
+                doc.parent_spec = lookup
+                    .and_then(|directory| umbrellas.get(directory).copied().flatten())
+                    .filter(|&parent| parent != doc.path)
+                    .map(str::to_owned);
+            }
+            doc
+        })
+        .collect()
+}
+
 /// A path tree of `docs`, rooted at the tab's folder.
 pub fn build_tree(docs: &[DocMeta], tab: &TabConfig) -> Vec<DocNode> {
+    let docs = with_positional_parents(docs, tab);
     let mut tree = Tree {
         tab,
         nodes: vec![],
@@ -309,7 +366,7 @@ pub fn build_tree(docs: &[DocMeta], tab: &TabConfig) -> Vec<DocNode> {
     tree.directory("", -1);
     tree.directories.push((String::new(), 0));
     tree.directory_ids.insert(String::new(), 0);
-    tree.add_documents(docs);
+    tree.add_documents(&docs);
     tree.attach_umbrellas();
     tree.attach_companions();
     tree.attach_parents();
@@ -403,19 +460,46 @@ mod tests {
         assert_eq!(paths(children(&tree[0])), ["area/child.spec.md"]);
     }
     #[test]
-    fn does_not_absorb_with_unlinked_sibling() {
+    fn positional_leaves_nest_under_their_umbrella() {
         let tree = build_tree(
             &[
                 kind(doc("area/area.spec.md", "Area overview"), "umbrella"),
-                parent(doc("area/linked.spec.md", "Linked"), "area/area.spec.md"),
-                doc("area/unlinked.spec.md", "Unlinked"),
+                doc("area/a.spec.md", "A"),
+                doc("area/b.spec.md", "B"),
+            ],
+            &specs(),
+        );
+        assert_eq!(tree.len(), 1);
+        assert_eq!((&*tree[0].kind, tree[0].path.as_deref()), ("umbrella", Some("area/area.spec.md")));
+        assert_eq!(paths(children(&tree[0])), ["area/a.spec.md", "area/b.spec.md"]);
+    }
+    #[test]
+    fn does_not_absorb_with_sibling_declaring_another_parent() {
+        let tree = build_tree(
+            &[
+                kind(doc("area/area.spec.md", "Area overview"), "umbrella"),
+                doc("area/linked.spec.md", "Linked"),
+                parent(doc("area/elsewhere.spec.md", "Elsewhere"), "missing.spec.md"),
             ],
             &specs(),
         );
         assert_eq!(tree.len(), 1);
         assert_eq!((&*tree[0].kind, &*tree[0].name, tree[0].path.as_deref()), ("dir", "area", None));
         assert_eq!(paths(children(child(&tree[0], "Area overview"))), ["area/linked.spec.md"]);
-        assert_eq!(child(&tree[0], "Unlinked").path.as_deref(), Some("area/unlinked.spec.md"));
+        assert_eq!(child(&tree[0], "Elsewhere").path.as_deref(), Some("area/elsewhere.spec.md"));
+    }
+    #[test]
+    fn two_umbrellas_in_a_directory_derive_no_parent() {
+        let tree = build_tree(
+            &[
+                kind(doc("area/a.spec.md", "A"), "umbrella"),
+                kind(doc("area/b.spec.md", "B"), "umbrella"),
+                doc("area/leaf.spec.md", "Leaf"),
+            ],
+            &specs(),
+        );
+        assert_eq!((&*tree[0].kind, &*tree[0].name), ("dir", "area"));
+        assert_eq!(paths(children(&tree[0])), ["area/a.spec.md", "area/b.spec.md", "area/leaf.spec.md"]);
     }
     #[test]
     fn absorbs_with_companion_of_linking_sibling() {
@@ -432,25 +516,41 @@ mod tests {
         assert_eq!(paths(children(child(&tree[0], "Child"))), ["area/child.discovery.md"]);
     }
     #[test]
-    fn does_not_absorb_directory_with_subdirectories() {
+    fn sub_umbrella_directory_nests_under_parent_umbrella() {
         let tree = build_tree(
             &[
                 kind(doc("settings/settings.spec.md", "Settings"), "umbrella"),
+                doc("settings/general.spec.md", "General"),
                 kind(doc("settings/custom-fields/custom-fields.spec.md", "Custom Fields"), "umbrella"),
+                doc("settings/custom-fields/types.spec.md", "Types"),
+            ],
+            &specs(),
+        );
+        assert_eq!(tree.len(), 1);
+        assert_eq!(
+            (&*tree[0].kind, tree[0].path.as_deref()),
+            ("umbrella", Some("settings/settings.spec.md"))
+        );
+        assert_eq!(
+            paths(children(&tree[0])),
+            ["settings/custom-fields/custom-fields.spec.md", "settings/general.spec.md"]
+        );
+        assert_eq!(
+            paths(children(child(&tree[0], "Custom Fields"))),
+            ["settings/custom-fields/types.spec.md"]
+        );
+    }
+    #[test]
+    fn does_not_absorb_directory_with_plain_subdirectory() {
+        let tree = build_tree(
+            &[
+                kind(doc("settings/settings.spec.md", "Settings"), "umbrella"),
+                doc("settings/notes/loose.spec.md", "Loose"),
             ],
             &specs(),
         );
         assert_eq!((&*tree[0].kind, &*tree[0].name, tree[0].path.as_deref()), ("dir", "settings", None));
-        assert_eq!(
-            children(&tree[0])
-                .iter()
-                .map(|node| (&*node.name, node.path.as_deref()))
-                .collect::<Vec<_>>(),
-            [
-                ("Custom Fields", Some("settings/custom-fields/custom-fields.spec.md")),
-                ("Settings", Some("settings/settings.spec.md"))
-            ]
-        );
+        assert_eq!(paths(children(&tree[0])), ["", "settings/settings.spec.md"]);
     }
     #[test]
     fn first_umbrella_by_path_represents_directory() {

@@ -146,6 +146,9 @@ fn vc_2_search_dialog_matches_titles_and_paths_across_every_tab() {
     key(&mut app, KeyCode::Char('/'));
     type_text(&mut app, "rollout design");
     assert_eq!(app.hits()[0].path, ".plan/rollout/01-design.md");
+    app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
+    type_text(&mut app, "tree leaf");
+    assert!(app.hits().is_empty());
     key(&mut app, KeyCode::Esc);
     assert!(app.search.is_none());
     assert_eq!(app.doc.as_ref().unwrap().root_path, "spec/standalone.spec.md");
