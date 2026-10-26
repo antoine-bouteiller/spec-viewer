@@ -936,6 +936,7 @@ impl App {
     fn pane(&self, title: &str, focused: bool) -> Block<'static> {
         Block::default()
             .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
             .title(title.to_owned())
             .border_style(Style::default().fg(if focused { self.theme.roles.accent } else { self.theme.roles.muted }))
     }

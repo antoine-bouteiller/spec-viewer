@@ -2,7 +2,7 @@
 source: crates/render-tui/tests/tui.rs
 expression: draw(&mut app)
 ---
-┌Sections──────────────────────────────┐┌Document──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+╭Sections──────────────────────────────╮╭Document──────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │§ 1. Overview                         ││Spec Dialect Fixture [accepted]                                                                                       │
 │  § 1.1 Rendered table                ││140 lines                                                                                                             │
 │§ 2. Component dialect                ││leaf                                                                                                                  │
@@ -48,5 +48,5 @@ expression: draw(&mut app)
 │                                      ││The fixture includes prose, a list, a table, code, references, and supported dialect components without imports,      │
 │                                      ││exports, or unclosed JSX tags.                                                                                        │
 │                                      ││                                                                                                                      │
-└──────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+╰──────────────────────────────────────╯╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
 Tab focus · 1/2 tabs · w worktree · / search · d Diff · f links · y/Y copy · e files · b panel · q quit
