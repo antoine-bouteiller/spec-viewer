@@ -84,7 +84,7 @@ pub fn project_of(root: &Path) -> io::Result<Project> {
     })
 }
 
-/// Tab documents changed since the merge base with the remote `main`, committed or not.
+/// Tab documents changed since the merge base with the remote `main`, committed, uncommitted, or untracked.
 pub fn changed(worktree: &Path, config: &ParseConfig) -> Option<Vec<String>> {
     let refs = git(worktree, &["for-each-ref", "--format=%(refname)", "refs/remotes"]).ok()?;
     let refs: Vec<_> = refs.split('\n').filter(|reference| reference.ends_with("/main")).collect();
@@ -95,7 +95,10 @@ pub fn changed(worktree: &Path, config: &ParseConfig) -> Option<Vec<String>> {
     let base = git(worktree, &["merge-base", "HEAD", remote]).ok()?;
     let mut args = vec!["diff", "--name-only", "-z", trim(&base), "--"];
     args.extend(MARKDOWN);
-    let output = git(worktree, &args).ok()?;
+    let mut output = git(worktree, &args).ok()?;
+    let mut args = vec!["ls-files", "--others", "--exclude-standard", "-z", "--"];
+    args.extend(MARKDOWN);
+    output += &git(worktree, &args).ok()?;
     Some(
         output
             .split('\0')
@@ -196,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn committed_and_working_tree_tab_changes_from_remote_main() {
+    fn committed_working_tree_and_untracked_tab_changes_from_remote_main() {
         let root = repository();
         for (name, content) in [
             ("first.spec.md", "first\n"),
@@ -221,9 +224,14 @@ mod tests {
         fs::write(root.path().join(".plan/plan.examples.md"), "changed plan\n").unwrap();
         run(root.path(), &["add", "second.spec.md"]);
         run(root.path(), &["commit", "-qm", "change second spec"]);
+        fs::write(root.path().join("untracked.spec.md"), "new\n").unwrap();
+        fs::write(root.path().join("NOTES.md"), "not a spec\n").unwrap();
         let mut changed = changed(root.path(), &ParseConfig::default()).unwrap();
         changed.sort();
-        assert_eq!(changed, [".plan/plan.examples.md", "first.spec.md", "second.spec.md"]);
+        assert_eq!(
+            changed,
+            [".plan/plan.examples.md", "first.spec.md", "second.spec.md", "untracked.spec.md"]
+        );
     }
 
     #[test]
