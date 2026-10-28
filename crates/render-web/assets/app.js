@@ -160,7 +160,7 @@ const familyOf = (node, path) => {
       return nested
     }
   }
-  return isFamilyRoot(node) && containsPath(node, path) ? [node, ...documentsOf(listedOf(node))] : null
+  return isFamilyRoot(node) && containsPath(node, path) ? [node, ...documentsOf(node.children ?? [])] : null
 }
 
 const activeOwner = () => tabs().flatMap((item) => item.nodes).find((node) => findNode(node, url.doc ?? null)) ?? null

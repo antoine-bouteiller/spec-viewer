@@ -72,7 +72,7 @@ pub(super) fn family(nodes: &[DocNode], path: &str) -> Option<Vec<DocNode>> {
         }
         if family_root(node) && contains(node, path) {
             let mut result = vec![node.clone()];
-            members(&listed(node), &mut result);
+            members(children(node), &mut result);
             return Some(result);
         }
     }
