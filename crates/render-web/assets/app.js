@@ -132,12 +132,20 @@ const ancestorKeys = (nodes, active, parentKey = '') => {
   return []
 }
 
+// An umbrella's leaves, with their companions, are reached through the umbrella.
+const isUmbrellaLeaf = (parent, child) => parent.kind === 'umbrella' && child.kind !== 'umbrella' && !child.companion
+const listedOf = (node) => (node.children ?? []).filter((child) => !isUmbrellaLeaf(node, child))
+const touches = (node, paths) => paths.has(node.path) || (node.children ?? []).some((child) => touches(child, paths))
+
 // A companion attached to its owner is reached through the owner's row, not listed on its own.
 const matchingDocuments = (nodes, paths) =>
   nodes.flatMap((node) => [
-    ...(node.path && paths.has(node.path) ? [node] : []),
+    ...(node.path &&
+    (paths.has(node.path) || (node.children ?? []).some((child) => isUmbrellaLeaf(node, child) && touches(child, paths)))
+      ? [node]
+      : []),
     ...matchingDocuments(
-      (node.children ?? []).filter((child) => !(node.path && child.companion)),
+      listedOf(node).filter((child) => !(node.path && child.companion)),
       paths
     ),
   ])
@@ -152,15 +160,7 @@ const familyOf = (node, path) => {
       return nested
     }
   }
-  if (!isFamilyRoot(node) || !containsPath(node, path)) {
-    return null
-  }
-  // An umbrella's leaves are reached through the umbrella.
-  const members =
-    node.kind === 'umbrella'
-      ? node.children.filter((child) => child.kind === 'umbrella' || child.companion)
-      : node.children
-  return [node, ...documentsOf(members)]
+  return isFamilyRoot(node) && containsPath(node, path) ? [node, ...documentsOf(listedOf(node))] : null
 }
 
 const activeOwner = () => tabs().flatMap((item) => item.nodes).find((node) => findNode(node, url.doc ?? null)) ?? null

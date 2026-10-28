@@ -41,18 +41,28 @@ pub(super) fn ancestors(nodes: &[DocNode], path: &str, parent: &str) -> Vec<Stri
     Vec::new()
 }
 
-/// The nearest family containing `path`, owner first; an umbrella's leaves are reached through it.
+/// An umbrella's leaves, with their companions, are reached through the umbrella.
+fn umbrella_leaf(parent: &DocNode, child: &DocNode) -> bool {
+    parent.kind == "umbrella" && child.kind != "umbrella" && !child.companion
+}
+
+fn listed(node: &DocNode) -> Vec<DocNode> {
+    children(node).iter().filter(|child| !umbrella_leaf(node, child)).cloned().collect()
+}
+
+fn touches(node: &DocNode, changed: &[String]) -> bool {
+    node.path.as_ref().is_some_and(|path| changed.contains(path)) || children(node).iter().any(|child| touches(child, changed))
+}
+
+/// The nearest family containing `path`, owner first.
 pub(super) fn family(nodes: &[DocNode], path: &str) -> Option<Vec<DocNode>> {
-    fn members(nodes: &[DocNode], umbrella: bool, result: &mut Vec<DocNode>) {
+    fn members(nodes: &[DocNode], result: &mut Vec<DocNode>) {
         for node in nodes {
-            if umbrella && node.kind != "umbrella" && !node.companion {
-                continue;
-            }
             if node.path.is_some() {
                 result.push(node.clone());
             }
             if !family_root(node) {
-                members(children(node), umbrella, result);
+                members(children(node), result);
             }
         }
     }
@@ -62,7 +72,7 @@ pub(super) fn family(nodes: &[DocNode], path: &str) -> Option<Vec<DocNode>> {
         }
         if family_root(node) && contains(node, path) {
             let mut result = vec![node.clone()];
-            members(children(node), node.kind == "umbrella", &mut result);
+            members(&listed(node), &mut result);
             return Some(result);
         }
     }
@@ -88,10 +98,14 @@ pub(super) fn rows(nodes: &[DocNode], expanded: &HashSet<String>, active: Option
     fn collect(nodes: &[DocNode], context: &Context<'_>, parent: &str, depth: usize, result: &mut Vec<Row>) {
         for node in nodes {
             let key = node.path.clone().unwrap_or_else(|| format!("{parent}/{}", node.name));
-            let matches = node
-                .path
-                .as_ref()
-                .is_some_and(|path| context.changed.is_none_or(|changed| changed.contains(path)));
+            let matches = node.path.as_ref().is_some_and(|path| {
+                context.changed.is_none_or(|changed| {
+                    changed.contains(path)
+                        || children(node)
+                            .iter()
+                            .any(|child| umbrella_leaf(node, child) && touches(child, changed))
+                })
+            });
             if !context.flat || matches {
                 result.push(Row {
                     node: node.clone(),
@@ -104,10 +118,9 @@ pub(super) fn rows(nodes: &[DocNode], expanded: &HashSet<String>, active: Option
                 });
             }
             if context.flat {
-                let descendants: Vec<_> = children(node)
-                    .iter()
+                let descendants: Vec<_> = listed(node)
+                    .into_iter()
                     .filter(|child| !(node.path.is_some() && child.companion))
-                    .cloned()
                     .collect();
                 collect(&descendants, context, &key, depth + 1, result);
             } else if !family_root(node) && context.expanded.contains(&key) {

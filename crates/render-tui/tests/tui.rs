@@ -148,7 +148,7 @@ fn vc_2_search_dialog_matches_titles_and_paths_across_every_tab() {
     assert_eq!(app.hits()[0].path, ".plan/rollout/01-design.md");
     app.handle_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
     type_text(&mut app, "tree leaf");
-    assert!(app.hits().is_empty());
+    assert_eq!(app.hits()[0].path, "doc/architecture/tree.spec.md");
     key(&mut app, KeyCode::Esc);
     assert!(app.search.is_none());
     assert_eq!(app.doc.as_ref().unwrap().root_path, "spec/standalone.spec.md");
@@ -176,6 +176,28 @@ fn vc_2_diff_applies_to_every_tab_and_restricts_to_changed_paths() {
     key(&mut app, KeyCode::Char('d'));
     assert!(app.diff);
     assert!(!app.filtering());
+}
+
+#[test]
+fn vc_2_diff_lists_an_umbrella_for_its_changed_leaves() {
+    let fixture = Fixture::new();
+    let mut app = App::new(
+        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
+        Theme::default(),
+        io::sink(),
+    )
+    .unwrap();
+    key(&mut app, KeyCode::Char('d'));
+    key(&mut app, KeyCode::Char('2'));
+    let mut changed = |paths: &[&str]| {
+        app.docs.changed = Some(paths.iter().map(|path| (*path).to_owned()).collect());
+        app.rows().into_iter().map(|row| row.node.path.unwrap()).collect::<Vec<_>>()
+    };
+    assert_eq!(
+        changed(&["doc/architecture/viewer.spec.md", "doc/architecture/tree.spec.md"]),
+        ["doc/architecture/viewer.spec.md"]
+    );
+    assert_eq!(changed(&["doc/architecture/search.spec.md"]), ["doc/architecture/viewer.spec.md"]);
 }
 
 #[test]

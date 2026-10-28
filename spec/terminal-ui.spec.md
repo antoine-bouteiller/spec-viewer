@@ -157,7 +157,8 @@ in its directory, a sub-umbrella's the only one in the parent directory. A direc
 umbrellas gives no positional parent. A subfolder's `index.md` is a `plan` owning the other files there as
 its `phase` files. Companions (`<stem>[.<topic>].<companion>.*`) sit under the document of the
 longest stem that has one, in `companions` order. `Diff` shows a
-flat list with paths and omits attached companions. A document row never expands. A family member
+flat list with paths and omits attached companions and an umbrella's leaves, listing the umbrella
+when one of its leaves changed. A document row never expands. A family member
 keeps its owner row current, and ancestors of the open document expand. `Diff` persists
 across tab and worktree switches; `tui.diff` sets `Diff` at start-up. A tab without documents is
 hidden and its key ignored, unless all are empty; start-up and a corpus change select a shown tab. A worktree switch clears the document and expansion; a tab
@@ -257,8 +258,8 @@ pub struct Hit { tab: usize, node: DocNode, path: String, title_matches: Vec<usi
 ↑↓ C-n C-p C-j C-k  move    Enter  open in its tab    C-u  clear    C-w  delete word    Esc  close
 ```
 
-`/` opens a centered dialog over every tab's documents, companions included, except an umbrella's
-leaves and their companions, which are reached through the umbrella. Each
+`/` opens a centered dialog over every tab's documents, companions and an umbrella's leaves
+included. Each
 whitespace-separated term must match the title or the path as a case-insensitive subsequence;
 a blank query lists every document in tab order. Each term scores in the title or the path,
 whichever is higher, the title on a tie. Hits rank by score: 16 per matched character,
@@ -336,4 +337,4 @@ function through `/api/search` (`spec/web-ui.spec.md` `[CT-2]`).
 | 2026-10-20 | `/` opens a fuzzy title and path search over every tab, shared with the web app (`[CT-6]`); the per-tab filter is removed               | SO-1, CT-2, CT-6, VC-2               | Finding a document should not depend on knowing its tab          |
 | 2026-10-20 | Every key is a herdr-style `[keys]` binding shared with the web app; hints show the configured keys                                       | CT-2, CT-4, VC-8                     | Users bring their own muscle memory                              |
 | 2026-10-23 | Leaves and sub-umbrellas nest under their umbrella by position; search omits an umbrella's leaves                                        | CT-2, CT-6                           | Specs no longer declare `parent-spec:`                           |
-| 2026-10-28 | The rail omits an umbrella's leaves                                                                                                      | CT-2                                 | Large umbrellas buried their own structure under leaves          |
+| 2026-10-28 | The rail and `Diff` omit an umbrella's leaves; `Diff` lists the umbrella for a changed leaf; search finds leaves again                   | CT-2, CT-6                           | Large umbrellas buried their own structure under leaves          |

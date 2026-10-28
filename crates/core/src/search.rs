@@ -15,13 +15,12 @@ pub struct Hit {
 
 /// Every document of every tab matching each whitespace-separated term of `query` as a
 /// subsequence of its title or path, best first; all documents in tab order when it is blank.
-/// An umbrella's leaves, and their companions, are reached through the umbrella and never hit.
 pub fn search(tabs: &[TabDocs], query: &str) -> Vec<Hit> {
     let terms: Vec<_> = query.split_whitespace().map(fold).collect();
     let mut hits = Vec::new();
     for (index, tab) in tabs.iter().enumerate() {
         let mut documents = Vec::new();
-        collect(&tab.nodes, false, &mut documents);
+        collect(&tab.nodes, &mut documents);
         hits.extend(documents.into_iter().filter_map(|node| hit(index, node, &terms)));
     }
     if terms.is_empty() {
@@ -36,16 +35,12 @@ pub fn search(tabs: &[TabDocs], query: &str) -> Vec<Hit> {
     hits
 }
 
-fn collect<'a>(nodes: &'a [DocNode], under_umbrella: bool, documents: &mut Vec<&'a DocNode>) {
+fn collect<'a>(nodes: &'a [DocNode], documents: &mut Vec<&'a DocNode>) {
     for node in nodes {
-        let umbrella = node.kind == "umbrella";
-        if under_umbrella && !umbrella && !node.companion {
-            continue;
-        }
         if node.path.is_some() {
             documents.push(node);
         }
-        collect(node.children.as_deref().unwrap_or_default(), umbrella, documents);
+        collect(node.children.as_deref().unwrap_or_default(), documents);
     }
 }
 
@@ -169,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn umbrella_leaves_and_their_companions_never_hit() {
+    fn umbrella_leaves_and_their_companions_hit() {
         let tabs = [TabDocs {
             name: "specs".into(),
             nodes: vec![
@@ -199,6 +194,8 @@ mod tests {
             paths,
             [
                 "doc/area/area.spec.md",
+                "doc/area/leaf.spec.md",
+                "doc/area/leaf.discovery.md",
                 "doc/sub/sub.spec.md",
                 "doc/area/area.discovery.md",
                 "doc/viewer.spec.md",
