@@ -152,7 +152,15 @@ const familyOf = (node, path) => {
       return nested
     }
   }
-  return isFamilyRoot(node) && containsPath(node, path) ? [node, ...documentsOf(node.children ?? [])] : null
+  if (!isFamilyRoot(node) || !containsPath(node, path)) {
+    return null
+  }
+  // An umbrella's leaves are reached through the umbrella.
+  const members =
+    node.kind === 'umbrella'
+      ? node.children.filter((child) => child.kind === 'umbrella' || child.companion)
+      : node.children
+  return [node, ...documentsOf(members)]
 }
 
 const activeOwner = () => tabs().flatMap((item) => item.nodes).find((node) => findNode(node, url.doc ?? null)) ?? null

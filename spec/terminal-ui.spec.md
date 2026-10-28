@@ -164,7 +164,8 @@ hidden and its key ignored, unless all are empty; start-up and a corpus change s
 switch keeps the open document and selects its row when the tab lists it. An archived document
 shows an `archived` chip in `status_unknown`. The header kind is the document's tree kind (`plan`,
 `phase`, `umbrella`, `leaf`, or a companion kind), then the name of the family owner it belongs to. The rail lists the nearest family's files
-when the document belongs to one, then the document's outline.
+when the document belongs to one, then the document's outline. An umbrella's family lists the
+umbrella, its companions, and its sub-umbrellas, not its leaves; an open leaf's outline follows that list.
 
 Header chips: each `[[chip]]` is matched against the document's `##` sections, the first listed
 section present winning. A `checklist` chip renders as `<label> done/total` with a meter on the
@@ -335,3 +336,4 @@ function through `/api/search` (`spec/web-ui.spec.md` `[CT-2]`).
 | 2026-10-20 | `/` opens a fuzzy title and path search over every tab, shared with the web app (`[CT-6]`); the per-tab filter is removed               | SO-1, CT-2, CT-6, VC-2               | Finding a document should not depend on knowing its tab          |
 | 2026-10-20 | Every key is a herdr-style `[keys]` binding shared with the web app; hints show the configured keys                                       | CT-2, CT-4, VC-8                     | Users bring their own muscle memory                              |
 | 2026-10-23 | Leaves and sub-umbrellas nest under their umbrella by position; search omits an umbrella's leaves                                        | CT-2, CT-6                           | Specs no longer declare `parent-spec:`                           |
+| 2026-10-28 | The rail omits an umbrella's leaves                                                                                                      | CT-2                                 | Large umbrellas buried their own structure under leaves          |

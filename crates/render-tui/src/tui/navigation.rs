@@ -41,14 +41,18 @@ pub(super) fn ancestors(nodes: &[DocNode], path: &str, parent: &str) -> Vec<Stri
     Vec::new()
 }
 
+/// The nearest family containing `path`, owner first; an umbrella's leaves are reached through it.
 pub(super) fn family(nodes: &[DocNode], path: &str) -> Option<Vec<DocNode>> {
-    fn members(nodes: &[DocNode], result: &mut Vec<DocNode>) {
+    fn members(nodes: &[DocNode], umbrella: bool, result: &mut Vec<DocNode>) {
         for node in nodes {
+            if umbrella && node.kind != "umbrella" && !node.companion {
+                continue;
+            }
             if node.path.is_some() {
                 result.push(node.clone());
             }
             if !family_root(node) {
-                members(children(node), result);
+                members(children(node), umbrella, result);
             }
         }
     }
@@ -58,7 +62,7 @@ pub(super) fn family(nodes: &[DocNode], path: &str) -> Option<Vec<DocNode>> {
         }
         if family_root(node) && contains(node, path) {
             let mut result = vec![node.clone()];
-            members(children(node), &mut result);
+            members(children(node), node.kind == "umbrella", &mut result);
             return Some(result);
         }
     }

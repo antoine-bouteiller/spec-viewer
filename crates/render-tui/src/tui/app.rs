@@ -240,6 +240,7 @@ impl App {
         };
         if let Some(files) = navigation::family(&all, &doc.root_path) {
             let mut entries = Vec::new();
+            let mut listed = false;
             for (index, file) in files.into_iter().enumerate() {
                 if let Some(path) = file.path {
                     let current = path == doc.root_path;
@@ -255,9 +256,13 @@ impl App {
                         },
                     });
                     if current {
+                        listed = true;
                         entries.extend(sections());
                     }
                 }
+            }
+            if !listed {
+                entries.extend(sections());
             }
             entries
         } else {
@@ -1068,6 +1073,9 @@ impl App {
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let active = self.doc.as_ref().map(|doc| doc.root_path.as_str());
+        let nested = entries
+            .iter()
+            .any(|entry| matches!(entry, RailEntry::File { path, .. } if active == Some(path.as_str())));
         let current_section = entries
             .iter()
             .filter_map(|entry| {
@@ -1090,7 +1098,7 @@ impl App {
                     RailEntry::Section { text, depth, line } => (
                         format!(
                             "{}§ {text}",
-                            " ".repeat(usize::from(depth.saturating_sub(2)) * 2 + usize::from(family) * 2)
+                            " ".repeat(usize::from(depth.saturating_sub(2)) * 2 + usize::from(nested) * 2)
                         ),
                         current_section == Some(*line),
                     ),
