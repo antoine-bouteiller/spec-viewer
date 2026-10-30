@@ -16,8 +16,8 @@ statuses and header chips. Discovery, metadata, the tree, and confinement live i
 `parser`, and `core` crates; this spec states the behaviour the screen relies on.
 
 - `[NG-1]` No image diagrams: Mermaid renders as box-drawing text, or as source when it fails.
-- `[NG-2]` No mouse interaction beyond wheel scrolling (vertical, horizontal, and Shift+wheel) and left
-  clicks on the panes and the left pane.
+- `[NG-2]` No mouse interaction beyond wheel scrolling (vertical, horizontal, and Shift+wheel), left
+  clicks on the panes and the left pane, and text selection in the document body.
 - `[NG-3]` No editing: the viewer never writes to the worktree.
 - `[NG-4]` No config hot reload: the config is read once per session.
 
@@ -59,7 +59,8 @@ Kind: api · Anchor: `crates/render-tui/src/terminal.rs#to_terminal`
 
 ```rust
 pub fn to_terminal(document: &spec_viewer_core::Document, width: u16, theme: &Theme) -> TermDoc;
-pub struct TermDoc { lines: Vec<Line<'static>>, toc: Vec<(TocEntry, usize)>, targets: Vec<TargetSpan>, wide: Vec<WideBlock> }
+pub struct TermDoc { lines: Vec<Line<'static>>, toc: Vec<(TocEntry, usize)>, targets: Vec<TargetSpan>, wide: Vec<WideBlock>,
+                     gutters: Vec<(usize, Range<usize>)> } // frame borders: line, columns
 pub struct WideBlock { line: usize, column: usize, width: usize, rows: Vec<Line<'static>>, targets: Vec<TargetSpan> }
 pub struct TargetSpan { target: Target, line: usize, column: usize, length: usize } // terminal columns
 pub enum Target { Doc(String), Xref(String) }
@@ -67,6 +68,8 @@ impl TermDoc {
     fn line(&self, index: usize, pan: usize) -> Line<'static>; // wide blocks panned
     fn targets_at(&self, pan: usize) -> Vec<TargetSpan>;      // visible columns only
     fn max_pan(&self) -> usize;
+    fn text(&self, start: (usize, usize), end: (usize, usize), pan: usize) -> String; // inclusive (line, column)
+    fn word(&self, line: usize, column: usize, pan: usize) -> Option<(usize, usize)>; // inclusive columns
 }
 ```
 
@@ -75,6 +78,12 @@ or a GFM table whose columns cannot fit. Every line still fits the width; the bl
 shown through its window, panned by `pan` columns and clamped to its own overflow. A framed block
 keeps its border and label; `‹` and `›` replace the frame's inner padding while content is hidden on
 that side.
+
+`text` returns the characters shown between two points at `pan`, one line per row, each cut of
+trailing blanks. It leaves out gutters: the top and bottom edges of code and Mermaid frames, the
+bottom edge and title rule of bordered cards, and the `│` borders of frames, cards, quotes, and the
+step rail. A selected row made only of gutters is dropped. Table borders are kept. `word` spans the
+characters around a column up to whitespace or a gutter.
 
 | Construct                      | Terminal form                                                                                             |
 | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
@@ -125,6 +134,8 @@ b             hide / show the left pane (open document only)
 q / C-c       quit (C-c also in every dialog and mode)
 click         focus a pane; in the left pane, activate the worktree line (w), a tab (1 … 9),
               Diff (d), the search line (/), or a row or rail entry (select + Enter)
+drag          in the document body, select text; release copies it (OSC 52)
+double-click  in the document body, copy the word under the pointer (OSC 52)
 ```
 
 Every key hint (footer, search line, header copy keys, dialog footers, worktree picker title) shows
@@ -142,6 +153,14 @@ document has a wide block. Every wide block pans together. Horizontal wheel and 
 the same way. Opening another document or resizing the pane resets the pan; a live reload keeps it.
 A live reload keeps the shown
 pane and focus.
+
+A drag in the document body selects from the press to the pointer, in reading order, shown
+reversed. Dragging past the body's top or bottom edge scrolls one line per motion. Release copies
+`TermDoc::text` at the current pan and shows `Copied N characters (OSC 52)`; a release without
+motion selects nothing. A selection survives scrolling and panning. A click, `Esc`, opening a
+document, a reload, or a resize clears it.
+
+The footer's web URL is an OSC 8 hyperlink to the current view, the URL `o` opens.
 
 Tabs: each `[[tab]]` lists the `.md` and `.mdx` files below its folder, or below the worktree,
 through Git, when it has none. A file belongs to the tab with the deepest folder containing it, and
@@ -187,6 +206,12 @@ Kind: invariant · Anchor: `crates/render-tui/src/tui/mod.rs#start`
 Each debounced burst of `spec_viewer_core::Library::watch` refreshes the corpus and reopens the
 current document at its scroll position. The watch follows the selected worktree. Raw mode, mouse
 capture, and the alternate screen are restored on exit and on panic.
+
+Each frame is drawn as a synchronized update (mode 2026). The terminal title is
+`<document title> — spec-viewer`, or the project name without a document; the previous title is
+pushed at start (XTWINOPS 22) and popped on exit (23). When the terminal answers the kitty keyboard
+query, the session pushes the disambiguate flag so `cmd+` bindings arrive, and pops it on exit and
+on panic.
 
 ### [CT-4] Config
 
@@ -280,7 +305,10 @@ function through `/api/search` (`spec/web-ui.spec.md` `[CT-2]`).
   mode on a doc link opens its target; clicking a pane focuses it and clicking a left-pane row or
   tab activates it; opening a document replaces the sidebar with the rail and `e`
   swaps them back; `l` and `h` in the document pan a long code line inside its frame, up to its
-  end. — demonstrates `[SO-1]`
+  end; dragging from prose into a code block writes an OSC 52 sequence carrying the text without
+  frame borders, a click without motion writes none, and a double click carries the word; the
+  footer's web URL occupies the recorded link cells, and the title names the open document.
+  — demonstrates `[SO-1]`
 - `[VC-3]` Given an open document, when a new `.plan/*.md` file is written and the open file is
   edited, then a reload arrives, the tree lists the new plan, the body shows the edit, and the
   scroll position is kept. — demonstrates `[SO-2]`
@@ -314,6 +342,9 @@ function through `/api/search` (`spec/web-ui.spec.md` `[CT-2]`).
 - `[C-2]` The OSC 11 background query runs on Unix only; elsewhere `auto` resolves to dark.
 - `[C-3]` Hex palette colours, including the default `surface`, `highlight`, and `current`, need a truecolor terminal;
   otherwise the terminal approximates them.
+- `[C-4]` OSC 8 links, the title stack, synchronized updates, and the kitty keyboard flags depend on
+  the terminal, which ignores what it does not support. With mouse capture on, opening the footer
+  link takes the terminal's link modifier.
 
 ## Changelog
 
@@ -337,3 +368,4 @@ function through `/api/search` (`spec/web-ui.spec.md` `[CT-2]`).
 | 2026-10-20 | Every key is a herdr-style `[keys]` binding shared with the web app; hints show the configured keys                                       | CT-2, CT-4, VC-8                     | Users bring their own muscle memory                              |
 | 2026-10-23 | Leaves and sub-umbrellas nest under their umbrella by position; search omits an umbrella's leaves                                        | CT-2, CT-6                           | Specs no longer declare `parent-spec:`                           |
 | 2026-10-28 | `Diff` lists an umbrella instead of its leaves; search finds leaves again                                                                | CT-2, CT-6                           | Leaves are reached through the umbrella's rail                   |
+| 2026-10-30 | Drag and double-click copy document text without frame borders; the footer URL is an OSC 8 link; terminal title, synchronized frames, and the kitty keyboard flags | NG-2, CT-1, CT-2, CT-3, VC-2, C-4 | Better integration with Ghostty-based terminals such as Rex      |

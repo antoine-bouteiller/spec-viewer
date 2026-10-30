@@ -2,6 +2,7 @@ use std::{
     collections::HashSet,
     io::{self, Write},
     path::Path,
+    time::{Duration, Instant},
 };
 
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
@@ -19,6 +20,10 @@ use spec_viewer_config::{Action, Binding, Code, HintAction, Key, Keys, Modifiers
 use spec_viewer_core::{self as core, ChipValue, Docs, Hit, Library, Opened, Project};
 
 const PAN_STEP: isize = 8;
+const DOUBLE_CLICK: Duration = Duration::from_millis(400);
+
+/// A `(line, column)` point of the rendered document; columns count from the viewport's left edge.
+type Point = (usize, usize);
 
 /// An index into `Docs::tabs`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,6 +91,12 @@ pub struct App {
     pub message: Option<String>,
     pub web_url: Option<String>,
     pub keys: Keys,
+    /// The footer cells showing the web URL, recorded by the last draw.
+    pub link: Option<Rect>,
+    /// The document selection from where the drag started to where it is now.
+    pub selection: Option<(Point, Point)>,
+    dragging: bool,
+    last_click: Option<(Instant, Position)>,
     theme: Theme,
     sidebar_selection: usize,
     rail_selection: usize,
@@ -132,6 +143,10 @@ impl App {
             message: None,
             web_url: None,
             keys: spec_viewer_config::Config::default().keys,
+            link: None,
+            selection: None,
+            dragging: false,
+            last_click: None,
             theme,
             sidebar_selection: 0,
             rail_selection: 0,
@@ -186,6 +201,12 @@ impl App {
         if !tabs.contains(&self.tab) {
             self.tab = tabs[0];
         }
+    }
+
+    /// The terminal title: the open document, else the project.
+    pub fn title(&self) -> String {
+        let subject = self.doc.as_ref().map_or(&self.project.name, |doc| &doc.document.meta.title);
+        format!("{subject} — spec-viewer")
     }
 
     pub fn worktree_path(&self) -> &Path {
@@ -271,6 +292,7 @@ impl App {
                 let all = self.all_docs();
                 self.expanded.extend(navigation::ancestors(&all, &doc.root_path, ""));
                 self.rendered = to_terminal(&doc.document, self.viewport.width.max(1), &self.theme);
+                self.selection = None;
                 self.doc = Some(doc);
                 self.scroll = 0;
                 self.pan = 0;
@@ -332,13 +354,41 @@ impl App {
         self.hint_input = None;
     }
 
-    fn copy(&mut self, value: &str) {
+    /// Copies `value`, shown in the footer as `label`.
+    fn copy(&mut self, value: &str, label: &str) {
         let sequence = format!("\x1b]52;c;{}\x07", base64(value.as_bytes()));
         if let Err(error) = self.output.write_all(sequence.as_bytes()).and_then(|()| self.output.flush()) {
             self.message = Some(format!("Clipboard failed: {error}"));
         } else {
-            self.message = Some(format!("Copied {value} (OSC 52)"));
+            self.message = Some(format!("Copied {label} (OSC 52)"));
         }
+    }
+
+    fn copy_selection(&mut self) {
+        let Some((start, end)) = self.ordered_selection() else {
+            return;
+        };
+        let text = self.rendered.text(start, end, self.pan);
+        if text.is_empty() {
+            self.selection = None;
+            return;
+        }
+        let count = text.chars().count();
+        self.copy(&text, &format!("{count} characters"));
+    }
+
+    fn ordered_selection(&self) -> Option<(Point, Point)> {
+        self.selection
+            .map(|(anchor, head)| if head < anchor { (head, anchor) } else { (anchor, head) })
+    }
+
+    /// The document point under `position`, when it shows a rendered line.
+    fn point(&self, position: Position) -> Option<Point> {
+        if self.doc.is_none() || !self.viewport.contains(position) {
+            return None;
+        }
+        let line = self.scroll + usize::from(position.y - self.viewport.y);
+        (line < self.rendered.lines.len()).then_some((line, usize::from(position.x - self.viewport.x)))
     }
 
     /// The web app's URL for the current worktree, tab, filter mode, and document.
@@ -488,7 +538,7 @@ impl App {
             self.cancel_hints();
             match target {
                 Target::Doc(path) => self.open(&path),
-                Target::Xref(reference) => self.copy(&reference),
+                Target::Xref(reference) => self.copy(&reference, &reference),
             }
         } else if !self.hints.iter().any(|hint| hint.label.starts_with(input.as_str())) {
             self.cancel_hints();
@@ -524,7 +574,10 @@ impl App {
                 }
             }
             Action::Search => self.search = Some(Search::default()),
-            Action::Dismiss => self.message = None,
+            Action::Dismiss => {
+                self.message = None;
+                self.selection = None;
+            }
             Action::Diff if self.docs.changed.is_some() => {
                 self.diff = !self.diff;
                 self.sidebar_selection = 0;
@@ -557,7 +610,7 @@ impl App {
                     } else {
                         doc.path.file_name().unwrap_or_default().to_string_lossy().into_owned()
                     };
-                    self.copy(&value);
+                    self.copy(&value, &value);
                 }
             }
             Action::Hints => self.start_hints(),
@@ -629,14 +682,42 @@ impl App {
             MouseEventKind::Down(MouseButton::Left) if self.picker.is_none() && self.search.is_none() => {
                 self.click(Position::new(mouse.column, mouse.row));
             }
+            MouseEventKind::Drag(MouseButton::Left) if self.dragging => self.drag(Position::new(mouse.column, mouse.row)),
+            MouseEventKind::Up(MouseButton::Left) if self.dragging => {
+                self.dragging = false;
+                if self.selection.is_some_and(|(anchor, head)| anchor == head) {
+                    self.selection = None;
+                } else {
+                    self.copy_selection();
+                }
+            }
             _ => {}
         }
     }
 
     fn click(&mut self, position: Position) {
         self.cancel_hints();
+        self.selection = None;
+        self.dragging = false;
         if self.document_area.contains(position) {
             self.focus = Focus::Document;
+            let Some(point) = self.point(position) else {
+                return;
+            };
+            let double = self
+                .last_click
+                .take()
+                .is_some_and(|(time, previous)| previous == position && time.elapsed() < DOUBLE_CLICK);
+            if double {
+                if let Some((first, last)) = self.rendered.word(point.0, point.1, self.pan) {
+                    self.selection = Some(((point.0, first), (point.0, last)));
+                    self.copy_selection();
+                }
+            } else {
+                self.last_click = Some((Instant::now(), position));
+                self.selection = Some((point, point));
+                self.dragging = true;
+            }
             return;
         }
         if !self.panel || !self.panel_area.contains(position) {
@@ -660,6 +741,27 @@ impl App {
                 self.activate();
             }
         }
+    }
+
+    /// Moves the selection's head; dragging past the top or bottom edge scrolls one line.
+    fn drag(&mut self, position: Position) {
+        let Some((anchor, _)) = self.selection else {
+            return;
+        };
+        self.last_click = None;
+        let viewport = self.viewport;
+        if viewport.is_empty() || self.rendered.lines.is_empty() {
+            return;
+        }
+        if position.y < viewport.top() {
+            self.scroll_by(-1);
+        } else if position.y >= viewport.bottom() {
+            self.scroll_by(1);
+        }
+        let row = position.y.clamp(viewport.top(), viewport.bottom() - 1) - viewport.top();
+        let column = position.x.clamp(viewport.left(), viewport.right() - 1) - viewport.left();
+        let line = (self.scroll + usize::from(row)).min(self.rendered.lines.len() - 1);
+        self.selection = Some((anchor, (line, usize::from(column))));
     }
 
     fn max_scroll(&self) -> usize {
@@ -810,8 +912,16 @@ impl App {
                 fit_keys(&keys, usize::from(area.width))
             })
         };
+        let footer = truncate(&footer, usize::from(area.width));
+        let keys_shown = self.hint_input.is_none() && self.search.is_none() && self.message.is_none() && vertical[1].height > 0;
+        self.link = self.web_url.as_ref().filter(|_| keys_shown).and_then(|url| {
+            let index = footer.find(url.as_str())?;
+            let column = unicode_width::UnicodeWidthStr::width(&footer[..index]) as u16;
+            let width = unicode_width::UnicodeWidthStr::width(url.as_str()) as u16;
+            Some(Rect::new(vertical[1].x + column, vertical[1].y, width, 1))
+        });
         frame.render_widget(
-            Paragraph::new(truncate(&footer, usize::from(area.width))).style(Style::default().fg(self.theme.roles.muted)),
+            Paragraph::new(footer).style(Style::default().fg(self.theme.roles.muted)),
             vertical[1],
         );
         if let Some(selection) = self.picker {
@@ -1222,6 +1332,7 @@ impl App {
         if self.viewport.width != regions[1].width {
             self.rendered = to_terminal(&doc.document, regions[1].width.max(1), &self.theme);
             self.pan = 0;
+            self.selection = None;
             self.cancel_hints();
         }
         self.viewport = regions[1];
@@ -1236,6 +1347,20 @@ impl App {
             )),
             self.viewport,
         );
+        if let Some((start, end)) = self.ordered_selection()
+            && !self.viewport.is_empty()
+        {
+            let bottom = self.scroll + usize::from(self.viewport.height) - 1;
+            let right = usize::from(self.viewport.width) - 1;
+            for line in start.0.max(self.scroll)..=end.0.min(bottom) {
+                let from = if line == start.0 { start.1 } else { 0 };
+                let to = if line == end.0 { end.1.min(right) } else { right };
+                for column in from..=to {
+                    let position = (self.viewport.x + column as u16, self.viewport.y + (line - self.scroll) as u16);
+                    frame.buffer_mut()[position].modifier.insert(Modifier::REVERSED);
+                }
+            }
+        }
         for hint in &self.hints {
             if hint.span.line >= self.scroll && hint.span.line < self.scroll + usize::from(self.viewport.height) {
                 let column = hint

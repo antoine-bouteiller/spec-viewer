@@ -18,8 +18,11 @@ spec-viewer [ROOT] [--theme light|dark] [--config PATH]
 - `--theme` overrides the configured light or dark mode.
 - `--config` adds a TOML config layer on top of the user and worktree configs.
 
-The same session serves the corpus as a web app on `127.0.0.1`; the footer shows its URL, and `o`
-opens the current view there. The first
+Drag over the document to copy its text through OSC 52, without code-block borders; a double click
+copies a word.
+
+The same session serves the corpus as a web app on `127.0.0.1`; the footer shows its URL, linked
+with OSC 8, and `o` opens the current view there. The first
 port the OS assigns is stored per project in `$XDG_CONFIG_HOME/spec-viewer/ports.toml` (else
 `~/.config/spec-viewer/ports.toml`) and reused by later sessions, unless another process holds it.
 Mermaid diagrams load from jsDelivr; offline, their source stays visible.

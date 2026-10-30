@@ -315,6 +315,92 @@ fn vc_2_visible_hints_copy_xrefs_open_docs_and_copy_paths_with_osc_52() {
 }
 
 #[test]
+fn vc_2_dragging_and_double_clicking_in_the_document_copy_text_with_osc_52() {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    use crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+    let fixture = Fixture::new();
+    write(
+        &fixture.root,
+        ".plan/select.md",
+        "---\ntitle: Select\n---\nFirst words here\n\n```ts\nlet copied = true\n```\n",
+    );
+    let clipboard = Clipboard::default();
+    let mut app = App::new(
+        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
+        Theme::default(),
+        clipboard.clone(),
+    )
+    .unwrap();
+    app.open(".plan/select.md");
+    let screen = draw(&mut app);
+    let (row, column) = screen
+        .lines()
+        .enumerate()
+        .find_map(|(row, line)| {
+            line.find("words here")
+                .map(|index| (row as u16, line[..index].chars().count() as u16))
+        })
+        .unwrap();
+    let mouse = |app: &mut App, kind, column, row| {
+        app.handle_mouse(MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        })
+    };
+    let copied = |clipboard: &Clipboard| {
+        let bytes = std::mem::take(&mut *clipboard.0.lock().unwrap());
+        let encoded = String::from_utf8(bytes).unwrap();
+        let encoded = encoded.strip_prefix("\x1b]52;c;").unwrap().strip_suffix('\x07').unwrap().to_owned();
+        String::from_utf8(STANDARD.decode(encoded).unwrap()).unwrap()
+    };
+
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), column, row);
+    mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), column + 30, row + 3);
+    let mut terminal = Terminal::new(TestBackend::new(160, 48)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(
+        terminal.backend().buffer()[(column, row)]
+            .modifier
+            .contains(ratatui::style::Modifier::REVERSED)
+    );
+    mouse(&mut app, MouseEventKind::Up(MouseButton::Left), column + 30, row + 3);
+    assert_eq!(copied(&clipboard), "words here\n\nlet copied = true");
+    assert_eq!(app.message.as_deref(), Some("Copied 29 characters (OSC 52)"));
+
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), column, row);
+    mouse(&mut app, MouseEventKind::Up(MouseButton::Left), column, row);
+    assert!(app.selection.is_none());
+    assert!(clipboard.0.lock().unwrap().is_empty());
+    mouse(&mut app, MouseEventKind::Down(MouseButton::Left), column, row);
+    assert_eq!(copied(&clipboard), "words");
+}
+
+#[test]
+fn vc_2_footer_links_the_web_url_and_the_title_names_the_document() {
+    let fixture = Fixture::new();
+    let mut app = App::new(
+        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
+        Theme::default(),
+        io::sink(),
+    )
+    .unwrap();
+    app.web_url = Some("http://127.0.0.1:4100".into());
+    app.open("spec/standalone.spec.md");
+    let screen = draw(&mut app);
+    let area = app.link.unwrap();
+    let footer: String = screen.lines().nth(usize::from(area.y)).unwrap().chars().collect();
+    let shown: String = footer.chars().skip(usize::from(area.x)).take(usize::from(area.width)).collect();
+    assert_eq!(shown, "http://127.0.0.1:4100");
+    assert!(app.title().ends_with(" — spec-viewer"));
+    assert!(app.title().starts_with(&app.doc.as_ref().unwrap().document.meta.title));
+    key(&mut app, KeyCode::Char('Y'));
+    draw(&mut app);
+    assert!(app.link.is_none());
+}
+
+#[test]
 fn vc_3_live_reload_adds_plan_refreshes_body_and_preserves_scroll() {
     let fixture = Fixture::new();
     let mut app = App::new(

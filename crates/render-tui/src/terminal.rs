@@ -30,6 +30,8 @@ pub struct TermDoc {
     /// Targets outside wide blocks; see [`TermDoc::targets_at`].
     pub targets: Vec<TargetSpan>,
     pub wide: Vec<WideBlock>,
+    /// Frame borders, as a line and its columns, left out of copied text.
+    pub gutters: Vec<(usize, std::ops::Range<usize>)>,
 }
 
 /// A block wider than its window: `rows` are shown through `width` columns at `column` of lines
@@ -100,6 +102,60 @@ impl TermDoc {
         targets.sort_by_key(|target| (target.line, target.column));
         targets
     }
+
+    /// Line `index` at `pan` as `(column, character, gutter)` cells.
+    fn cells(&self, index: usize, pan: usize) -> Vec<(usize, char, bool)> {
+        let first = self.gutters.partition_point(|(line, _)| *line < index);
+        let last = self.gutters.partition_point(|(line, _)| *line <= index);
+        let gutters = &self.gutters[first..last];
+        let mut column = 0;
+        let mut cells = Vec::new();
+        for span in self.line(index, pan).spans {
+            for character in span.content.chars() {
+                cells.push((column, character, gutters.iter().any(|(_, columns)| columns.contains(&column))));
+                column += character.width().unwrap_or(0);
+            }
+        }
+        cells
+    }
+
+    /// The text from `start` to `end`, inclusive `(line, column)` points at `pan`, without frame borders
+    /// or trailing blanks.
+    pub fn text(&self, start: (usize, usize), end: (usize, usize), pan: usize) -> String {
+        let mut rows = Vec::new();
+        for index in start.0..(end.0 + 1).min(self.lines.len()) {
+            let from = if index == start.0 { start.1 } else { 0 };
+            let to = if index == end.0 { end.1 } else { usize::MAX };
+            let selected: Vec<_> = self
+                .cells(index, pan)
+                .into_iter()
+                .filter(|(column, ..)| (from..=to).contains(column))
+                .collect();
+            let row: String = selected.iter().filter(|cell| !cell.2).map(|cell| cell.1).collect();
+            // A selected line made only of borders is a frame edge, not an empty line of text.
+            if !row.is_empty() || selected.is_empty() {
+                rows.push(row.trim_end().to_owned());
+            }
+        }
+        rows.join("\n")
+    }
+
+    /// The inclusive columns of the word under `column` of line `index` at `pan`.
+    pub fn word(&self, index: usize, column: usize, pan: usize) -> Option<(usize, usize)> {
+        let cells = self.cells(index, pan);
+        let word = |cell: &(usize, char, bool)| !cell.1.is_whitespace() && !cell.2;
+        let position = cells
+            .iter()
+            .rposition(|cell| cell.0 <= column)
+            .filter(|position| word(&cells[*position]))?;
+        let first = cells[..position].iter().rposition(|cell| !word(cell)).map_or(0, |index| index + 1);
+        let last = cells[position..]
+            .iter()
+            .position(|cell| !word(cell))
+            .map_or(cells.len(), |index| position + index)
+            - 1;
+        Some((cells[first].0, cells[last].0))
+    }
 }
 
 /// Columns `start..start + width` of `line`, space-padded; a wide glyph cut by an edge becomes spaces.
@@ -162,6 +218,7 @@ pub fn to_terminal(document: &Document, width: u16, theme: &Theme) -> TermDoc {
         })
         .collect();
     renderer.document.toc = toc;
+    renderer.document.gutters.sort_by_key(|(line, columns)| (*line, columns.start));
     renderer.document
 }
 
@@ -492,6 +549,24 @@ impl<'a> Renderer<'a> {
     fn embed(&mut self, child: Renderer<'_>, prefix: &str, suffix: &str, style: Style) {
         let line_offset = self.document.lines.len();
         let column_offset = unicode_width::UnicodeWidthStr::width(prefix);
+        let suffix_start = column_offset + child.width;
+        for line in line_offset..line_offset + child.document.lines.len() {
+            if !prefix.trim().is_empty() {
+                self.document.gutters.push((line, 0..column_offset));
+            }
+            if !suffix.trim().is_empty() {
+                self.document
+                    .gutters
+                    .push((line, suffix_start..suffix_start + unicode_width::UnicodeWidthStr::width(suffix)));
+            }
+        }
+        self.document.gutters.extend(
+            child
+                .document
+                .gutters
+                .into_iter()
+                .map(|(line, columns)| (line + line_offset, columns.start + column_offset..columns.end + column_offset)),
+        );
         self.document.wide.extend(child.document.wide.into_iter().map(|mut block| {
             block.line += line_offset;
             block.column += column_offset;
@@ -535,15 +610,25 @@ impl<'a> Renderer<'a> {
             border,
             None,
         ));
-        self.line(&top);
+        let label_end = 3 + unicode_width::UnicodeWidthStr::width(label.as_str());
+        self.border_line(&top, [0..3, label_end..self.width]);
         let mut child = Self::new(self.width - 4, self.theme);
         child.blocks_context(children, compact);
         while child.document.lines.last().is_some_and(|line| line.width() == 0) {
             child.document.lines.pop();
         }
         self.embed(child, "│ ", " │", border);
-        self.line(&glyphs(&format!("└{}┘", "─".repeat(self.width - 2)), border, None));
+        self.border_line(
+            &glyphs(&format!("└{}┘", "─".repeat(self.width - 2)), border, None),
+            std::iter::once(0..self.width),
+        );
         self.blank();
+    }
+
+    fn border_line(&mut self, values: &[Glyph], gutters: impl IntoIterator<Item = std::ops::Range<usize>>) {
+        let line = self.document.lines.len();
+        self.line(values);
+        self.document.gutters.extend(gutters.into_iter().map(|columns| (line, columns)));
     }
 
     /// Titled cards side by side, stacked as bordered blocks when the columns cannot fit.
@@ -852,7 +937,7 @@ impl<'a> Renderer<'a> {
             border,
             None,
         ));
-        self.line(&top);
+        self.border_line(&top, std::iter::once(0..self.width));
         let mut lines = lines;
         while lines.last().is_some_and(Vec::is_empty) {
             lines.pop();
@@ -877,7 +962,10 @@ impl<'a> Renderer<'a> {
         } else {
             self.embed(child, "│ ", " │", border);
         }
-        self.line(&glyphs(&format!("└{}┘", "─".repeat(self.width - 2)), border, None));
+        self.border_line(
+            &glyphs(&format!("└{}┘", "─".repeat(self.width - 2)), border, None),
+            std::iter::once(0..self.width),
+        );
         self.blank();
     }
 
@@ -1004,6 +1092,12 @@ impl<'a> Renderer<'a> {
                 }));
                 self.anchors
                     .extend(cell.anchors.into_iter().map(|(id, line)| (id, line + line_offset)));
+                self.document.gutters.extend(
+                    cell.document
+                        .gutters
+                        .into_iter()
+                        .map(|(line, columns)| (line + line_offset, columns.start + column_offset..columns.end + column_offset)),
+                );
                 self.document.wide.extend(cell.document.wide.into_iter().map(|mut block| {
                     block.line += line_offset;
                     block.column += column_offset;
@@ -1429,6 +1523,24 @@ mod tests {
             .take(target.length)
             .collect();
         assert_eq!(line, "target");
+    }
+
+    #[test]
+    fn copied_text_leaves_out_frame_borders_and_padding() {
+        let parsed = parse(
+            "Intro line\n\n```ts\n  const a = 1\n```\n\n> quoted words\n\n| A | B |\n| --- | --- |\n| x | y |",
+            "spec/copy.spec.md",
+        );
+        let document = to_terminal(&parsed, 30, &Theme::default());
+        let line = |text: &str| document.lines.iter().position(|line| line.to_string().contains(text)).unwrap();
+        let (intro, code, quote, table) = (line("Intro"), line("const"), line("quoted"), line("│ x "));
+        assert_eq!(document.text((code, 0), (code, 29), 0), "  const a = 1");
+        assert_eq!(document.text((intro, 6), (code, 29), 0), "line\n\n  const a = 1");
+        assert_eq!(document.text((quote, 0), (quote, 29), 0), "quoted words");
+        assert_eq!(document.text((table, 0), (table, 29), 0), "│ x │ y │");
+        assert_eq!(document.word(quote, 4, 0), Some((2, 7)));
+        assert_eq!(document.word(quote, 0, 0), None);
+        assert_eq!(document.word(code, 6, 0), Some((4, 8)));
     }
 
     #[test]
