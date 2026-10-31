@@ -3,13 +3,13 @@ source: crates/render-tui/tests/tui.rs
 expression: draw(&mut app)
 ---
 ╭corpus · Plans────────────────────────╮╭Document──────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│feature (main) ▾                      ││Select a document.                                                                                                    │
-│[plans] specs Diff                    ││                                                                                                                      │
-│/ search all tabs                     ││                                                                                                                      │
+│feature (main) ▾ Diff                 ││Select a document.                                                                                                    │
+│[plans] specs                         ││                                                                                                                      │
 │  Actions [draft]                     ││                                                                                                                      │
-│  Legacy rollout [done]      ╭ Search ──────────────────────────────────────────────────────────────────────────────────── 1/16 ╮                             │
-│  rollout [in-progress]      │> stndln▏                                                                                         │                             │
-│  Old design [archived]      ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯                             │
+│  Legacy rollout [done]               ││                                                                                                                      │
+│  rollout [in-progress]      ╭ Search ──────────────────────────────────────────────────────────────────────────────────── 1/16 ╮                             │
+│  Old design [archived]      │> stndln▏                                                                                         │                             │
+│                             ╰──────────────────────────────────────────────────────────────────────────────────────────────────╯                             │
 │                             ╭ Results ─────────────────────────────────────────────────────────────────────────────────────────╮                             │
 │                             │> Standalone spec [done]  spec/standalone.spec.md                                                 │                             │
 │                             │                                                                                                  │                             │

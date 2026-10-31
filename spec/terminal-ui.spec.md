@@ -111,11 +111,11 @@ Kind: type · Anchor: `crates/render-tui/src/tui/app.rs#App`
 
 ```text
 ┌ sidebar or rail ───────┬ document ──────────────────────────────┐
-│ worktree ▾ (main)      │ Title  [status]                         │
-│ [plans] specs   Diff   │ AC 3/5 ▮▮▯ T 2/9 ▮▯▯  N lines           │
-│ / search all tabs      │ kind · owner · N phases · author · date │
-│ ▸ doc/architecture     │ related: …   path  y path · Y name      │
-│   spec title  [chip]   │ rendered body                           │
+│ worktree ▾ (main) Diff │ Title  [status]                         │
+│ [plans] specs          │ AC 3/5 ▮▮▯ T 2/9 ▮▯▯  N lines           │
+│ ▸ doc/architecture     │ kind · owner · N phases · author · date │
+│   spec title  [chip]   │ related: …   path  y path · Y name      │
+│                        │ rendered body                           │
 └────────────────────────┴─────────────────────────────────────────┘
 ```
 
@@ -133,12 +133,12 @@ o             open the current view in the web app (spec/web-ui.spec.md)
 b             hide / show the left pane (open document only)
 q / C-c       quit (C-c also in every dialog and mode)
 click         focus a pane; in the left pane, activate the worktree line (w), a tab (1 … 9),
-              Diff (d), the search line (/), or a row or rail entry (select + Enter)
+              Diff (d), or a row or rail entry (select + Enter)
 drag          in the document body, select text; release copies it (OSC 52)
 double-click  in the document body, copy the word under the pointer (OSC 52)
 ```
 
-Every key hint (footer, search line, header copy keys, dialog footers, worktree picker title) shows
+Every key hint (footer, header copy keys, dialog footers, worktree picker title) shows
 the first configured key of its action and is dropped when the action is unbound. Tabs show as
 `1/2` for two tabs and `1…N` for more, from the first `switch_tab` key.
 
@@ -196,7 +196,7 @@ Statuses: the status head (trimmed, lower-cased, cut at `;`, `,`, `—`, or `-`)
 `[[status]]` name or alias case-insensitively and shows as `[<name>]` in that entry's colour. An
 unmatched head shows as-is in `status_unknown`. Focus borders, the current row, and the active
 rail entry use `accent`; the current row and active rail entry sit on `current_bg`. The cursor row of
-the focused list sits on `highlight_bg`. Unfocused borders, the search line, paths, header details, and the footer use
+the focused list sits on `highlight_bg`. Unfocused borders, paths, header details, and the footer use
 `muted`. Hint labels use `hint_fg` on `hint_bg`.
 
 ### [CT-3] Live reload

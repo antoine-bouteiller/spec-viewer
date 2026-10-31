@@ -3,13 +3,13 @@ source: crates/render-tui/tests/tui.rs
 expression: draw(&mut app)
 ---
 ╭corpus · Plans────────────────────────╮╭Document──────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
-│feature (main) ▾                      ││API rollout [in-progress]                                                                                             │
-│[plans] specs Diff                    ││AC 1/2 ▮▮▯▯▯  T 1/2 ▮▮▯▯▯  15 lines                                                                                   │
-│/ search all tabs                     ││plan · 2 phases · Fixture Author · 2026-01-02                                                                         │
-│  Actions [draft]                     ││related: spec/standalone.spec.md                                                                                      │
-│  Legacy rollout [done]               ││.plan/rollout/index.md  y path · Y name                                                                               │
-│  rollout [in-progress]               ││──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
-│  Old design [archived]               ││Why                                                                                                                   │
+│feature (main) ▾ Diff                 ││API rollout [in-progress]                                                                                             │
+│[plans] specs                         ││AC 1/2 ▮▮▯▯▯  T 1/2 ▮▮▯▯▯  15 lines                                                                                   │
+│  Actions [draft]                     ││plan · 2 phases · Fixture Author · 2026-01-02                                                                         │
+│  Legacy rollout [done]               ││related: spec/standalone.spec.md                                                                                      │
+│  rollout [in-progress]               ││.plan/rollout/index.md  y path · Y name                                                                               │
+│  Old design [archived]               ││──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│                                      ││Why                                                                                                                   │
 │                                      ││                                                                                                                      │
 │                                      ││Deploy safely.                                                                                                        │
 │                                      ││                                                                                                                      │

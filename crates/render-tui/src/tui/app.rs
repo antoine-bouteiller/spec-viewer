@@ -54,7 +54,6 @@ enum Click {
     Worktree,
     Tab(Tab),
     Diff,
-    Search,
     Row(usize),
     Entry(usize),
 }
@@ -731,7 +730,6 @@ impl App {
             Click::Worktree => self.act(Action::Worktrees, 0),
             Click::Tab(tab) => self.act(Action::SwitchTab, tab.0),
             Click::Diff => self.act(Action::Diff, 0),
-            Click::Search => self.act(Action::Search, 0),
             Click::Row(index) => {
                 self.sidebar_selection = index;
                 self.activate();
@@ -1055,14 +1053,13 @@ impl App {
         let block = self.pane(&format!("{} · Plans", self.project.name), self.focus == Focus::Sidebar);
         let inner = block.inner(area);
         frame.render_widget(block, area);
-        let regions = Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).split(inner);
+        let regions = Layout::vertical([Constraint::Length(2), Constraint::Min(0)]).split(inner);
         let worktree = &self.project.worktrees[self.worktree];
         let header = regions[0];
         let row = |line: u16, x: u16, width: usize| Rect::new(header.x + x, header.y + line, width as u16, 1).intersection(header);
-        let mut clicks = vec![
-            (row(0, 0, usize::from(header.width)), Click::Worktree),
-            (row(2, 0, usize::from(header.width)), Click::Search),
-        ];
+        let worktree = format!("{}{} ▾", worktree.name, if worktree.main { " (main)" } else { "" });
+        let worktree_width = unicode_width::UnicodeWidthStr::width(worktree.as_str());
+        let mut clicks = vec![(row(0, 0, worktree_width), Click::Worktree)];
         let mut tabs = String::new();
         for tab in self.tabs() {
             if !tabs.is_empty() {
@@ -1082,19 +1079,9 @@ impl App {
             " Diff"
         };
         if self.docs.changed.is_some() {
-            clicks.push((
-                row(1, unicode_width::UnicodeWidthStr::width(tabs.as_str()) as u16 + 1, diff.len() - 1),
-                Click::Diff,
-            ));
+            clicks.push((row(0, worktree_width as u16 + 1, diff.len() - 1), Click::Diff));
         }
-        let heading = vec![
-            Line::raw(format!("{}{} ▾", worktree.name, if worktree.main { " (main)" } else { "" })),
-            Line::raw(format!("{tabs}{diff}")),
-            Line::styled(
-                hint(&self.keys.search, "search all tabs").unwrap_or_else(|| "search all tabs".into()),
-                Style::default().fg(self.theme.roles.muted),
-            ),
-        ];
+        let heading = vec![Line::raw(format!("{worktree}{diff}")), Line::raw(tabs)];
         frame.render_widget(Paragraph::new(heading), regions[0]);
         let items: Vec<_> = self
             .rows()
@@ -1774,7 +1761,7 @@ mod tests {
         };
         terminal.draw(|frame| app.draw(frame)).unwrap();
         let second = app.rows()[1].node.path.clone().unwrap();
-        click(&mut app, 3, 5);
+        click(&mut app, 3, 4);
         assert_eq!(app.doc.as_ref().unwrap().root_path, second);
         assert_eq!(app.focus, Focus::Document);
         terminal.draw(|frame| app.draw(frame)).unwrap();
@@ -1788,9 +1775,6 @@ mod tests {
         assert_eq!(app.scroll, 0);
         app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
         terminal.draw(|frame| app.draw(frame)).unwrap();
-        click(&mut app, 3, 3);
-        assert!(app.search.is_some());
-        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
         click(&mut app, 3, 1);
         assert_eq!(app.picker, Some(app.worktree));
     }
