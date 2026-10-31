@@ -367,7 +367,8 @@ fn vc_2_dragging_and_double_clicking_in_the_document_copy_text_with_osc_52() {
     );
     mouse(&mut app, MouseEventKind::Up(MouseButton::Left), column + 30, row + 3);
     assert_eq!(copied(&clipboard), "words here\n\nlet copied = true");
-    assert_eq!(app.message.as_deref(), Some("Copied 29 characters (OSC 52)"));
+    assert!(draw(&mut app).contains("Copied to clipboard"));
+    assert!(app.message.is_none());
 
     mouse(&mut app, MouseEventKind::Down(MouseButton::Left), column, row);
     mouse(&mut app, MouseEventKind::Up(MouseButton::Left), column, row);
@@ -396,8 +397,8 @@ fn vc_2_footer_links_the_web_url_and_the_title_names_the_document() {
     assert!(app.title().ends_with(" — spec-viewer"));
     assert!(app.title().starts_with(&app.doc.as_ref().unwrap().document.meta.title));
     key(&mut app, KeyCode::Char('Y'));
-    draw(&mut app);
-    assert!(app.link.is_none());
+    assert!(draw(&mut app).contains("Copied to clipboard"));
+    assert_eq!(app.link, Some(area));
 }
 
 #[test]

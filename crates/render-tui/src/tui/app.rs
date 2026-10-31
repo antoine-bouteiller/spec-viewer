@@ -96,6 +96,8 @@ pub struct App {
     pub selection: Option<(Point, Point)>,
     dragging: bool,
     last_click: Option<(Instant, Position)>,
+    /// When the last copy succeeded; the "Copied to clipboard" popup shows until it expires.
+    copied_at: Option<Instant>,
     theme: Theme,
     sidebar_selection: usize,
     rail_selection: usize,
@@ -146,6 +148,7 @@ impl App {
             selection: None,
             dragging: false,
             last_click: None,
+            copied_at: None,
             theme,
             sidebar_selection: 0,
             rail_selection: 0,
@@ -353,13 +356,12 @@ impl App {
         self.hint_input = None;
     }
 
-    /// Copies `value`, shown in the footer as `label`.
-    fn copy(&mut self, value: &str, label: &str) {
+    fn copy(&mut self, value: &str) {
         let sequence = format!("\x1b]52;c;{}\x07", base64(value.as_bytes()));
         if let Err(error) = self.output.write_all(sequence.as_bytes()).and_then(|()| self.output.flush()) {
             self.message = Some(format!("Clipboard failed: {error}"));
         } else {
-            self.message = Some(format!("Copied {label} (OSC 52)"));
+            self.copied_at = Some(Instant::now());
         }
     }
 
@@ -372,8 +374,7 @@ impl App {
             self.selection = None;
             return;
         }
-        let count = text.chars().count();
-        self.copy(&text, &format!("{count} characters"));
+        self.copy(&text);
     }
 
     fn ordered_selection(&self) -> Option<(Point, Point)> {
@@ -537,7 +538,7 @@ impl App {
             self.cancel_hints();
             match target {
                 Target::Doc(path) => self.open(&path),
-                Target::Xref(reference) => self.copy(&reference, &reference),
+                Target::Xref(reference) => self.copy(&reference),
             }
         } else if !self.hints.iter().any(|hint| hint.label.starts_with(input.as_str())) {
             self.cancel_hints();
@@ -575,6 +576,7 @@ impl App {
             Action::Search => self.search = Some(Search::default()),
             Action::Dismiss => {
                 self.message = None;
+                self.copied_at = None;
                 self.selection = None;
             }
             Action::Diff if self.docs.changed.is_some() => {
@@ -609,7 +611,7 @@ impl App {
                     } else {
                         doc.path.file_name().unwrap_or_default().to_string_lossy().into_owned()
                     };
-                    self.copy(&value, &value);
+                    self.copy(&value);
                 }
             }
             Action::Hints => self.start_hints(),
@@ -956,6 +958,28 @@ impl App {
             );
         }
         self.draw_search(frame, vertical[0]);
+        self.draw_copied(frame, vertical[0]);
+    }
+
+    /// A popup in the body's bottom-right corner for a short while after a copy.
+    fn draw_copied(&mut self, frame: &mut Frame, area: Rect) {
+        const TEXT: &str = "Copied to clipboard";
+        if self.copied_at.is_some_and(|at| at.elapsed() >= Duration::from_millis(1500)) {
+            self.copied_at = None;
+        }
+        let width = TEXT.len() as u16 + 4;
+        if self.copied_at.is_none() || area.width < width || area.height < 3 {
+            return;
+        }
+        let popup = Rect::new(area.right() - width, area.bottom() - 3, width, 3);
+        let accent = Style::default().fg(self.theme.roles.accent);
+        frame.render_widget(Clear, popup);
+        frame.render_widget(
+            Paragraph::new(TEXT)
+                .centered()
+                .block(Block::bordered().border_type(BorderType::Rounded).border_style(accent)),
+            popup,
+        );
     }
 
     /// A centered prompt over a results list, after Telescope's layout without a preview.

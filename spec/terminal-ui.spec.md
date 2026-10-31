@@ -156,7 +156,8 @@ pane and focus.
 
 A drag in the document body selects from the press to the pointer, in reading order, shown
 reversed. Dragging past the body's top or bottom edge scrolls one line per motion. Release copies
-`TermDoc::text` at the current pan and shows `Copied N characters (OSC 52)`; a release without
+`TermDoc::text` at the current pan; every copy shows a `Copied to clipboard` popup in the body's
+bottom-right corner for 1.5 s; a release without
 motion selects nothing. A selection survives scrolling and panning. A click, `Esc`, opening a
 document, a reload, or a resize clears it.
 
