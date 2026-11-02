@@ -1,6 +1,6 @@
 use crate::Color;
-use serde::Deserialize;
-use std::{collections::BTreeMap, path::PathBuf};
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -10,7 +10,7 @@ pub enum Mode {
     Dark,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StatusConfig {
     pub name: String,
@@ -19,14 +19,14 @@ pub struct StatusConfig {
     pub color: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChipKind {
     Checklist,
     Headings,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ChipConfig {
     pub label: String,
@@ -37,7 +37,7 @@ pub struct ChipConfig {
 const EXTENSIONS: [&str; 2] = ["md", "mdx"];
 
 /// A sidebar tab listing the `.md` and `.mdx` files below `folder`, as a path tree rooted there.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TabConfig {
     pub name: String,
@@ -101,13 +101,29 @@ impl TabConfig {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ParseConfig {
     pub statuses: Vec<StatusConfig>,
     pub chips: Vec<ChipConfig>,
     pub tabs: Vec<TabConfig>,
 }
 impl ParseConfig {
+    /// The embedded default with each layer's sections replacing it, lowest layer first.
+    pub fn with(layers: &[&Layer]) -> Self {
+        let mut config = Self::default();
+        for layer in layers {
+            if let Some(tabs) = &layer.tabs {
+                config.tabs = tabs.clone();
+            }
+            if let Some(statuses) = &layer.statuses {
+                config.statuses = statuses.clone();
+            }
+            if let Some(chips) = &layer.chips {
+                config.chips = chips.clone();
+            }
+        }
+        config
+    }
     /// The tab listing worktree-relative `path`: the one with the deepest folder containing it, if it accepts the file.
     pub fn tab_of(&self, path: &str) -> Option<usize> {
         let (index, tab) = self
@@ -226,12 +242,41 @@ pub struct ResolvedTheme {
     pub statuses: BTreeMap<String, Color>,
 }
 
+/// The `[[tab]]`, `[[status]]`, and `[[chip]]` of one config file, unmerged.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Layer {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tabs: Option<Vec<TabConfig>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statuses: Option<Vec<StatusConfig>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chips: Option<Vec<ChipConfig>>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WebSettings {
-    pub bind: String,
-    pub cert: Option<PathBuf>,
-    pub key: Option<PathBuf>,
+    /// `0` takes any free port.
+    pub port: u16,
+}
+
+/// A remote host the daemon reaches by running a command that speaks the protocol on its stdio.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HostConfig {
+    pub name: String,
+    pub ssh: Option<String>,
+    pub command: Option<Vec<String>>,
+}
+impl HostConfig {
+    /// The command line to run: `command`, else `ssh -T <ssh> spec-viewer daemon --stdio`.
+    pub fn argv(&self) -> Vec<String> {
+        match (&self.command, &self.ssh) {
+            (Some(command), _) => command.clone(),
+            (None, Some(ssh)) => ["ssh", "-T", ssh, "spec-viewer", "daemon", "--stdio"].map(str::to_owned).to_vec(),
+            (None, None) => vec![],
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize)]

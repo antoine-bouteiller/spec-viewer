@@ -12,11 +12,16 @@ use spec_viewer_render_tui::{
 use std::{io, path::Path};
 use support::fixture::Fixture;
 
+/// A session whose user config is `source`.
 fn configured(root: &Path, source: &str, override_mode: Option<Mode>) -> App {
-    std::fs::write(root.join(".spec-viewer.toml"), source).unwrap();
-    let config = Config::load_layers(None, root, None).unwrap();
+    let config = user_config(root, source);
     let theme = Theme::from_config(&config, override_mode).unwrap();
     App::new(Library::new(root, config.parse).unwrap(), theme, io::sink()).unwrap()
+}
+fn user_config(root: &Path, source: &str) -> Config {
+    let file = root.join("user.toml");
+    std::fs::write(&file, source).unwrap();
+    Config::load_file(Some(&file)).unwrap()
 }
 fn draw(app: &mut App) -> Buffer {
     let mut terminal = Terminal::new(TestBackend::new(160, 48)).unwrap();
@@ -130,7 +135,7 @@ fn vc_6_palette_overrides_recolour_border_xrefs_and_status() {
         Some(Mode::Dark),
     );
     assert_eq!(draw(&mut app)[(0, 0)].fg, Color::Rgb(0x12, 0x34, 0x56));
-    let config = Config::load_layers(None, root.path(), None).unwrap();
+    let config = Config::load_file(Some(&root.path().join("user.toml"))).unwrap();
     let error = Theme::from_config(&config, Some(Mode::Light)).unwrap_err();
     assert_eq!(error.key, "theme.roles.accent");
 }
@@ -248,12 +253,10 @@ fn vc_5_headings_chip_label_is_configured_and_zero_chips_are_omitted() {
 #[test]
 fn keys_rebind_actions_and_the_hints_show_them() {
     let fixture = Fixture::new();
-    std::fs::write(
-        fixture.root.join(".spec-viewer.toml"),
+    let config = user_config(
+        &fixture.root,
         "[keys]\nquit='x'\nswitch_tab='alt+1..9'\ncopy_name='shift+n'\nhints=[]\n[keys.search_dialog]\nclose='ctrl+g'",
-    )
-    .unwrap();
-    let config = Config::load_layers(None, &fixture.root, None).unwrap();
+    );
     let mut app = App::new(Library::new(&fixture.root, config.parse).unwrap(), Theme::default(), io::sink()).unwrap();
     app.keys = config.keys;
     let press = |app: &mut App, code, modifiers| app.handle_key(KeyEvent::new(code, modifiers));
