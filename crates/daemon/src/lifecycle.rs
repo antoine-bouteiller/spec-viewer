@@ -1,7 +1,7 @@
 //! The daemon process: the single-instance lock, the socket, the gateway port, and idle exit.
 use std::{
     fs,
-    io::{self, Write},
+    io::{self, Read, Write},
     net::{Ipv4Addr, Shutdown, TcpListener},
     os::{fd::AsRawFd, unix::net::UnixListener},
     process::Command,
@@ -74,10 +74,26 @@ pub fn relay(runtime: &Runtime, spawn: Command) -> io::Result<()> {
     let stream = runtime.connect(spawn)?;
     let mut upstream = stream.try_clone()?;
     std::thread::spawn(move || {
-        let _ = io::copy(&mut io::stdin().lock(), &mut upstream);
+        let _ = copy(&mut io::stdin().lock(), &mut upstream);
         let _ = upstream.shutdown(Shutdown::Write);
     });
     let mut downstream = stream;
-    io::copy(&mut downstream, &mut io::stdout().lock())?;
-    Ok(())
+    copy(&mut downstream, &mut io::stdout().lock())
+}
+
+/// Copies until `reader` ends, flushing each read. Not `io::copy`: on Linux it splices between a
+/// socket and a pipe, holding the pipe's lock while it waits for the socket, so the other end of
+/// the pipe cannot read what was already written.
+fn copy(reader: &mut impl Read, writer: &mut impl Write) -> io::Result<()> {
+    let mut buffer = [0; 8192];
+    loop {
+        let read = match reader.read(&mut buffer) {
+            Ok(0) => return Ok(()),
+            Ok(read) => read,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        };
+        writer.write_all(&buffer[..read])?;
+        writer.flush()?;
+    }
 }
