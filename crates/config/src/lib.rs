@@ -1,11 +1,9 @@
 //! Layered TOML configuration and renderer-neutral theme resolution.
 mod color;
 mod keys;
-mod ports;
 mod types;
 pub use color::{ANSI_SLOTS, Ansi, Color};
 pub use keys::*;
-pub use ports::Ports;
 pub use types::*;
 
 use serde::Deserialize;
@@ -51,6 +49,8 @@ impl std::error::Error for Error {}
 #[serde(deny_unknown_fields)]
 struct Raw {
     web: WebSettings,
+    #[serde(default)]
+    host: Vec<HostConfig>,
     tui: TuiSettings,
     keys: Keys,
     theme: ThemeSettings,
@@ -59,13 +59,29 @@ struct Raw {
     tab: Vec<TabConfig>,
 }
 
+/// The sections a worktree `.spec-viewer.toml` may set.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawLayer {
+    tab: Option<Vec<TabConfig>>,
+    status: Option<Vec<StatusConfig>>,
+    chip: Option<Vec<ChipConfig>>,
+}
+
+const DEFAULT_FILE: &str = "crates/config/default.toml";
+
+/// The embedded default merged with one host's user config.
 #[derive(Clone, Debug)]
 pub struct Config {
     pub web: WebSettings,
+    pub hosts: Vec<HostConfig>,
     pub tui: TuiSettings,
     pub keys: Keys,
     pub theme: ThemeSettings,
+    /// The default's project sections replaced by the user config's.
     pub parse: ParseConfig,
+    /// The project sections the user config sets.
+    pub layer: Layer,
     origins: BTreeMap<String, PathBuf>,
 }
 impl Default for Config {
@@ -74,39 +90,36 @@ impl Default for Config {
     }
 }
 impl Config {
-    /// The caller supplies the containing worktree, discovered by source::project_of.
-    pub fn load(worktree: &Path, explicit: Option<&Path>) -> Result<Self, Error> {
-        let user = user_dir().map(|dir| dir.join("config.toml"));
-        Self::load_layers(user.as_deref(), worktree, explicit)
+    /// `$XDG_CONFIG_HOME/spec-viewer/config.toml`, else `~/.config/spec-viewer/config.toml`.
+    pub fn user_file() -> Option<PathBuf> {
+        user_dir().map(|dir| dir.join("config.toml"))
     }
-    pub fn load_layers(user: Option<&Path>, worktree: &Path, explicit: Option<&Path>) -> Result<Self, Error> {
-        let local = worktree.join(".spec-viewer.toml");
+    /// This host's user config.
+    pub fn load() -> Result<Self, Error> {
+        Self::load_file(Self::user_file().as_deref())
+    }
+    /// A missing file leaves the embedded default.
+    pub fn load_file(user: Option<&Path>) -> Result<Self, Error> {
         let mut layers = Vec::new();
-        let user = user.into_iter().map(|p| (p, false, true));
-        for (path, required, is_user) in user.chain([(&*local, false, false)]).chain(explicit.map(|p| (p, true, false))) {
+        if let Some(path) = user {
             match fs::read_to_string(path) {
-                Ok(source) => layers.push((path.to_path_buf(), source, is_user)),
-                Err(error) if !required && error.kind() == std::io::ErrorKind::NotFound => {}
-                Err(error) => return Err(Error::new(path, if required { "--config" } else { "config" }, error)),
+                Ok(source) => layers.push((path.to_path_buf(), source)),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(Error::new(path, "config", error)),
             }
         }
         Self::from_layers(&layers)
     }
-    /// Each layer is `(file, source, is_user)`; only the user layer may set `[web]`.
-    fn from_layers(layers: &[(PathBuf, String, bool)]) -> Result<Self, Error> {
+    fn from_layers(layers: &[(PathBuf, String)]) -> Result<Self, Error> {
         let mut value = Value::Table(Default::default());
         let mut origins = BTreeMap::new();
-        for (path, source, is_user) in std::iter::once((Path::new("crates/config/default.toml"), DEFAULT, true))
-            .chain(layers.iter().map(|(p, s, u)| (p.as_path(), s.as_str(), *u)))
+        let mut user = Value::Table(Default::default());
+        for (path, source) in
+            std::iter::once((Path::new(DEFAULT_FILE), DEFAULT)).chain(layers.iter().map(|(p, s)| (p.as_path(), s.as_str())))
         {
-            let layer = toml::from_str::<Value>(source).map_err(|e| {
-                let offset = e.span().map_or(0, |span| span.start);
-                let line = source.as_bytes()[..offset].iter().filter(|&&byte| byte == b'\n').count() + 1;
-                Error::new(path, format!("line {line}"), e.message())
-            })?;
-            // A worktree file must not open the server to the network.
-            if !is_user && layer.get("web").is_some() {
-                return Err(Error::new(path, "web", "only allowed in the user config"));
+            let layer = parse_toml(path, source)?;
+            if path != Path::new(DEFAULT_FILE) {
+                user = layer.clone();
             }
             merge(&mut value, layer, "", path, &mut origins);
         }
@@ -130,28 +143,19 @@ impl Config {
                 }
             }
         }
-        let raw: Raw = serde_path_to_error::deserialize(value).map_err(|e| {
-            let mut key = e.path().to_string();
-            let message = e.inner().to_string();
-            if let Some(rest) = message.split("unknown field `").nth(1) {
-                let field = rest.split('`').next().unwrap_or("");
-                key = if key == "." { field.to_owned() } else { format!("{key}.{field}") };
-            }
-            Error::new(origin(&origins, &key), key, message)
-        })?;
-        let mut web = raw.web;
-        for (key, file) in [("web.cert", &mut web.cert), ("web.key", &mut web.key)] {
-            if let Some(file) = file.as_mut()
-                && let Some(dir) = origin(&origins, key).parent()
-            {
-                *file = dir.join(&*file);
-            }
-        }
+        let raw: Raw = deserialize(value, |key| origin(&origins, key))?;
+        let set = |section: &str| user.get(section).is_some();
         let config = Self {
-            web,
+            web: raw.web,
+            hosts: raw.host,
             tui: raw.tui,
             keys: raw.keys,
             theme: raw.theme,
+            layer: Layer {
+                tabs: set("tab").then(|| raw.tab.clone()),
+                statuses: set("status").then(|| raw.status.clone()),
+                chips: set("chip").then(|| raw.chip.clone()),
+            },
             parse: ParseConfig {
                 statuses: raw.status,
                 chips: raw.chip,
@@ -189,13 +193,22 @@ impl Config {
         palette
     }
     fn validate(&self) -> Result<(), Error> {
-        if self.web.bind.trim().is_empty() {
-            return Err(self.error("web.bind", "must not be empty"));
-        }
-        match (&self.web.cert, &self.web.key) {
-            (Some(_), None) => return Err(self.error("web.cert", "requires web.key")),
-            (None, Some(_)) => return Err(self.error("web.key", "requires web.cert")),
-            _ => {}
+        let mut names = HashSet::new();
+        for (index, host) in self.hosts.iter().enumerate() {
+            match (&host.ssh, &host.command) {
+                (Some(_), Some(_)) => return Err(self.error(&format!("host[{index}].command"), "set exactly one of ssh and command")),
+                (None, None) => return Err(self.error(&format!("host[{index}]"), "set exactly one of ssh and command")),
+                (None, Some(command)) if command.is_empty() => {
+                    return Err(self.error(&format!("host[{index}].command"), "must not be empty"));
+                }
+                _ => {}
+            }
+            if host.name.trim().is_empty() || !names.insert(host.name.as_str()) {
+                return Err(self.error(
+                    &format!("host[{index}].name"),
+                    format!("empty or duplicate host name {:?}", host.name),
+                ));
+            }
         }
         for (key, name) in [
             ("theme.name", Some(&self.theme.name)),
@@ -223,7 +236,7 @@ impl Config {
             Some((key, None, message)) => return Err(self.error(&key, message)),
             Some((key, Some(other), label)) => {
                 // Blame the binding a config file set, not the default it collides with.
-                let (key, other) = if origin(&self.origins, &key) == Path::new("crates/config/default.toml") {
+                let (key, other) = if origin(&self.origins, &key) == Path::new(DEFAULT_FILE) {
                     (other, key)
                 } else {
                     (key, other)
@@ -235,59 +248,8 @@ impl Config {
         if self.theme.roles.headings.is_empty() {
             return Err(self.error("theme.roles.headings", "must contain at least one colour"));
         }
-        let mut names = HashSet::new();
-        for (index, status) in self.parse.statuses.iter().enumerate() {
-            for (key, values) in [("name", std::slice::from_ref(&status.name)), ("aliases", status.aliases.as_slice())] {
-                for value in values {
-                    if value.trim().is_empty() || !names.insert(value.to_lowercase()) {
-                        return Err(self.error(
-                            &format!("status[{index}].{key}"),
-                            format!("empty or duplicate status name/alias {value:?}"),
-                        ));
-                    }
-                }
-            }
-        }
-        let mut tab_names = HashSet::new();
-        for (index, tab) in self.parse.tabs.iter().enumerate() {
-            let name = tab.name.trim().to_lowercase();
-            if name.is_empty() || !tab_names.insert(name) {
-                return Err(self.error(&format!("tab[{index}].name"), format!("empty or duplicate tab name {:?}", tab.name)));
-            }
-            if let Some(folder) = &tab.folder
-                && !folder.split('/').all(|part| !part.is_empty() && part != "." && part != "..")
-            {
-                return Err(self.error(
-                    &format!("tab[{index}].folder"),
-                    format!("expected a relative folder like \".plan\", got {folder:?}"),
-                ));
-            }
-            if let Some(other) = self.parse.tabs[..index].iter().position(|earlier| earlier.folder == tab.folder) {
-                return Err(self.error(
-                    &format!("tab[{index}].folder"),
-                    format!("same folder as tab[{other}]: {:?}", tab.root()),
-                ));
-            }
-            let mut kinds = HashSet::new();
-            for (key, values) in [("kinds", tab.kinds.as_deref()), ("companions", Some(tab.companions.as_slice()))] {
-                let values = values.unwrap_or_default();
-                if key == "kinds" && tab.kinds.is_some() && values.is_empty() {
-                    return Err(self.error(&format!("tab[{index}].kinds"), "omit it to list every file"));
-                }
-                for value in values {
-                    if value.is_empty() || value.contains(['.', '/']) || !kinds.insert(value.as_str()) {
-                        return Err(self.error(
-                            &format!("tab[{index}].{key}"),
-                            format!("empty, duplicate, or dotted kind {value:?}"),
-                        ));
-                    }
-                }
-            }
-        }
-        // Keys 1-9 select tabs.
-        if !(1..=9).contains(&self.parse.tabs.len()) {
-            return Err(self.error("tab", "expected 1 to 9 tabs"));
-        }
+        validate_statuses(&self.parse.statuses, |key, message| self.error(key, message))?;
+        validate_tabs(&self.parse.tabs, |key, message| self.error(key, message))?;
         // A name may be added only for one mode. Validate that it exists here;
         // resolve() checks the palette for the mode actually selected (including CLI overrides).
         let palettes = [self.palette(Mode::Light), self.palette(Mode::Dark)];
@@ -336,6 +298,129 @@ impl Config {
     }
 }
 
+impl Layer {
+    /// The project sections of a worktree `.spec-viewer.toml`; `None` when `file` does not exist. Any section other than `[[tab]]`, `[[status]]`, and
+    /// `[[chip]]` is an error naming the file.
+    pub fn read(file: &Path) -> Result<Option<Self>, Error> {
+        let source = match fs::read_to_string(file) {
+            Ok(source) => source,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(Error::new(file, "config", error)),
+        };
+        let value = parse_toml(file, &source)?;
+        for key in value.as_table().into_iter().flat_map(|table| table.keys()) {
+            if USER_SECTIONS.contains(&key.as_str()) {
+                return Err(Error::new(file, key, "only allowed in the user config"));
+            }
+        }
+        let raw: RawLayer = deserialize(value, |_| file.to_path_buf())?;
+        let layer = Self {
+            tabs: raw.tab,
+            statuses: raw.status,
+            chips: raw.chip,
+        };
+        let error = |key: &str, message: String| Error::new(file, key, message);
+        if let Some(statuses) = &layer.statuses {
+            validate_statuses(statuses, error)?;
+        }
+        if let Some(tabs) = &layer.tabs {
+            validate_tabs(tabs, error)?;
+        }
+        Ok(Some(layer))
+    }
+}
+
+/// The daemon and frontend sections, which a worktree file may not set.
+const USER_SECTIONS: [&str; 5] = ["web", "host", "keys", "theme", "tui"];
+
+fn parse_toml(path: &Path, source: &str) -> Result<Value, Error> {
+    toml::from_str::<Value>(source).map_err(|e| {
+        let offset = e.span().map_or(0, |span| span.start);
+        let line = source.as_bytes()[..offset].iter().filter(|&&byte| byte == b'\n').count() + 1;
+        Error::new(path, format!("line {line}"), e.message())
+    })
+}
+
+fn deserialize<T: serde::de::DeserializeOwned>(value: Value, origin: impl Fn(&str) -> PathBuf) -> Result<T, Error> {
+    serde_path_to_error::deserialize(value).map_err(|e| {
+        let mut key = e.path().to_string();
+        let message = e.inner().to_string();
+        if let Some(rest) = message.split("unknown field `").nth(1) {
+            let field = rest.split('`').next().unwrap_or("");
+            if key == "." {
+                field.clone_into(&mut key);
+            } else if !key.ends_with(&format!(".{field}")) && key != field {
+                key = format!("{key}.{field}");
+            }
+        }
+        Error::new(origin(&key), key, message)
+    })
+}
+
+fn validate_statuses(statuses: &[StatusConfig], error: impl Fn(&str, String) -> Error) -> Result<(), Error> {
+    let mut names = HashSet::new();
+    for (index, status) in statuses.iter().enumerate() {
+        for (key, values) in [("name", std::slice::from_ref(&status.name)), ("aliases", status.aliases.as_slice())] {
+            for value in values {
+                if value.trim().is_empty() || !names.insert(value.to_lowercase()) {
+                    return Err(error(
+                        &format!("status[{index}].{key}"),
+                        format!("empty or duplicate status name/alias {value:?}"),
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_tabs(tabs: &[TabConfig], error: impl Fn(&str, String) -> Error) -> Result<(), Error> {
+    let mut tab_names = HashSet::new();
+    for (index, tab) in tabs.iter().enumerate() {
+        let name = tab.name.trim().to_lowercase();
+        if name.is_empty() || !tab_names.insert(name) {
+            return Err(error(
+                &format!("tab[{index}].name"),
+                format!("empty or duplicate tab name {:?}", tab.name),
+            ));
+        }
+        if let Some(folder) = &tab.folder
+            && !folder.split('/').all(|part| !part.is_empty() && part != "." && part != "..")
+        {
+            return Err(error(
+                &format!("tab[{index}].folder"),
+                format!("expected a relative folder like \".plan\", got {folder:?}"),
+            ));
+        }
+        if let Some(other) = tabs[..index].iter().position(|earlier| earlier.folder == tab.folder) {
+            return Err(error(
+                &format!("tab[{index}].folder"),
+                format!("same folder as tab[{other}]: {:?}", tab.root()),
+            ));
+        }
+        let mut kinds = HashSet::new();
+        for (key, values) in [("kinds", tab.kinds.as_deref()), ("companions", Some(tab.companions.as_slice()))] {
+            let values = values.unwrap_or_default();
+            if key == "kinds" && tab.kinds.is_some() && values.is_empty() {
+                return Err(error(&format!("tab[{index}].kinds"), "omit it to list every file".into()));
+            }
+            for value in values {
+                if value.is_empty() || value.contains(['.', '/']) || !kinds.insert(value.as_str()) {
+                    return Err(error(
+                        &format!("tab[{index}].{key}"),
+                        format!("empty, duplicate, or dotted kind {value:?}"),
+                    ));
+                }
+            }
+        }
+    }
+    // Keys 1-9 select tabs.
+    if !(1..=9).contains(&tabs.len()) {
+        return Err(error("tab", "expected 1 to 9 tabs".into()));
+    }
+    Ok(())
+}
+
 /// `$XDG_CONFIG_HOME/spec-viewer`, else `~/.config/spec-viewer`.
 fn user_dir() -> Option<PathBuf> {
     std::env::var_os("XDG_CONFIG_HOME")
@@ -353,7 +438,7 @@ fn origin(origins: &BTreeMap<String, PathBuf>, key: &str) -> PathBuf {
         }
         match key.rfind(['.', '[']) {
             Some(i) => key = &key[..i],
-            None => return PathBuf::from("crates/config/default.toml"),
+            None => return PathBuf::from(DEFAULT_FILE),
         }
     }
 }

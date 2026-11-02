@@ -1,31 +1,125 @@
-use spec_viewer_config::{Color, Config, Mode};
+use spec_viewer_config::{Color, Config, HostConfig, Layer, Mode, ParseConfig};
 
 #[test]
-fn vc_7_layers_merge_tables_and_replace_arrays() {
+fn vc_7_user_tables_merge_and_project_layers_replace_arrays() {
     let root = tempfile::tempdir().unwrap();
     let user = root.path().join("user.toml");
     let worktree = root.path().join(".spec-viewer.toml");
-    let explicit = root.path().join("explicit.toml");
-    std::fs::write(&user, "[theme.roles]\naccent='red'\n[[status]]\nname='custom'\ncolor='red'\n").unwrap();
     std::fs::write(
-        &worktree,
-        "chip=[]\n[theme.roles]\naccent='green'\nheadings=['blue']\n[[status]]\nname='shipped'\naliases=['released']\ncolor='magenta'\n",
+        &user,
+        "[theme.roles]\naccent='red'\nheadings=['blue']\n[[status]]\nname='custom'\ncolor='red'\n",
     )
     .unwrap();
-    std::fs::write(&explicit, "[theme.roles]\naccent='cyan'\n").unwrap();
-    let config = Config::load_layers(Some(&user), root.path(), Some(&explicit)).unwrap();
+    std::fs::write(
+        &worktree,
+        "chip=[]\n[[status]]\nname='shipped'\naliases=['released']\ncolor='magenta'\n",
+    )
+    .unwrap();
+    let config = Config::load_file(Some(&user)).unwrap();
     let theme = config.resolve(Mode::Dark).unwrap();
-    assert_eq!(theme.roles.accent, Color::Ansi(spec_viewer_config::Ansi::Cyan));
+    assert_eq!(theme.roles.accent, Color::Ansi(spec_viewer_config::Ansi::Red));
     assert_eq!(theme.roles.headings.len(), 1);
-    assert_eq!(config.parse.statuses.len(), 1);
-    assert_eq!(config.parse.statuses[0].name, "shipped");
-    assert!(config.parse.chips.is_empty());
+    assert_eq!(config.parse.statuses[0].name, "custom");
+    assert_eq!(config.layer.statuses.as_ref().map(Vec::len), Some(1));
+    assert_eq!((config.layer.tabs.as_ref(), config.layer.chips.as_ref()), (None, None));
+    let project = Layer::read(&worktree).unwrap().unwrap();
+    let parse = ParseConfig::with(&[&config.layer, &project]);
+    assert_eq!(parse.statuses.len(), 1);
+    assert_eq!(parse.statuses[0].name, "shipped");
+    assert!(parse.chips.is_empty());
+    assert_eq!(parse.tabs, ParseConfig::default().tabs);
+    assert_eq!(Layer::read(&root.path().join("absent.toml")).unwrap(), None);
+}
+
+#[test]
+fn vc_8_worktree_files_hold_project_sections_only() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join(".spec-viewer.toml");
+    for (source, key) in [
+        ("[[host]]\nname='box'\nssh='box'", "host"),
+        ("[web]\nport=1", "web"),
+        ("[keys]\nquit='x'", "keys"),
+        ("[theme]\nmode='dark'", "theme"),
+        ("[tui]\ndiff=true", "tui"),
+        ("strange=true", "strange"),
+        ("[[tab]]\nname='a'\nfolder='a'\nstrange=1", "tab[0].strange"),
+        (
+            "[[status]]\nname='x'\ncolor='blue'\n[[status]]\nname='X'\ncolor='red'",
+            "status[1].name",
+        ),
+        ("tab=[]", "tab"),
+        ("[[tab]]\nname='a'\nfolder='../a'", "tab[0].folder"),
+        ("[[tab]\n", "line 1"),
+    ] {
+        std::fs::write(&file, source).unwrap();
+        let error = Layer::read(&file).unwrap_err();
+        assert_eq!(error.file, file, "{source}: {error}");
+        assert_eq!(error.key, key, "{source}: {error}");
+    }
+    std::fs::write(&file, "[[status]]\nname='shipped'\ncolor='not-in-any-palette'").unwrap();
+    assert_eq!(
+        Layer::read(&file).unwrap().unwrap().statuses.unwrap()[0].color,
+        "not-in-any-palette"
+    );
+}
+
+#[test]
+fn vc_8_user_web_takes_a_port_and_hosts_one_command_each() {
+    let root = tempfile::tempdir().unwrap();
+    let user = root.path().join("config.toml");
+    assert_eq!(Config::default().web.port, 4747);
+    assert!(Config::default().hosts.is_empty());
+    std::fs::write(
+        &user,
+        "[web]\nport=0\n[[host]]\nname='box'\nssh='devbox'\n[[host]]\nname='pod'\ncommand=['kubectl','exec']\n",
+    )
+    .unwrap();
+    let config = Config::load_file(Some(&user)).unwrap();
+    assert_eq!(config.web.port, 0);
+    assert_eq!(
+        config.hosts.iter().map(HostConfig::argv).collect::<Vec<_>>(),
+        [
+            vec!["ssh", "-T", "devbox", "spec-viewer", "daemon", "--stdio"],
+            vec!["kubectl", "exec"]
+        ]
+    );
+    for (source, key) in [
+        ("[web]\nbind='0.0.0.0'", "web.bind"),
+        ("[web]\ncert='c.pem'", "web.cert"),
+        ("[web]\nkey='k.pem'", "web.key"),
+        ("[web]\nport=70000", "web.port"),
+        ("[[host]]\nname='box'\nssh='box'\ncommand=['x']", "host[0].command"),
+        ("[[host]]\nname='box'", "host[0]"),
+        ("[[host]]\nname='box'\ncommand=[]", "host[0].command"),
+        ("[[host]]\nname='box'\nssh='a'\n[[host]]\nname='box'\nssh='b'", "host[1].name"),
+        ("[[host]]\nname='box'\nssh='a'\nport=22", "host[0].port"),
+    ] {
+        std::fs::write(&user, source).unwrap();
+        let error = Config::load_file(Some(&user)).unwrap_err();
+        assert_eq!(error.file, user, "{source}: {error}");
+        assert_eq!(error.key, key, "{source}: {error}");
+    }
+}
+
+#[test]
+fn layers_cross_the_wire_unchanged() {
+    let root = tempfile::tempdir().unwrap();
+    let file = root.path().join(".spec-viewer.toml");
+    std::fs::write(&file, "chip=[]\n[[tab]]\nname='notes'\nfolder='notes'\n").unwrap();
+    let layer = Layer::read(&file).unwrap().unwrap();
+    let json = serde_json::to_string(&layer).unwrap();
+    assert_eq!(
+        json,
+        r#"{"tabs":[{"name":"notes","folder":"notes","kinds":null,"companions":[]}],"chips":[]}"#
+    );
+    assert_eq!(serde_json::from_str::<Layer>(&json).unwrap(), layer);
+    assert_eq!(serde_json::from_str::<Layer>("{}").unwrap(), Layer::default());
 }
 
 #[test]
 fn vc_7_validation_errors_name_the_defining_file_and_key() {
     let root = tempfile::tempdir().unwrap();
-    let file = root.path().join(".spec-viewer.toml");
+    let file = root.path().join("config.toml");
     for (source, key) in [
         ("[theme]\nmode='rainbow'", "theme.mode"),
         ("[theme\naccent='red'", "line 1"),
@@ -62,17 +156,12 @@ fn vc_7_validation_errors_name_the_defining_file_and_key() {
         ("[theme]\ncode_dark='custom.tmTheme'", "theme.code_dark"),
     ] {
         std::fs::write(&file, source).unwrap();
-        let error = Config::load_layers(None, root.path(), None).unwrap_err();
+        let error = Config::load_file(Some(&file)).unwrap_err();
         assert_eq!(error.file, file, "{source}: {error}");
         assert!(error.key.starts_with(key), "{source}: {error}");
         assert_eq!(error.to_string().lines().count(), 1);
     }
-    std::fs::remove_file(&file).unwrap();
-    Config::load_layers(Some(&root.path().join("absent-user.toml")), root.path(), None).unwrap();
-    let missing = root.path().join("absent-explicit.toml");
-    let error = Config::load_layers(None, root.path(), Some(&missing)).unwrap_err();
-    assert_eq!(error.file, missing);
-    assert_eq!(error.key, "--config");
+    Config::load_file(Some(&root.path().join("absent-user.toml"))).unwrap();
 }
 
 #[test]
@@ -102,12 +191,12 @@ fn colour_syntax_and_palette_validation() {
     }
     let root = tempfile::tempdir().unwrap();
     std::fs::write(
-        root.path().join(".spec-viewer.toml"),
+        root.path().join("config.toml"),
         "[theme.palette]\nbrand='reset'\n[theme.roles]\naccent='brand'",
     )
     .unwrap();
     assert_eq!(
-        Config::load_layers(None, root.path(), None)
+        Config::load_file(Some(&root.path().join("config.toml")))
             .unwrap()
             .resolve(Mode::Dark)
             .unwrap()
@@ -120,9 +209,9 @@ fn colour_syntax_and_palette_validation() {
 #[test]
 fn vc_7_empty_unknown_table_errors_name_the_file() {
     let root = tempfile::tempdir().unwrap();
-    let file = root.path().join(".spec-viewer.toml");
+    let file = root.path().join("config.toml");
     std::fs::write(&file, "[theme.unknown]\n").unwrap();
-    let error = Config::load_layers(None, root.path(), None).unwrap_err();
+    let error = Config::load_file(Some(&root.path().join("config.toml"))).unwrap_err();
     assert_eq!(error.file, file);
     assert!(error.key.contains("unknown"));
 }
@@ -130,7 +219,7 @@ fn vc_7_empty_unknown_table_errors_name_the_file() {
 #[test]
 fn vc_7_palette_shape_errors_identify_the_exact_key_and_layer() {
     let root = tempfile::tempdir().unwrap();
-    let file = root.path().join(".spec-viewer.toml");
+    let file = root.path().join("config.toml");
     for (source, key) in [
         ("[theme.palette]\nblue=123", "theme.palette.blue"),
         ("[theme.palette.autumn]\nblue='#123456'", "theme.palette.autumn"),
@@ -138,59 +227,24 @@ fn vc_7_palette_shape_errors_identify_the_exact_key_and_layer() {
         ("[theme.palette]\nlight='blue'", "theme.palette.light"),
     ] {
         std::fs::write(&file, source).unwrap();
-        let error = Config::load_layers(None, root.path(), None).unwrap_err();
+        let error = Config::load_file(Some(&root.path().join("config.toml"))).unwrap_err();
         assert_eq!(error.file, file);
         assert_eq!(error.key, key, "{source}: {error}");
     }
 }
 
 #[test]
-fn web_is_user_only_with_paths_relative_to_the_user_file() {
-    let root = tempfile::tempdir().unwrap();
-    let user = root.path().join("user/config.toml");
-    std::fs::create_dir(root.path().join("user")).unwrap();
-    std::fs::write(&user, "[web]\nbind='0.0.0.0'\ncert='cert.pem'\nkey='/abs/key.pem'\n").unwrap();
-    let config = Config::load_layers(Some(&user), root.path(), None).unwrap();
-    assert_eq!(config.web.bind, "0.0.0.0");
-    assert_eq!(config.web.cert, Some(root.path().join("user/cert.pem")));
-    assert_eq!(config.web.key, Some("/abs/key.pem".into()));
-    assert_eq!(Config::default().web.bind, "127.0.0.1");
-
-    let worktree = root.path().join(".spec-viewer.toml");
-    let explicit = root.path().join("explicit.toml");
-    std::fs::write(&explicit, "").unwrap();
-    for file in [&worktree, &explicit] {
-        std::fs::write(file, "[web]\nbind='0.0.0.0'\n").unwrap();
-        let error = Config::load_layers(None, root.path(), Some(&explicit)).unwrap_err();
-        assert_eq!((&error.file, error.key.as_str()), (file, "web"), "{error}");
-        std::fs::write(file, "").unwrap();
-    }
-
-    for (source, key) in [
-        ("[web]\nbind=''", "web.bind"),
-        ("[web]\ncert='c.pem'", "web.cert"),
-        ("[web]\nkey='k.pem'", "web.key"),
-        ("[web]\nport=1", "web.port"),
-    ] {
-        std::fs::write(&user, source).unwrap();
-        let error = Config::load_layers(Some(&user), root.path(), None).unwrap_err();
-        assert_eq!(error.file, user, "{source}: {error}");
-        assert!(error.key.starts_with(key), "{source}: {error}");
-    }
-}
-
-#[test]
 fn tui_diff_defaults_off_and_a_layer_turns_it_on() {
     let root = tempfile::tempdir().unwrap();
-    assert!(!Config::load_layers(None, root.path(), None).unwrap().tui.diff);
-    std::fs::write(root.path().join(".spec-viewer.toml"), "[tui]\ndiff = true\n").unwrap();
-    assert!(Config::load_layers(None, root.path(), None).unwrap().tui.diff);
+    assert!(!Config::load_file(Some(&root.path().join("config.toml"))).unwrap().tui.diff);
+    std::fs::write(root.path().join("config.toml"), "[tui]\ndiff = true\n").unwrap();
+    assert!(Config::load_file(Some(&root.path().join("config.toml"))).unwrap().tui.diff);
 }
 
 #[test]
 fn tabs_default_to_plans_then_specs_and_a_layer_replaces_them() {
     let root = tempfile::tempdir().unwrap();
-    let file = root.path().join(".spec-viewer.toml");
+    let file = root.path().join("config.toml");
     let tabs = |config: Config| {
         config
             .parse
@@ -213,7 +267,7 @@ fn tabs_default_to_plans_then_specs_and_a_layer_replaces_them() {
     )
     .unwrap();
     assert_eq!(
-        tabs(Config::load_layers(None, root.path(), None).unwrap()),
+        tabs(Config::load_file(Some(&root.path().join("config.toml"))).unwrap()),
         [
             ("ADRs".into(), Some("docs/adr".into()), None, vec![]),
             ("docs".into(), Some("docs".into()), Some(strings(&["guide"])), vec![]),
@@ -240,7 +294,7 @@ fn tab_of_picks_the_deepest_folder_and_its_kinds() {
 #[test]
 fn tab_errors_name_the_tab_and_key() {
     let root = tempfile::tempdir().unwrap();
-    let file = root.path().join(".spec-viewer.toml");
+    let file = root.path().join("config.toml");
     let tab = |name: &str, folder: &str| format!("[[tab]]\nname='{name}'\nfolder='{folder}'\n");
     for (source, key) in [
         (tab(" ", "a"), "tab[0].name"),
@@ -259,7 +313,7 @@ fn tab_errors_name_the_tab_and_key() {
         ((0..10).map(|i| tab(&i.to_string(), &i.to_string())).collect(), "tab"),
     ] {
         std::fs::write(&file, &source).unwrap();
-        let error = Config::load_layers(None, root.path(), None).unwrap_err();
+        let error = Config::load_file(Some(&root.path().join("config.toml"))).unwrap_err();
         assert_eq!(error.file, file, "{source}: {error}");
         assert!(error.key.starts_with(key), "{source}: {error}");
     }
@@ -279,7 +333,7 @@ fn keys_parse_herdr_strings_and_a_layer_rebinds_one_action() {
             },
         )
     };
-    let keys = Config::load_layers(None, root.path(), None).unwrap().keys;
+    let keys = Config::load_file(Some(&root.path().join("config.toml"))).unwrap().keys;
     assert_eq!(keys.action(&plain(Code::Char('q'))), Some((Action::Quit, 0)));
     assert_eq!(keys.action(&plain(Code::Char('Y'))), Some((Action::CopyName, 0)));
     assert_eq!(keys.action(&plain(Code::Char('3'))), Some((Action::SwitchTab, 2)));
@@ -296,11 +350,11 @@ fn keys_parse_herdr_strings_and_a_layer_rebinds_one_action() {
     );
 
     std::fs::write(
-        root.path().join(".spec-viewer.toml"),
+        root.path().join("config.toml"),
         "[keys]\nquit = ['x', 'ctrl+shift+q']\ncopy_name = 'shift+n'\nswitch_tab = 'alt+1..9'\nhints = []\n[keys.search_dialog]\nclose = ['esc', 'ctrl+plus']\n",
     )
     .unwrap();
-    let keys = Config::load_layers(None, root.path(), None).unwrap().keys;
+    let keys = Config::load_file(Some(&root.path().join("config.toml"))).unwrap().keys;
     assert_eq!(keys.action(&plain(Code::Char('x'))), Some((Action::Quit, 0)));
     assert_eq!(keys.action(&plain(Code::Char('q'))), None);
     assert_eq!(
@@ -336,7 +390,7 @@ fn keys_parse_herdr_strings_and_a_layer_rebinds_one_action() {
 #[test]
 fn key_errors_name_the_action() {
     let root = tempfile::tempdir().unwrap();
-    let file = root.path().join(".spec-viewer.toml");
+    let file = root.path().join("config.toml");
     for (source, key, message) in [
         ("[keys]\nquit = 'hyper+q'", "keys.quit", "unknown modifier"),
         ("[keys]\nquit = 'ctrl+ctrl+q'", "keys.quit", "repeated modifier"),
@@ -361,7 +415,7 @@ fn key_errors_name_the_action() {
         ),
     ] {
         std::fs::write(&file, source).unwrap();
-        let error = Config::load_layers(None, root.path(), None).unwrap_err();
+        let error = Config::load_file(Some(&root.path().join("config.toml"))).unwrap_err();
         assert_eq!(error.file, file, "{source}: {error}");
         assert!(error.key.starts_with(key), "{source}: {error}");
         assert!(error.to_string().contains(message), "{source}: {error}");

@@ -202,12 +202,9 @@ mod tests {
     #[test]
     fn vc_6_modes_select_mode_palettes_with_auto_fallback() {
         let root = tempfile::tempdir().unwrap();
-        std::fs::write(
-            root.path().join(".spec-viewer.toml"),
-            "[theme]\nmode='auto'\n[theme.palette.light]\nblue='#1e66f5'",
-        )
-        .unwrap();
-        let config = Config::load_layers(None, root.path(), None).unwrap();
+        let file = root.path().join("config.toml");
+        std::fs::write(&file, "[theme]\nmode='auto'\n[theme.palette.light]\nblue='#1e66f5'").unwrap();
+        let config = Config::load_file(Some(&file)).unwrap();
         let auto = Theme::from_config(&config, None).unwrap();
         assert!(auto.is_auto());
         let dark = auto.clone().resolve_auto(None);

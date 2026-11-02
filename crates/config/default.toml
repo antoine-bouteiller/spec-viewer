@@ -1,9 +1,17 @@
-# crates/config/default.toml; lower layers first:
-# default < $XDG_CONFIG_HOME/spec-viewer/config.toml (else ~/.config/…) < <ROOT worktree>/.spec-viewer.toml < --config PATH
-[web]                          # user config only
-bind = "127.0.0.1"             # an IP, or a hostname to bind all interfaces; unauthenticated off loopback
-# cert = "cert.pem"            # with key: serve HTTPS; PEM paths, relative to the config file
-# key = "key.pem"
+# crates/config/default.toml, below $XDG_CONFIG_HOME/spec-viewer/config.toml (else ~/.config/…).
+# A worktree .spec-viewer.toml may set only the project sections: [[tab]], [[status]], and [[chip]].
+# Project sections: default < the frontend host's user config < the worktree's .spec-viewer.toml.
+
+# Daemon sections: read from the daemon host's user config.
+[web]
+port = 4747                    # the web app on http://localhost:<port>; 0 takes any free port
+
+# [[host]]                     # a remote host, browsed over SSH
+# name = "devbox"
+# ssh = "devbox"               # runs: ssh -T devbox spec-viewer daemon --stdio
+# command = ["kubectl", "exec", "-i", "pod", "--", "spec-viewer", "daemon", "--stdio"]  # instead of ssh
+
+# Frontend sections: read by each frontend from its host's user config.
 
 [tui]
 diff = false                   # start with Diff on: tabs list only changed documents

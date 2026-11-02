@@ -4,18 +4,13 @@ use spec_viewer_config::Mode as Theme;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
-    Tui {
-        root: PathBuf,
-        theme: Option<Theme>,
-        config: Option<PathBuf>,
-    },
+    Tui { root: PathBuf, theme: Option<Theme> },
 }
 
 /// Parses `argv` without the program name. Errors are the one-line stderr message, without prefix.
 pub fn parse(args: &[String]) -> Result<Command, String> {
     let mut root = None;
     let mut theme = None;
-    let mut config = None;
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         if arg == "--theme" {
@@ -24,8 +19,8 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 Some("dark") => Theme::Dark,
                 other => return Err(format!("invalid theme: {}", other.unwrap_or(""))),
             });
-        } else if arg == "--config" {
-            config = Some(PathBuf::from(iter.next().ok_or("missing --config PATH")?));
+        } else if arg.starts_with("--") {
+            return Err(format!("unknown option: {arg}"));
         } else if root.is_none() {
             root = Some(arg.as_str());
         } else {
@@ -35,7 +30,6 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
     Ok(Command::Tui {
         root: resolve_root(root.unwrap_or("."))?,
         theme,
-        config,
     })
 }
 
@@ -57,10 +51,9 @@ mod tests {
 
     #[test]
     fn tui_defaults_root_to_current_directory() {
-        let Command::Tui { root, theme, config } = parse(&[]).unwrap();
+        let Command::Tui { root, theme } = parse(&[]).unwrap();
         assert_eq!(root, std::fs::canonicalize(".").unwrap());
         assert_eq!(theme, None);
-        assert_eq!(config, None);
     }
 
     #[test]
@@ -74,6 +67,11 @@ mod tests {
             }
         ));
         assert_eq!(parse(&args(&["--theme", "blue"])).unwrap_err(), "invalid theme: blue");
+    }
+
+    #[test]
+    fn vc_8_config_is_an_unknown_option() {
+        assert_eq!(parse(&args(&["--config", "x.toml"])).unwrap_err(), "unknown option: --config");
     }
 
     #[test]
