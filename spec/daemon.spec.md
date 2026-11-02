@@ -62,7 +62,8 @@ flowchart LR
 | `[KD-5]` Single instance      | The daemon takes an exclusive `flock` on `daemon-v<PROTOCOL>.lock` before binding; a daemon that loses the lock exits 0                                                                                                                                                                                 | Two frontends spawning at once end with one daemon                                                                                        |
 | `[KD-6]` Spawn                | A frontend that cannot connect runs `current_exe() daemon --idle-exit 300` detached (`setsid`, output to `daemon.log`) and retries for 2 s                                                                                                                                                              | `spec-viewer .` needs no setup                                                                                                            |
 | `[KD-7]` Idle exit            | A daemon started with `--idle-exit` exits after that many seconds with no socket client and no SSE stream; `spec-viewer daemon` alone never idles out                                                                                                                                                   | Auto-spawned daemons clean up; one run by launchd or systemd keeps bookmarks working                                                      |
-| `[KD-8.1]` Remote hosts       | The hub runs each host's `command` when the daemon starts and speaks the protocol on its stdio. A failed or lost connection retries with backoff up to 120 s. A host connecting or dropping sends `Changed` to every watch                                                                              | Remote worktrees join merged projects (`[KD-17]`) without a request naming the host; nothing listens on the remote host                   |
+| `[KD-8.2]` Remote hosts | The hub runs each host's `command` when the daemon starts and speaks the protocol on its stdio. A failed or lost connection retries with backoff up to 120 s, and a request to a lost host retries at once. A host connecting or dropping sends `Changed` to every watch | Remote worktrees join merged projects (`[KD-17]`) without a request naming the host; `[VC-5]`'s next request reconnects without waiting out the backoff |
+| ~~`[KD-8.1]` Remote hosts~~ | ~~The hub runs each host's `command` when the daemon starts and speaks the protocol on its stdio. A failed or lost connection retries with backoff up to 120 s. A host connecting or dropping sends `Changed` to every watch~~ | ~~Remote worktrees join merged projects (`[KD-17]`) without a request naming the host; nothing listens on the remote host~~ |
 | ~~`[KD-8]` Remote hosts~~     | ~~The hub runs the host's `command` and speaks the protocol on its stdio. It connects on the first request, reconnects on the next request after a failure, and closes after 300 s idle~~                                                                                                               | ~~Nothing listens on the remote host; `ssh` config, agents, and jump hosts apply unchanged~~                                              |
 | `[KD-9]` Stdio relay          | `spec-viewer daemon --stdio` relays stdin and stdout to its host's socket, spawning the daemon per `[KD-6]`                                                                                                                                                                                             | Remote terminal sessions and the hub share one daemon, one watch, and one cache per worktree                                              |
 | `[KD-10]` Routing             | A request names `host`; `None` is the receiving daemon. The hub forwards with `host: None`; a request with a host reaching a daemon with no such `[[host]]` fails `UnknownHost`                                                                                                                         | Enforces `[NG-5]` without a hop count                                                                                                     |
@@ -105,7 +106,7 @@ flowchart LR
 
 ### [CT-1] Messages
 
-Kind: schema · Anchor: null
+Kind: schema · Anchor: `crates/protocol/src/messages.rs`
 
 ```rust
 pub const PROTOCOL: u32 = 1;
@@ -144,7 +145,7 @@ pub enum DaemonMessage {
 }
 
 pub enum Response {
-    Hosts(Vec<HostState>),      // HostState { name, connected: bool }
+    Hosts(Vec<HostState>),      // HostState { name, connected: bool, error: Option<String> }: error while disconnected
     Projects(Vec<Project>),
     Resolved { project: Project, worktree: usize, statuses: Vec<StatusConfig> },
     Project(Project),
@@ -181,19 +182,22 @@ of a project with a local worktree is in use, the hub watches the local main wor
 scp form `host:path` read as `host/path`, and the host lowercased: `git@GitHub.com:o/r.git` and
 `https://github.com/o/r` are both `github.com/o/r`. The hub answers `Resolve`, `Project`, and
 `Projects` with merged projects; `Resolved.worktree` indexes the merged list, and a frontend sends
-each request to its worktree's `host`.
+each request to its worktree's `host`. A connection whose `Hello` carries a user layer, a hub's, gets
+this host's projects unmerged, so a remote daemon never reaches further hosts (`[NG-5]`).
 
 ### [CT-2] Client
 
-Kind: api · Anchor: null
+Kind: api · Anchor: `crates/protocol/src/client.rs#Client`
 
 ```rust
 impl Client {
     /// Connects to this host's daemon, spawning it per [KD-6], and completes the handshake.
     pub fn connect() -> Result<Client, Error>;
-    /// Handshake over any stream: the in-process gateway, tests, and the hub's SSH child.
+    /// Handshake over a reader and a writer: the in-process gateway, tests, and the hub's SSH child.
     /// `user` is sent in `Hello`; only the hub passes `Some`.
-    pub fn over(stream: impl Read + Write + Send + 'static, user: Option<Layer>) -> Result<Client, Error>;
+    pub fn over(reader: impl Read + Send + 'static, writer: impl Write + Send + 'static, user: Option<Layer>) -> Result<Client, Error>;
+    /// `over` a socket, shut down once the client and its watches are dropped.
+    pub fn over_socket(stream: UnixStream, user: Option<Layer>) -> Result<Client, Error>;
     pub fn web_url(&self) -> Option<&str>;
     pub fn hosts(&self) -> Result<Vec<HostState>, Error>;
     pub fn projects(&self, host: Option<&str>) -> Result<Vec<Project>, Error>;
@@ -201,9 +205,13 @@ impl Client {
     pub fn project(&self, host: Option<&str>, key: &Path) -> Result<Project, Error>;
     pub fn corpus(&self, host: Option<&str>, worktree: &Path) -> Result<Corpus, Error>;
     pub fn open(&self, host: Option<&str>, worktree: &Path, path: &str) -> Result<Opened, Error>;
-    /// Dropping the receiver sends Unwatch.
-    pub fn watch(&self, host: Option<&str>, worktree: &Path) -> Result<Receiver<Event>, Error>;
+    /// Dropping the watch sends Unwatch.
+    pub fn watch(&self, host: Option<&str>, worktree: &Path) -> Result<Watch, Error>;
+    pub fn call(&self, host: Option<&str>, request: Request) -> Result<Response, Error>;
+    pub fn send_user(&self, user: Layer) -> Result<(), Error>;                            // the hub's User
+    pub fn send_override(&self, worktree: &Path, layer: Option<Layer>) -> Result<(), Error>; // the hub's Override
 }
+pub struct Watch; // derefs to Receiver<Event>
 pub enum Event { Changed, HostDown }
 ```
 
@@ -213,7 +221,7 @@ Calls block, matching the synchronous workspace. One reader thread per client ro
 
 ### [CT-3] Daemon lifecycle
 
-Kind: invariant · Anchor: null
+Kind: invariant · Anchor: `crates/daemon/src/lifecycle.rs#run`
 
 ```text
 $XDG_RUNTIME_DIR/spec-viewer/      (else $TMPDIR/spec-viewer-<uid>/), mode 0700
@@ -237,7 +245,7 @@ directory with a mode other than `0700`, or owned by another user, is an error n
 
 ### [CT-4] Command line
 
-Kind: api · Anchor: null
+Kind: api · Anchor: `crates/spec-viewer/src/cli.rs#parse`
 
 ```text
 spec-viewer [ROOT] [--host NAME] [--theme light|dark]
@@ -252,7 +260,7 @@ its host's user config.
 
 ### [CT-5] Config split
 
-Kind: config · Anchor: null
+Kind: config · Anchor: `crates/config/default.toml`
 
 ```toml
 # Project sections: embedded default < the frontend host's user config (Hello.user) < the .spec-viewer.toml [KD-12.2] selects
@@ -281,7 +289,7 @@ daemon or frontend section in it is a config error naming the file.
 
 ### [CT-6] Gateway
 
-Kind: api · Anchor: null
+Kind: api · Anchor: `crates/render-web/src/server.rs#start`
 
 The routes of `spec/web-ui.spec.md` `[CT-2]` take an optional `host` parameter; the client's URL
 state adds `host=<name>` (`spec/web-ui.spec.md` `[CT-3]`), and the link the terminal's `o` opens
@@ -291,6 +299,7 @@ its project to that host's known projects. The worktree dropdown lists every mer
 
 ```text
 GET /api/projects → { projects: [{ name, path, origin?, worktrees: [{ host?, name, main, path }] }], unreachable: [{ host, error }] }
+GET /theme.css?host=&wt= → the worktree's statuses as --tone-N, coloured from the gateway host's palette
 ```
 
 A request whose `Host` header is not `localhost`, `127.0.0.1`, or `[::1]` with the gateway's port is
@@ -354,9 +363,12 @@ client shows it in place of the corpus.
   systemd to keep one up.
 - `[C-5]` Raw HTML in a document runs in the gateway's origin, which can fetch every host's
   documents. `spec/web-ui.spec.md` `[C-1]` now spans every configured host.
-- `[C-6]` The terminal snapshot tests (`crates/render-tui/tests/tui.rs`) and the web server tests
+- `[C-6.1]` The terminal snapshot tests (`crates/render-tui/tests/tui.rs`) and the web server tests
+  (`crates/render-web/tests/server.rs`) pass unchanged in output against an in-process daemon. The
+  server's TLS and preferred-port tests go with the features `[SO-6]` removes.
+- ~~`[C-6]` The terminal snapshot tests (`crates/render-tui/tests/tui.rs`) and the web server tests
   (`crates/render-web/tests/server.rs`) must pass unchanged in output, run through `Client::over`
-  against an in-process daemon.
+  against an in-process daemon.~~
 - `[C-7]` Accepting this spec supersedes `spec/web-ui.spec.md` `[G-2]`, `[NG-2]`, `[NG-3]`,
   `[KD-1]`, `[KD-6]`, `[KD-7]`, `[SO-4]`, `[CT-2]` (`start`, `/api/projects`), `[CT-4]`, `[CT-5]`, `[CT-6]`, `[C-4]`, `[VC-5]`,
   `[VC-7]`, `[VC-8]`, and `spec/terminal-ui.spec.md` `[PI-2]`, `[KD-8]`, `[KD-9]`, `[NG-4]`, the
