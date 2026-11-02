@@ -854,17 +854,21 @@ const loadDoc = async () => {
   }
 }
 
+// The corpus request resolves the worktree again, so the statuses the stylesheet and the document
+// then use are current.
+const loadWorktree = async () => {
+  await loadDocs()
+  loadTheme(true)
+  await loadDoc()
+}
+
 let events = null
 
 const connectEvents = () => {
   events?.close()
   events = url.wt ? new EventSource(`/api/events?${new URLSearchParams(target())}`) : null
-  // The corpus request resolves the worktree again, so the statuses the stylesheet and the
-  // document then use are current.
-  events?.addEventListener('message', async () => {
-    await loadDocs()
-    loadTheme(true)
-    void loadDoc()
+  events?.addEventListener('message', () => {
+    void loadWorktree()
     if (searchDialog.open) {
       void runSearch()
     }
@@ -912,12 +916,10 @@ const selectTab = (next) => {
 // A link without `wt` keeps its `doc`, opened in the default worktree.
 const selectWorktree = (path, host, keepDoc = false) => {
   setUrl({ doc: keepDoc ? url.doc : undefined, host: host ?? undefined, wt: path })
-  loadTheme()
   state.docs = NO_DOCS
   resetTree()
   connectEvents()
-  void loadDocs()
-  void loadDoc()
+  void loadWorktree()
 }
 
 addEventListener('focus', () => void loadProjects())
@@ -952,8 +954,7 @@ const start = async () => {
   await loadProjects()
   if (url.wt && !events) {
     connectEvents()
-    void loadDocs()
-    void loadDoc()
+    void loadWorktree()
   }
 }
 
