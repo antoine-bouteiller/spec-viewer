@@ -421,3 +421,15 @@ fn key_errors_name_the_action() {
         assert!(error.to_string().contains(message), "{source}: {error}");
     }
 }
+
+#[test]
+fn status_colors_resolve_against_this_palette_and_skip_unknown_names() {
+    let status = |name: &str, color: &str| spec_viewer_config::StatusConfig {
+        name: name.into(),
+        aliases: vec![],
+        color: color.into(),
+    };
+    let colors = Config::default().status_colors(Mode::Light, &[status("shipped", "green"), status("odd", "not-a-colour")]);
+    assert_eq!(colors.len(), 1);
+    assert_eq!(colors["shipped"], Color::Ansi(spec_viewer_config::Ansi::Green));
+}

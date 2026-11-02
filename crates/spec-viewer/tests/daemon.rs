@@ -11,7 +11,7 @@ use support::{Host, repository, wait_until};
 
 #[test]
 fn vc_1_concurrent_clients_start_one_daemon_and_share_it() {
-    let base = tempfile::tempdir().unwrap();
+    let base = support::base();
     let host = Host::new(base.path(), "host");
     let root = repository(&base.path().join("r"), None);
     // A distinctive idle time finds this test's daemons among other processes.
@@ -33,7 +33,7 @@ fn vc_1_concurrent_clients_start_one_daemon_and_share_it() {
 
 #[test]
 fn vc_2_an_idle_exit_daemon_lives_while_a_client_does() {
-    let base = tempfile::tempdir().unwrap();
+    let base = support::base();
     let host = Host::new(base.path(), "host");
     let mut daemon = host.command(&["daemon", "--idle-exit", "1"]).spawn().unwrap();
     wait_until("the socket", || host.runtime.socket().exists());

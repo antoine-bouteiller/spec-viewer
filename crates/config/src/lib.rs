@@ -271,6 +271,15 @@ impl Config {
         }
         Ok(())
     }
+    /// The colour of each of `statuses` in `mode`, leaving out those naming no palette colour.
+    pub fn status_colors(&self, mode: Mode, statuses: &[StatusConfig]) -> BTreeMap<String, Color> {
+        let mode = if mode == Mode::Auto { Mode::Dark } else { mode };
+        let palette = self.palette(mode);
+        statuses
+            .iter()
+            .filter_map(|status| Some((status.name.clone(), *palette.get(&status.color)?)))
+            .collect()
+    }
     pub fn resolve(&self, mode: Mode) -> Result<ResolvedTheme, Error> {
         let mode = if mode == Mode::Auto { Mode::Dark } else { mode };
         let palette = self.palette(mode);

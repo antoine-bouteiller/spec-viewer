@@ -20,7 +20,7 @@ fn recv_until(watch: &spec_viewer_protocol::Watch, wanted: Event) {
 
 #[test]
 fn vc_4_a_remote_worktree_is_served_by_its_own_daemon_with_live_reload() {
-    let base = tempfile::tempdir().unwrap();
+    let base = support::base();
     let (local, remote) = (Host::new(base.path(), "local"), Host::new(base.path(), "box"));
     let b = repository(&base.path().join("box/b"), None);
     local.write_user(&remote.host_entry("box"));
@@ -43,7 +43,7 @@ fn vc_4_a_remote_worktree_is_served_by_its_own_daemon_with_live_reload() {
 
 #[test]
 fn vc_5_a_lost_host_reports_host_down_then_reconnects_on_the_next_request() {
-    let base = tempfile::tempdir().unwrap();
+    let base = support::base();
     let (local, remote) = (Host::new(base.path(), "local"), Host::new(base.path(), "box"));
     let b = repository(&base.path().join("box/b"), None);
     local.write_user(&remote.host_entry("box"));
@@ -70,7 +70,7 @@ fn vc_5_a_lost_host_reports_host_down_then_reconnects_on_the_next_request() {
 
 #[test]
 fn vc_9_a_remote_document_takes_the_statuses_of_the_local_user_config() {
-    let base = tempfile::tempdir().unwrap();
+    let base = support::base();
     let (local, remote) = (Host::new(base.path(), "local"), Host::new(base.path(), "box"));
     let b = repository(&base.path().join("box/b"), None);
     let shipped = "[[status]]\nname = 'shipped'\ncolor = 'green'\n";
@@ -92,7 +92,7 @@ fn vc_9_a_remote_document_takes_the_statuses_of_the_local_user_config() {
 
 #[test]
 fn vc_10_a_remote_clone_joins_the_local_project_by_origin() {
-    let base = tempfile::tempdir().unwrap();
+    let base = support::base();
     let (local, remote) = (Host::new(base.path(), "local"), Host::new(base.path(), "box"));
     let a = repository(&base.path().join("local/r"), Some("git@GitHub.com:o/r.git"));
     let b = repository(&base.path().join("box/b"), Some("https://github.com/o/r"));
@@ -127,7 +127,7 @@ fn vc_10_a_remote_clone_joins_the_local_project_by_origin() {
 
 #[test]
 fn vc_11_a_remote_clone_follows_the_local_worktree_config() {
-    let base = tempfile::tempdir().unwrap();
+    let base = support::base();
     let (local, remote) = (Host::new(base.path(), "local"), Host::new(base.path(), "box"));
     let a = repository(&base.path().join("local/r"), Some("git@github.com:o/r.git"));
     let b = repository(&base.path().join("box/b"), Some("https://github.com/o/r"));

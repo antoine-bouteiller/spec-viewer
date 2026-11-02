@@ -4,4 +4,4 @@ mod highlight;
 pub mod html;
 mod server;
 
-pub use server::start;
+pub use server::{Backend, start};

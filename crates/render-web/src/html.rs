@@ -1,5 +1,5 @@
 //! Semantic document to HTML, with the element structure and class names the web client styles.
-use spec_viewer_core::{Align, Block, Component, ComponentBody, Document, Inline, ListItem};
+use spec_viewer_protocol::{Align, Block, Component, ComponentBody, Document, Inline, ListItem};
 
 use crate::highlight;
 

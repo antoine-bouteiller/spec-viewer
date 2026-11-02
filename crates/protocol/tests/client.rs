@@ -92,6 +92,7 @@ fn responses_route_by_id_and_carry_the_host() {
             Ok(Response::Hosts(vec![HostState {
                 name: "box".into(),
                 connected: true,
+                error: None,
             }])),
         );
         respond(writer, first, Ok(Response::Projects(vec![])));

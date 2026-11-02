@@ -50,9 +50,9 @@ const SPINNER = icon('spinner', [
   'M7.75804 7.75804L5.63672 5.63672',
 ])
 
-// URL state: wt, tab, doc, diff.
+// URL state: host, wt, tab, doc, diff. No host is the gateway's own.
 
-const URL_KEYS = ['wt', 'tab', 'doc', 'diff']
+const URL_KEYS = ['host', 'wt', 'tab', 'doc', 'diff']
 
 const readUrl = () => {
   const params = new URLSearchParams(location.search)
@@ -60,6 +60,7 @@ const readUrl = () => {
   return {
     diff: params.get('diff') === 'true' ? 'true' : undefined,
     doc: params.get('doc') || undefined,
+    host: params.get('host') || undefined,
     tab: tab || undefined,
     wt: params.get('wt') || undefined,
   }
@@ -88,14 +89,19 @@ const state = {
   expanded: new Set(),
   focusedKey: null,
   pending: false,
-  project: null,
+  projects: [],
   treeId: '',
 }
 
 // Tabs in config order; an unknown `tab` falls back to the first.
 const tabs = () => state.docs.tabs
 const tab = () => (tabs().find((item) => item.name === url.tab) ?? tabs()[0])?.name
-const worktree = () => state.project?.worktrees.find((item) => item.path === url.wt)
+// Every worktree of every project, remote ones labelled with their host.
+const choices = () => state.projects.flatMap((project) => project.worktrees.map((item) => ({ ...item, project: project.name })))
+const sameHost = (item) => (item.host ?? undefined) === url.host
+const worktree = () => choices().find((item) => item.path === url.wt && sameHost(item))
+// The worktree's request parameters.
+const target = () => (url.host ? { host: url.host, wt: url.wt } : { wt: url.wt })
 const listed = () => tabs().find((item) => item.name === tab())?.nodes ?? []
 
 // Tree model.
@@ -210,21 +216,30 @@ const treeMarkup = (nodes, depth = 0, parentKey = '') => {
 }
 
 const renderSidebar = () => {
-  const project = state.project
   const selected = worktree()
   const parts = []
-  if (project) {
-    const options = project.worktrees
-      .map(
-        (item) =>
-          `<option value="${esc(item.path)}"${item.path === selected?.path ? ' selected' : ''}>${esc(item.name)}${item.main ? ' (main)' : ''}</option>`
-      )
+  if (state.projects.length) {
+    let index = 0
+    const groups = state.projects
+      .map((project) => {
+        const options = project.worktrees
+          .map((item) => {
+            const value = index++
+            const label = `${item.name}${item.main ? ' (main)' : ''}${item.host ? ` · ${item.host}` : ''}`
+            const chosen = selected && item.path === selected.path && sameHost(item)
+            return `<option value="${value}"${chosen ? ' selected' : ''}>${esc(label)}</option>`
+          })
+          .join('')
+        return `<optgroup label="${esc(project.name)}">${options}</optgroup>`
+      })
       .join('')
     parts.push(
-      `<div class="worktree"><select class="select" aria-label="Worktree"><option value="" disabled${selected ? '' : ' selected'}>Select a worktree…</option>${options}</select></div>`
+      `<div class="worktree"><select class="select" aria-label="Worktree"><option value="" disabled${selected ? '' : ' selected'}>Select a worktree…</option>${groups}</select></div>`
     )
   }
-  if (selected) {
+  if (url.wt && state.docsError) {
+    parts.push(`<p class="pane-message pane-error">${esc(state.docsError)}</p>`)
+  } else if (url.wt) {
     parts.push(
       `<div class="doc-tabs">${tabs()
         .map(({ name }) => rowButton(tab() === name, `data-tab="${esc(name)}"`, esc(name), ' doc-tab'))
@@ -340,7 +355,10 @@ nav.addEventListener('click', (event) => {
 
 nav.addEventListener('change', (event) => {
   if (event.target.matches('select')) {
-    selectWorktree(event.target.value)
+    const choice = choices()[Number(event.target.value)]
+    if (choice) {
+      selectWorktree(choice.path, choice.host)
+    }
   }
 })
 
@@ -416,7 +434,7 @@ const runSearch = async () => {
   const request = ++search.request
   let result = { hits: [], total: search.total }
   try {
-    result = await getJson('/api/search', { q: searchInput.value, wt: url.wt })
+    result = await getJson('/api/search', { ...target(), q: searchInput.value })
   } catch {
     // An unreachable server shows no matches.
   }
@@ -751,21 +769,31 @@ applyTheme(localStorage.getItem(THEME_KEY) ?? 'system')
 
 // Data.
 
+// A failure carries the server's message, such as an unreachable host's error.
 const getJson = async (path, params) => {
   const response = await fetch(`${path}?${new URLSearchParams(params)}`)
   if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`)
+    throw new Error((await response.text()) || `${response.status} ${response.statusText}`)
   }
   return response.json()
+}
+
+// Status tones are numbered per worktree.
+const loadTheme = () => {
+  $('theme-css').href = url.wt ? `/theme.css?${new URLSearchParams(target())}` : '/theme.css'
 }
 
 const loadDocs = async () => {
   const wt = url.wt
   try {
-    const docs = await getJson('/api/docs', { wt })
+    const docs = await getJson('/api/docs', target())
     if (url.wt === wt) {
       state.docs = docs
       state.docsError = null
+      // Opening a worktree adds its project to the known ones.
+      if (!worktree()) {
+        void loadProjects()
+      }
     }
   } catch (error) {
     if (url.wt === wt) {
@@ -800,7 +828,7 @@ const loadDoc = async () => {
   let loaded = null
   let error = null
   try {
-    loaded = await getJson('/api/doc', { path: doc, wt })
+    loaded = await getJson('/api/doc', { ...target(), path: doc })
   } catch (failure) {
     error = failure.message
   }
@@ -820,7 +848,7 @@ let events = null
 
 const connectEvents = () => {
   events?.close()
-  events = url.wt ? new EventSource(`/api/events?${new URLSearchParams({ wt: url.wt })}`) : null
+  events = url.wt ? new EventSource(`/api/events?${new URLSearchParams(target())}`) : null
   events?.addEventListener('message', () => {
     void loadDocs()
     void loadDoc()
@@ -830,17 +858,18 @@ const connectEvents = () => {
   })
 }
 
+// A URL naming an unlisted worktree keeps it; without one, the first project's main worktree opens.
 const loadProjects = async () => {
   try {
-    const { projects } = await getJson('/api/projects', {})
-    state.project = projects[0] ?? null
+    state.projects = (await getJson('/api/projects', {})).projects
   } catch {
-    state.project = null
+    state.projects = []
   }
-  if (state.project && !worktree()) {
-    const fallback = state.project.worktrees.find((item) => item.main) ?? state.project.worktrees[0]
+  if (!url.wt) {
+    const first = state.projects[0]?.worktrees
+    const fallback = first?.find((item) => item.main && !item.host) ?? first?.[0]
     if (fallback) {
-      selectWorktree(fallback.path, !url.wt)
+      selectWorktree(fallback.path, fallback.host, true)
       return
     }
   }
@@ -868,8 +897,9 @@ const selectTab = (next) => {
 }
 
 // A link without `wt` keeps its `doc`, opened in the default worktree.
-const selectWorktree = (path, keepDoc = false) => {
-  setUrl({ doc: keepDoc ? url.doc : undefined, wt: path })
+const selectWorktree = (path, host, keepDoc = false) => {
+  setUrl({ doc: keepDoc ? url.doc : undefined, host: host ?? undefined, wt: path })
+  loadTheme()
   state.docs = NO_DOCS
   resetTree()
   connectEvents()
@@ -905,8 +935,9 @@ const loadKeys = async () => {
 
 const start = async () => {
   void loadKeys()
+  loadTheme()
   await loadProjects()
-  if (worktree() && !events) {
+  if (url.wt && !events) {
     connectEvents()
     void loadDocs()
     void loadDoc()

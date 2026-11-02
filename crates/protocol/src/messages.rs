@@ -88,6 +88,9 @@ pub enum Response {
 pub struct HostState {
     pub name: String,
     pub connected: bool,
+    /// Why the last connection attempt failed, while disconnected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

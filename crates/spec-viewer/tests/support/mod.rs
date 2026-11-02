@@ -110,6 +110,11 @@ impl Drop for Host {
     }
 }
 
+/// A short base directory: socket paths must fit in `SUN_LEN`, which macOS's `$TMPDIR` nearly fills.
+pub fn base() -> tempfile::TempDir {
+    tempfile::Builder::new().tempdir_in("/tmp").unwrap()
+}
+
 pub fn git(root: &Path, args: &[&str]) {
     let output = Command::new("git").arg("-C").arg(root).args(args).output().unwrap();
     assert!(output.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&output.stderr));
