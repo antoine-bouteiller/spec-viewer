@@ -25,8 +25,11 @@ fn vc_1_concurrent_clients_start_one_daemon_and_share_it() {
     let resolved: Vec<_> = clients.into_iter().map(|client| client.join().unwrap()).collect();
     assert_eq!(resolved[0], resolved[1]);
     let count = || {
-        let output = Command::new("pgrep").args(["-f", marker]).output().unwrap();
-        String::from_utf8_lossy(&output.stdout).lines().count()
+        let output = Command::new("ps").args(["-A", "-o", "command="]).output().unwrap();
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter(|line| line.contains(marker))
+            .count()
     };
     wait_until("one daemon", || count() == 1);
 }

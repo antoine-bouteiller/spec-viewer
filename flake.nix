@@ -137,7 +137,10 @@
             cargoLock.lockFile = ./Cargo.lock;
             cargoBuildFlags = [ "--package=spec-viewer" ];
             cargoTestFlags = [ "--workspace" ];
-            nativeCheckInputs = [ pkgs.git ];
+            nativeCheckInputs = [
+              pkgs.git
+              pkgs.procps
+            ];
             meta.mainProgram = "spec-viewer";
           };
           default = spec-viewer;
