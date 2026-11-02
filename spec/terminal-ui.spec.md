@@ -19,13 +19,16 @@ statuses and header chips. Discovery, metadata, the tree, and confinement live i
 - `[NG-2]` No mouse interaction beyond wheel scrolling (vertical, horizontal, and Shift+wheel), left
   clicks on the panes and the left pane, and text selection in the document body.
 - `[NG-3]` No editing: the viewer never writes to the worktree.
-- `[NG-4]` No config hot reload: the config is read once per session.
+- ~~`[NG-4]` No config hot reload: the config is read once per session.~~ Superseded by
+  `spec/daemon.spec.md` `[SO-5]`.
 
 ## Design
 
 - `[PI-1]` Keyboard first: every action has a key, and the screen shows a worktree's whole corpus.
-- `[PI-2]` One core: the terminal reads `spec_viewer_core::Library` and never re-derives corpus,
-  metadata, tree, or confinement logic.
+- `[PI-2.1]` One core: the terminal is a client of the daemon (`spec/daemon.spec.md` `[PI-1]`) and never
+  re-derives corpus, metadata, tree, or confinement logic.
+- ~~`[PI-2]` One core: the terminal reads `spec_viewer_core::Library` and never re-derives corpus,
+  metadata, tree, or confinement logic.~~
 - `[PI-3]` Colours name meanings, not values: every coloured element takes a role, a status, or an
   xref family, and each of those names a palette colour.
 
@@ -38,8 +41,9 @@ statuses and header chips. Discovery, metadata, the tree, and confinement live i
 | `[KD-5]` Theme model      | A theme is a palette of named colours. The built-in `terminal` defines the 16 ANSI slot names, each the terminal's own colour. Roles name palette colours; code tokens take the colour of their ANSI slot | Changing one palette colour recolours every role naming it; the default emits ANSI only, except `surface` |
 | `[KD-6]` Mode             | `--theme`, else `theme.mode`; `auto` uses the OSC 11 background reply (120 ms), else dark. The mode picks `light_name` or `dark_name`                                                                     | The terminal background governs light and dark                                                            |
 | `[KD-7]` Outline depth    | The rail outline lists the document `toc` (h1–h3); deeper headings are styled but not rail entries                                                                                                        | Keeps the rail short                                                                                      |
-| `[KD-8]` Config layers    | TOML, `deny_unknown_fields`: embedded default < user < worktree < `--config`. Tables merge key by key; arrays (`status`, `chip`, `theme.roles.headings`) replace the lower layer wholesale                | Element-wise array merging would make removing a default status or chip impossible                        |
-| `[KD-9]` Worktree config  | `.spec-viewer.toml` is read once at start-up from the worktree containing `ROOT`; switching worktree does not reload it                                                                                   | One config per session (`[NG-4]`)                                                                         |
+| `[KD-8.1]` Config layers | TOML, `deny_unknown_fields`. Frontend sections: embedded default < user config. Project sections: default < user < the worktree's `.spec-viewer.toml` (`spec/daemon.spec.md` `[CT-5]`). Tables merge key by key; arrays (`status`, `chip`, `tab`, `theme.roles.headings`) replace the lower layer wholesale | Element-wise array merging would make removing a default status or chip impossible |
+| ~~`[KD-8]` Config layers~~ | ~~TOML, `deny_unknown_fields`: embedded default < user < worktree < `--config`. Tables merge key by key; arrays (`status`, `chip`, `theme.roles.headings`) replace the lower layer wholesale~~ | ~~Element-wise array merging would make removing a default status or chip impossible~~ |
+| ~~`[KD-9]` Worktree config~~ | ~~`.spec-viewer.toml` is read once at start-up from the worktree containing `ROOT`; switching worktree does not reload it~~ | Superseded by `spec/daemon.spec.md` `[KD-12.2]` and `[KD-13]` |
 
 ## Outcome
 
@@ -204,8 +208,9 @@ the focused list sits on `highlight_bg`. Unfocused borders, paths, header detail
 
 Kind: invariant · Anchor: `crates/render-tui/src/tui/mod.rs#start`
 
-Each debounced burst of `spec_viewer_core::Library::watch` refreshes the corpus and reopens the
-current document at its scroll position. The watch follows the selected worktree. Raw mode, mouse
+Each `Changed` of the daemon watch (`spec/daemon.spec.md` `[CT-2]`) refreshes the worktree list, the statuses,
+and the corpus, and reopens the current document at its scroll position. The watch follows the
+selected worktree and its host. Raw mode, mouse
 capture, and the alternate screen are restored on exit and on panic.
 
 Each frame is drawn as a synchronized update (mode 2026). The terminal title is
@@ -220,7 +225,8 @@ Kind: config · Anchor: `crates/config/default.toml`
 
 `crates/config/default.toml` is the default layer and the reference for every key. Lower layers
 first: default < `$XDG_CONFIG_HOME/spec-viewer/config.toml` (else `~/.config/spec-viewer/config.toml`)
-< `<worktree containing ROOT>/.spec-viewer.toml` < `--config PATH`.
+< the worktree's `.spec-viewer.toml`, which sets only `[[tab]]`, `[[status]]`, and `[[chip]]`
+(`spec/daemon.spec.md` `[CT-5]`).
 
 | Key                                     | Meaning                                                                                                                                                                                              |
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -233,7 +239,7 @@ first: default < `$XDG_CONFIG_HOME/spec-viewer/config.toml` (else `~/.config/spe
 | `[[tab]]`                               | `name`, optional `folder` (worktree-relative, no `.` or `..` parts), `kinds`, `companions`; names and folders unique, 1 to 9 tabs                                                                    |
 | `tui.diff`                              | `true` starts with `Diff` on                                                                                                                                                                         |
 | `[keys]`, `keys.<table>.*`              | herdr-style bindings, shared with the web app: `action = "key"` or `["key", …]`, `[]` unbinds. Main-screen actions, then `search_dialog`, `worktree_picker`, and `hint_mode` tables; actions per `default.toml` |
-| `[web]`                                 | User config only: `bind`, `cert`, `key` per `spec/web-ui.spec.md` `[CT-6]`                                                                                                                           |
+| `[web]`, `[[host]]`                     | Daemon sections per `spec/daemon.spec.md` `[CT-5]`                                                                                                                                                 |
 
 A palette value that is an ANSI slot name means the terminal's own colour for that slot, not
 another palette entry: palette values do not chain. Under `mode = "auto"`, every role and status
@@ -246,8 +252,8 @@ at most once per table; `force_quit` counts in every table. Tables merge per act
 rebinding one action keeps the others' defaults. Printable keys a dialog does not bind type into
 its query or hint label.
 
-A missing user or worktree file is skipped. A missing `--config` file, invalid TOML, an unknown
-key, an unknown theme, a malformed colour, a role or status naming no palette colour, an unknown
+A missing user or worktree file is skipped. A `[[status]]` of the worktree file naming no colour
+of this palette shows in `status_unknown`. Invalid TOML, an unknown key, an unknown theme, a malformed colour, a role or status naming no palette colour, an unknown
 `kind`, a duplicate status name or alias, a malformed key, a range outside `switch_tab`, or a key
 bound twice in one table exits 1 with one stderr line naming the file and the
 key, or `line N` for a TOML syntax error.
@@ -257,10 +263,9 @@ key, or `line N` for a TOML syntax error.
 Kind: api · Anchor: `crates/spec-viewer/src/cli.rs#parse`
 
 ```text
-spec-viewer [ROOT] [--theme light|dark] [--config PATH]
+spec-viewer [ROOT] [--host NAME] [--theme light|dark]     per spec/daemon.spec.md [CT-4]
 exit 1: unresolvable or non-directory ROOT, invalid --theme, config error per [CT-4],
-        web server bind failure; one stderr line
-also serves the web app for the session (spec/web-ui.spec.md [CT-5])
+        client error; one stderr line
 ```
 
 ### [CT-6] Search
@@ -326,9 +331,13 @@ function through `/api/search` (`spec/web-ui.spec.md` `[CT-2]`).
   `[theme.palette.light]` colour applies under light mode only, and `--theme light` beats
   `mode = "dark"`. A new palette name used by a role applies. A role naming no palette colour exits
   1. — demonstrates `[SO-3]`
-- `[VC-7]` Given user, worktree, and `--config` layers each setting `accent`, then `--config` wins.
+- `[VC-7.1]` Given a user config setting `accent` and a `[[status]]` list, and a worktree
+  `[[status]]` list, then the worktree list fully replaces the user's and `accent` is the user's.
+  Invalid TOML or an unknown key exits 1 with one stderr line naming the file. — demonstrates
+  `[SO-3]`
+- ~~`[VC-7]` Given user, worktree, and `--config` layers each setting `accent`, then `--config` wins.
   A worktree `[[status]]` list fully replaces the user's. Invalid TOML, an unknown key, or a missing
-  `--config` path exits 1 with one stderr line naming the file. — demonstrates `[SO-3]`
+  `--config` path exits 1 with one stderr line naming the file. — demonstrates `[SO-3]`~~
 
 - `[VC-8]` Given `[keys]` with `quit = 'x'`, `switch_tab = 'alt+1..9'`, `copy_name = 'shift+n'`,
   `hints = []`, and `search_dialog.close = 'ctrl+g'`, then `q` does not quit and `x` does, `2`
@@ -370,3 +379,4 @@ function through `/api/search` (`spec/web-ui.spec.md` `[CT-2]`).
 | 2026-10-23 | Leaves and sub-umbrellas nest under their umbrella by position; search omits an umbrella's leaves                                        | CT-2, CT-6                           | Specs no longer declare `parent-spec:`                           |
 | 2026-10-28 | `Diff` lists an umbrella instead of its leaves; search finds leaves again                                                                | CT-2, CT-6                           | Leaves are reached through the umbrella's rail                   |
 | 2026-10-30 | Drag and double-click copy document text without frame borders; the footer URL is an OSC 8 link; terminal title, synchronized frames, and the kitty keyboard flags | NG-2, CT-1, CT-2, CT-3, VC-2, C-4 | Better integration with Ghostty-based terminals such as Rex      |
+| 2026-11-02 | The terminal is a client of the daemon: the worktree file holds project sections only and applies live, `--config` is removed, and `--host` opens a remote worktree | Why, Design, CT-3, CT-4, CT-5, VC-7 | `spec/daemon.spec.md` `[C-7]` |
