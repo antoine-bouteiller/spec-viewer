@@ -96,6 +96,9 @@
             # on success too, until it takes over after the other idles out.
             launchd.agents.spec-viewer = lib.mkIf (cfg.daemon.enable && pkgs.stdenv.hostPlatform.isDarwin) {
               enable = true;
+              # Shows the agent as "spec-viewer" instead of "sh" in Login Items; KeepAlive retries
+              # if launchd starts it before the Nix store is mounted.
+              waitForNixStore = false;
               config = {
                 ProgramArguments = daemon;
                 EnvironmentVariables.PATH = path;
