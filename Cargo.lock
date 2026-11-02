@@ -1640,6 +1640,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "spec-viewer-daemon"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "spec-viewer-config",
+ "spec-viewer-core",
+ "spec-viewer-protocol",
+ "spec-viewer-source",
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "spec-viewer-parser"
 version = "0.1.0"
 dependencies = [
