@@ -149,3 +149,52 @@ fn vc_11_a_remote_clone_follows_the_local_worktree_config() {
     std::fs::remove_dir_all(&a).unwrap();
     assert_eq!(tabs(&client.corpus(Some("box"), &b).unwrap()), ["other"], "without a local clone");
 }
+
+#[test]
+fn a_followed_override_survives_broken_files_and_reconnection() {
+    let base = support::base();
+    let (local, remote) = (Host::new(base.path(), "local"), Host::new(base.path(), "box"));
+    let a = repository(&base.path().join("local/r"), Some("git@github.com:o/r.git"));
+    let b = repository(&base.path().join("box/b"), Some("https://github.com/o/r"));
+    let tab = |name: &str, folder: &str| format!("[[tab]]\nname = '{name}'\nfolder = '{folder}'\n");
+    write(&a, ".spec-viewer.toml", &tab("notes", "notes"));
+    // A section only the user config may set: B's own file does not load.
+    write(
+        &b,
+        ".spec-viewer.toml",
+        &format!("{}[theme]\nmode = 'dark'\n", tab("other", "other")),
+    );
+    write(&b, "notes/n.md", "# Note\n");
+    local.write_user(&remote.host_entry("box"));
+    let daemon = local.daemon();
+    let client = daemon.connect().unwrap();
+    wait_connected(&client, "box");
+    client.resolve(None, &a).unwrap();
+    assert_eq!(
+        tabs(&client.corpus(Some("box"), &b).unwrap()),
+        ["notes"],
+        "the local file replaces a broken remote one"
+    );
+
+    let watch = client.watch(Some("box"), &b).unwrap();
+    assert_eq!(daemon.followed_configs(), 1);
+    settle(&watch);
+    write(&a, ".spec-viewer.toml", "[[tab]\n");
+    recv_until(&watch, Event::Changed);
+    let Error::Config { message } = client.corpus(Some("box"), &b).unwrap_err() else {
+        panic!("a broken local file is a config error");
+    };
+    assert!(message.contains(&a.join(".spec-viewer.toml").display().to_string()), "{message}");
+    write(&a, ".spec-viewer.toml", &tab("notes", "notes"));
+    recv_until(&watch, Event::Changed);
+
+    remote.kill();
+    recv_until(&watch, Event::HostDown);
+    recv_until(&watch, Event::Changed);
+    wait_connected(&client, "box");
+    settle(&watch);
+    write(&b, "notes/n.md", "# Note after the reconnection\n");
+    recv_until(&watch, Event::Changed);
+    drop(watch);
+    wait_until("the followed config to be released", || daemon.followed_configs() == 0);
+}

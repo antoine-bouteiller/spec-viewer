@@ -119,6 +119,11 @@ impl Client {
         Ok(Self { shared, web })
     }
 
+    /// Whether the connection has ended; every call fails from then on.
+    pub fn is_lost(&self) -> bool {
+        self.shared.state.lock().expect("client state").lost.is_some()
+    }
+
     pub fn web_url(&self) -> Option<&str> {
         self.web.as_deref()
     }

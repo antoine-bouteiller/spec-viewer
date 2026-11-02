@@ -281,3 +281,19 @@ fn a_user_config_edit_reaches_connections_on_the_daemon_layer() {
         "a daemon does not start on an invalid user config"
     );
 }
+
+#[test]
+fn a_user_config_tab_for_an_existing_folder_is_watched_at_once() {
+    let fixture = Fixture::new("");
+    let root = repository(fixture.base.path(), "a");
+    write(&root, "notes/n.md", "# Note\n");
+    let client = fixture.daemon().connect().unwrap();
+    let watch = client.watch(None, &root).unwrap();
+    settle(&watch);
+    std::fs::write(&fixture.user, "[web]\nport = 0\n[[tab]]\nname = 'notes'\nfolder = 'notes'\n").unwrap();
+    assert_eq!(watch.recv_timeout(WAIT), Ok(Event::Changed));
+    assert_eq!(tab_names(&client.corpus(None, &root).unwrap()), ["notes"]);
+    settle(&watch);
+    write(&root, "notes/n.md", "# Note edited\n");
+    assert_eq!(watch.recv_timeout(WAIT), Ok(Event::Changed));
+}

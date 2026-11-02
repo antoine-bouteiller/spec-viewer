@@ -80,16 +80,43 @@ impl Watches {
                     true
                 },
             )
-            .map_err(|error| Error::unreachable(format!("cannot watch {}: {error}", worktree.display())))?;
-            *watcher = Some(started);
+            .map_err(|error| Error::unreachable(format!("cannot watch {}: {error}", worktree.display())));
+            match started {
+                Ok(started) => *watcher = Some(started),
+                Err(error) => {
+                    // The subscription's drop takes the map lock.
+                    drop(watcher);
+                    drop(worktrees);
+                    drop(subscription);
+                    return Err(error);
+                }
+            }
         }
         drop(watcher);
         drop(worktrees);
+        // A new subscriber's config may list folders the others do not.
+        shared.refresh();
         Ok(subscription)
+    }
+
+    /// Re-reads every watch's tab folders after a layer change, which makes no event in a worktree.
+    pub(crate) fn refresh(&self) {
+        let shared: Vec<_> = self.worktrees.lock().expect("watches").values().cloned().collect();
+        for shared in shared {
+            shared.refresh();
+        }
     }
 
     pub(crate) fn len(&self) -> usize {
         self.worktrees.lock().expect("watches").len()
+    }
+}
+
+impl Shared {
+    fn refresh(&self) {
+        if let Some(watcher) = self.watcher.lock().expect("watcher").as_ref() {
+            watcher.refresh();
+        }
     }
 }
 
