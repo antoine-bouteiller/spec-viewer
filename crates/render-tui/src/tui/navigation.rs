@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use spec_viewer_core::DocNode;
+use spec_viewer_protocol::DocNode;
 
 pub(super) fn children(node: &DocNode) -> &[DocNode] {
     node.children.as_deref().unwrap_or_default()

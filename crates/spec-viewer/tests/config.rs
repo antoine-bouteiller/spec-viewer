@@ -3,11 +3,39 @@ use std::{
     process::{Command, Output},
 };
 
-fn run(root: &Path, user: &Path, args: &[&str]) -> Output {
+/// A user's config, runtime, and state directories; the daemon a session starts there is killed on
+/// drop.
+struct User(tempfile::TempDir);
+
+impl User {
+    fn new() -> Self {
+        Self(tempfile::Builder::new().tempdir_in("/tmp").unwrap())
+    }
+    fn path(&self) -> &Path {
+        self.0.path()
+    }
+}
+
+impl Drop for User {
+    fn drop(&mut self) {
+        if let Ok(pid) = std::fs::read_to_string(self.path().join("run/spec-viewer/daemon-v1.lock")) {
+            let _ = Command::new("kill").arg(pid.trim()).status();
+        }
+    }
+}
+
+fn run(root: &Path, user: &User, args: &[&str]) -> Output {
+    let file = user.path().join("spec-viewer/config.toml");
+    if !file.exists() {
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "[web]\nport = 0\n").unwrap();
+    }
     Command::new(env!("CARGO_BIN_EXE_spec-viewer"))
         .arg(root)
         .args(args)
-        .env("XDG_CONFIG_HOME", user)
+        .env("XDG_CONFIG_HOME", user.path())
+        .env("XDG_RUNTIME_DIR", user.path().join("run"))
+        .env("XDG_STATE_HOME", user.path().join("state"))
         .output()
         .unwrap()
 }
@@ -37,23 +65,23 @@ fn assert_error(output: Output, file: &Path, key: &str) {
 #[test]
 fn vc_7_binary_config_errors_are_single_lines_with_file_and_key() {
     let root = repository();
-    let user = tempfile::tempdir().unwrap();
-    std::fs::create_dir(user.path().join("spec-viewer")).unwrap();
+    let user = User::new();
+    std::fs::create_dir_all(user.path().join("spec-viewer")).unwrap();
     let user_file = user.path().join("spec-viewer/config.toml");
     std::fs::write(&user_file, "[theme\naccent='red'").unwrap();
-    assert_error(run(root.path(), user.path(), &[]), &user_file, "line 1");
+    assert_error(run(root.path(), &user, &[]), &user_file, "line 1");
     std::fs::write(&user_file, "[theme]\nunknown='red'").unwrap();
-    assert_error(run(root.path(), user.path(), &[]), &user_file, "theme.unknown");
+    assert_error(run(root.path(), &user, &[]), &user_file, "theme.unknown");
     std::fs::remove_file(&user_file).unwrap();
     let worktree_file = root.path().join(".spec-viewer.toml");
     std::fs::write(&worktree_file, "[[status]]\nname=''\ncolor='red'").unwrap();
-    assert_error(run(root.path(), user.path(), &[]), &worktree_file, "status[0].name");
+    assert_error(run(root.path(), &user, &[]), &worktree_file, "status[0].name");
 }
 
 #[test]
 fn vc_8_binary_rejects_frontend_sections_in_a_worktree_file_and_config_option() {
     let root = repository();
-    let user = tempfile::tempdir().unwrap();
+    let user = User::new();
     let file = root.path().join(".spec-viewer.toml");
     for section in [
         "[[host]]\nname='box'\nssh='box'",
@@ -64,9 +92,9 @@ fn vc_8_binary_rejects_frontend_sections_in_a_worktree_file_and_config_option() 
     ] {
         std::fs::write(&file, section).unwrap();
         let key = section.trim_start_matches('[').split([']', '\n']).next().unwrap();
-        assert_error(run(root.path(), user.path(), &[]), &file, key);
+        assert_error(run(root.path(), &user, &[]), &file, key);
     }
-    let output = run(root.path(), user.path(), &["--config", "x.toml"]);
+    let output = run(root.path(), &user, &["--config", "x.toml"]);
     assert_eq!(output.status.code(), Some(1));
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "spec-viewer: unknown option: --config\n");
 }
@@ -74,19 +102,19 @@ fn vc_8_binary_rejects_frontend_sections_in_a_worktree_file_and_config_option() 
 #[test]
 fn vc_6_binary_rejects_missing_palette_role_and_unknown_theme() {
     let root = tempfile::tempdir().unwrap();
-    let user = tempfile::tempdir().unwrap();
-    std::fs::create_dir(user.path().join("spec-viewer")).unwrap();
+    let user = User::new();
+    std::fs::create_dir_all(user.path().join("spec-viewer")).unwrap();
     let file = user.path().join("spec-viewer/config.toml");
     std::fs::write(&file, "[theme.roles]\naccent='missing'").unwrap();
-    assert_error(run(root.path(), user.path(), &[]), &file, "theme.roles.accent");
+    assert_error(run(root.path(), &user, &[]), &file, "theme.roles.accent");
     std::fs::write(&file, "[theme]\nname='catppuccin-mocha'").unwrap();
-    assert_error(run(root.path(), user.path(), &[]), &file, "theme.name");
+    assert_error(run(root.path(), &user, &[]), &file, "theme.name");
 }
 
 #[test]
 fn vc_7_binary_loads_the_worktree_containing_nested_root() {
     let root = tempfile::tempdir().unwrap();
-    let user = tempfile::tempdir().unwrap();
+    let user = User::new();
     let git = |args: &[&str]| {
         let output = Command::new("git").arg("-C").arg(root.path()).args(args).output().unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -110,19 +138,19 @@ fn vc_7_binary_loads_the_worktree_containing_nested_root() {
     // A different main-worktree error would expose choosing project.path instead.
     std::fs::write(root.path().join(".spec-viewer.toml"), "unknown=true").unwrap();
     std::fs::write(&file, "tab=[]").unwrap();
-    assert_error(run(&nested, user.path(), &[]), &file, "tab");
+    assert_error(run(&nested, &user, &[]), &file, "tab");
 }
 
 #[test]
 fn vc_7_binary_cli_boundary_errors_are_single_lines() {
     let root = tempfile::tempdir().unwrap();
-    let user = tempfile::tempdir().unwrap();
+    let user = User::new();
     for (args, expected) in [
         (vec!["--theme", "blue"], "invalid theme: blue"),
         (vec!["--theme"], "invalid theme:"),
         (vec!["--config"], "unknown option: --config"),
     ] {
-        let output = run(root.path(), user.path(), &args);
+        let output = run(root.path(), &user, &args);
         assert_eq!(output.status.code(), Some(1));
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert_eq!(stderr.lines().count(), 1);
@@ -135,7 +163,7 @@ fn vc_7_binary_cli_boundary_errors_are_single_lines() {
         if expected.starts_with("root") {
             std::fs::write(&path, "").unwrap();
         }
-        let output = run(&path, user.path(), &[]);
+        let output = run(&path, &user, &[]);
         assert_eq!(output.status.code(), Some(1));
         let stderr = String::from_utf8(output.stderr).unwrap();
         assert_eq!(stderr.lines().count(), 1);

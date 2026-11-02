@@ -8,7 +8,6 @@ use std::{
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
-use spec_viewer_core::{Library, ParseConfig, watch};
 use spec_viewer_render_tui::{
     terminal::{Target, Theme},
     tui::{App, Focus, RailEntry, Tab},
@@ -55,12 +54,7 @@ fn draw(app: &mut App) -> String {
 #[test]
 fn vc_1_plan_header_tree_family_and_legacy_snapshots() {
     let fixture = Fixture::new();
-    let mut app = App::new(
-        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
-        Theme::default(),
-        io::sink(),
-    )
-    .unwrap();
+    let mut app = App::new(support::client(None), None, &fixture.root, Theme::default(), io::sink()).unwrap();
     app.open(".plan/rollout/index.md");
     insta::assert_snapshot!("vc_1_plan_index", draw(&mut app));
     key(&mut app, KeyCode::Char('e'));
@@ -80,12 +74,7 @@ fn vc_1_plan_header_tree_family_and_legacy_snapshots() {
 fn vc_1_spec_outline_umbrella_and_fallback_snapshots() {
     let fixture = Fixture::new();
     assert!(fixture.outside.exists());
-    let mut app = App::new(
-        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
-        Theme::default(),
-        io::sink(),
-    )
-    .unwrap();
+    let mut app = App::new(support::client(None), None, &fixture.root, Theme::default(), io::sink()).unwrap();
     key(&mut app, KeyCode::Char('2'));
     app.open("spec/standalone.spec.md");
     insta::assert_snapshot!("vc_1_spec_outline", draw(&mut app));
@@ -101,12 +90,7 @@ fn vc_1_spec_outline_umbrella_and_fallback_snapshots() {
 #[test]
 fn vc_1_every_dialect_construct_across_document_pages() {
     let fixture = Fixture::new();
-    let mut app = App::new(
-        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
-        Theme::default(),
-        io::sink(),
-    )
-    .unwrap();
+    let mut app = App::new(support::client(None), None, &fixture.root, Theme::default(), io::sink()).unwrap();
     key(&mut app, KeyCode::Char('2'));
     app.open("spec/dialect.spec.mdx");
     let first = draw(&mut app);
@@ -127,12 +111,7 @@ fn vc_1_every_dialect_construct_across_document_pages() {
 #[test]
 fn vc_2_search_dialog_matches_titles_and_paths_across_every_tab() {
     let fixture = Fixture::new();
-    let mut app = App::new(
-        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
-        Theme::default(),
-        io::sink(),
-    )
-    .unwrap();
+    let mut app = App::new(support::client(None), None, &fixture.root, Theme::default(), io::sink()).unwrap();
     assert_eq!(app.tab, Tab(0));
     key(&mut app, KeyCode::Char('/'));
     type_text(&mut app, "stndln");
@@ -157,12 +136,7 @@ fn vc_2_search_dialog_matches_titles_and_paths_across_every_tab() {
 #[test]
 fn vc_2_diff_applies_to_every_tab_and_restricts_to_changed_paths() {
     let fixture = Fixture::new();
-    let mut app = App::new(
-        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
-        Theme::default(),
-        io::sink(),
-    )
-    .unwrap();
+    let mut app = App::new(support::client(None), None, &fixture.root, Theme::default(), io::sink()).unwrap();
     key(&mut app, KeyCode::Char('d'));
     assert!(app.diff);
     assert!(app.rows().is_empty());
@@ -181,12 +155,7 @@ fn vc_2_diff_applies_to_every_tab_and_restricts_to_changed_paths() {
 #[test]
 fn vc_2_diff_lists_an_umbrella_for_its_changed_leaves() {
     let fixture = Fixture::new();
-    let mut app = App::new(
-        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
-        Theme::default(),
-        io::sink(),
-    )
-    .unwrap();
+    let mut app = App::new(support::client(None), None, &fixture.root, Theme::default(), io::sink()).unwrap();
     key(&mut app, KeyCode::Char('d'));
     key(&mut app, KeyCode::Char('2'));
     let mut changed = |paths: &[&str]| {
@@ -204,7 +173,9 @@ fn vc_2_diff_lists_an_umbrella_for_its_changed_leaves() {
 fn vc_2_worktree_switch_clears_document_and_tabs_keep_it_with_diff() {
     let fixture = Fixture::new();
     let mut app = App::new(
-        Library::new(&fixture.root.join(".plan/rollout"), ParseConfig::default()).unwrap(),
+        support::client(None),
+        None,
+        &fixture.root.join(".plan/rollout"),
         Theme::default(),
         io::sink(),
     )
@@ -226,7 +197,9 @@ fn vc_2_worktree_switch_clears_document_and_tabs_keep_it_with_diff() {
     assert_eq!(app.doc.as_ref().unwrap().root_path, "spec/standalone.spec.md");
     assert!(app.diff);
     let sibling = App::new(
-        Library::new(&fixture.sibling.join("spec"), ParseConfig::default()).unwrap(),
+        support::client(None),
+        None,
+        &fixture.sibling.join("spec"),
         Theme::default(),
         io::sink(),
     )
@@ -237,12 +210,7 @@ fn vc_2_worktree_switch_clears_document_and_tabs_keep_it_with_diff() {
 #[test]
 fn vc_2_phase_opened_from_rail_keeps_owner_current_and_documents_never_expand() {
     let fixture = Fixture::new();
-    let mut app = App::new(
-        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
-        Theme::default(),
-        io::sink(),
-    )
-    .unwrap();
+    let mut app = App::new(support::client(None), None, &fixture.root, Theme::default(), io::sink()).unwrap();
     key(&mut app, KeyCode::Char('/'));
     type_text(&mut app, "rollout/index.md");
     key(&mut app, KeyCode::Enter);
@@ -273,12 +241,7 @@ fn vc_2_phase_opened_from_rail_keeps_owner_current_and_documents_never_expand() 
 fn vc_2_visible_hints_copy_xrefs_open_docs_and_copy_paths_with_osc_52() {
     let fixture = Fixture::new();
     let clipboard = Clipboard::default();
-    let mut app = App::new(
-        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
-        Theme::default(),
-        clipboard.clone(),
-    )
-    .unwrap();
+    let mut app = App::new(support::client(None), None, &fixture.root, Theme::default(), clipboard.clone()).unwrap();
     app.open(".plan/actions.md");
     draw(&mut app);
     key(&mut app, KeyCode::Char('f'));
@@ -325,12 +288,7 @@ fn vc_2_dragging_and_double_clicking_in_the_document_copy_text_with_osc_52() {
         "---\ntitle: Select\n---\nFirst words here\n\n```ts\nlet copied = true\n```\n",
     );
     let clipboard = Clipboard::default();
-    let mut app = App::new(
-        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
-        Theme::default(),
-        clipboard.clone(),
-    )
-    .unwrap();
+    let mut app = App::new(support::client(None), None, &fixture.root, Theme::default(), clipboard.clone()).unwrap();
     app.open(".plan/select.md");
     let screen = draw(&mut app);
     let (row, column) = screen
@@ -381,12 +339,7 @@ fn vc_2_dragging_and_double_clicking_in_the_document_copy_text_with_osc_52() {
 #[test]
 fn vc_2_footer_links_the_web_url_and_the_title_names_the_document() {
     let fixture = Fixture::new();
-    let mut app = App::new(
-        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
-        Theme::default(),
-        io::sink(),
-    )
-    .unwrap();
+    let mut app = App::new(support::client(None), None, &fixture.root, Theme::default(), io::sink()).unwrap();
     app.web_url = Some("http://127.0.0.1:4100".into());
     app.open("spec/standalone.spec.md");
     let screen = draw(&mut app);
@@ -404,19 +357,15 @@ fn vc_2_footer_links_the_web_url_and_the_title_names_the_document() {
 #[test]
 fn vc_3_live_reload_adds_plan_refreshes_body_and_preserves_scroll() {
     let fixture = Fixture::new();
-    let mut app = App::new(
-        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
-        Theme::default(),
-        io::sink(),
-    )
-    .unwrap();
+    let mut app = App::new(support::client(None), None, &fixture.root, Theme::default(), io::sink()).unwrap();
     app.open(".plan/actions.md");
     key(&mut app, KeyCode::Char('e'));
     draw(&mut app);
     key(&mut app, KeyCode::PageDown);
     let scroll = app.scroll;
     assert!(scroll > 0);
-    let watcher = watch(&fixture.root, &ParseConfig::default()).unwrap();
+    let watcher = app.watch().unwrap();
+    std::thread::sleep(Duration::from_millis(300));
     write(
         &fixture.root,
         ".plan/new.md",
@@ -427,7 +376,7 @@ fn vc_3_live_reload_adds_plan_refreshes_body_and_preserves_scroll() {
         .unwrap()
         .replace("reading and navigating", "EDITED live document");
     std::fs::write(&path, body).unwrap();
-    watcher.reloads.recv_timeout(Duration::from_secs(5)).unwrap();
+    watcher.recv_timeout(Duration::from_secs(5)).unwrap();
     app.reload();
     let screen = draw(&mut app);
     assert_eq!(app.scroll, scroll);
@@ -446,12 +395,7 @@ fn vc_2_document_focus_pans_wide_blocks_with_h_and_l() {
         ".plan/wide.md",
         &format!("---\ntitle: Wide\n---\n```text\n{line}\n```\n"),
     );
-    let mut app = App::new(
-        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
-        Theme::default(),
-        io::sink(),
-    )
-    .unwrap();
+    let mut app = App::new(support::client(None), None, &fixture.root, Theme::default(), io::sink()).unwrap();
     app.open(".plan/wide.md");
     let screen = draw(&mut app);
     assert!(screen.contains("←→ pan"), "{screen}");
@@ -471,12 +415,7 @@ fn vc_2_document_focus_pans_wide_blocks_with_h_and_l() {
 #[test]
 fn vc_2_focus_scrolling_expansion_and_quit_state_transitions() {
     let fixture = Fixture::new();
-    let mut app = App::new(
-        Library::new(&fixture.root, ParseConfig::default()).unwrap(),
-        Theme::default(),
-        io::sink(),
-    )
-    .unwrap();
+    let mut app = App::new(support::client(None), None, &fixture.root, Theme::default(), io::sink()).unwrap();
     app.open(".plan/actions.md");
     assert!(!app.navigator);
     assert_eq!(app.focus, Focus::Document);
