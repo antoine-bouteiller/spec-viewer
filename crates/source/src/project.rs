@@ -1,5 +1,5 @@
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use super::js::{starts, take_while, terminator, trim};
@@ -125,34 +125,6 @@ pub fn changed(worktree: &Path, config: &ParseConfig) -> Option<Vec<String>> {
     )
 }
 
-/// A fixed project identity whose currently accessible worktrees are refreshed on demand.
-#[derive(Clone, Debug)]
-pub struct Viewer {
-    pub root: PathBuf,
-    pub project: Project,
-}
-
-impl Viewer {
-    pub fn new(root: impl AsRef<Path>) -> io::Result<Self> {
-        let root = std::fs::canonicalize(root)?;
-        let project = project_of(&root)?;
-        Ok(Self { root, project })
-    }
-
-    pub fn current(&self) -> Project {
-        for root in std::iter::once(&self.root).chain(self.project.worktrees.iter().map(|wt| &wt.path)) {
-            if let Ok(project) = project_of(root)
-                && project.key == self.project.key
-            {
-                return project;
-            }
-        }
-        let mut project = self.project.clone();
-        project.worktrees.clear();
-        project
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,9 +184,8 @@ mod tests {
             project.worktrees.iter().map(|wt| (&*wt.name, wt.main)).collect::<Vec<_>>(),
             [("main", true), ("feature", false)]
         );
-        let viewer = Viewer::new(second.path()).unwrap();
         run(root.path(), &["worktree", "remove", "--force", second.path().to_str().unwrap()]);
-        assert_eq!(viewer.current().worktrees.len(), 1);
+        assert_eq!(project_of(root.path()).unwrap().worktrees.len(), 1);
     }
 
     #[test]
@@ -223,10 +194,9 @@ mod tests {
         run(root.path(), &["commit", "--allow-empty", "-qm", "base"]);
         let second = tempfile::tempdir().unwrap();
         run(root.path(), &["worktree", "add", "-qb", "feature", second.path().to_str().unwrap()]);
-        let viewer = Viewer::new(root.path()).unwrap();
         fs::remove_dir_all(second.path()).unwrap();
         fs::create_dir(second.path()).unwrap();
-        assert_eq!(viewer.current().worktrees.len(), 1);
+        assert_eq!(project_of(root.path()).unwrap().worktrees.len(), 1);
     }
 
     #[test]

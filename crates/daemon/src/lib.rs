@@ -21,7 +21,7 @@ use std::{
 };
 
 use spec_viewer_config::{Config, Layer, ParseConfig};
-use spec_viewer_core::{DocError, Project, docs, document::Documents};
+use spec_viewer_core::{DocError, Library, Project};
 use spec_viewer_protocol::{Client, ClientMessage, DaemonMessage, Error, PROTOCOL, Request, Resolved, Response, Runtime, receive, send};
 use spec_viewer_source::{Watcher, project_of, watch_files};
 
@@ -56,7 +56,7 @@ pub struct Daemon {
     config: Config,
     user: Mutex<Layer>,
     known: Known,
-    libraries: Mutex<HashMap<ParseConfig, Arc<Documents>>>,
+    libraries: Mutex<HashMap<ParseConfig, Arc<Library>>>,
     watches: Watches,
     hub: Hub,
     connections: Mutex<HashMap<u64, Weak<Connection>>>,
@@ -293,7 +293,7 @@ impl Daemon {
             Request::Corpus { worktree } => {
                 let (worktree, project) = listed(&worktree)?;
                 let config = self.parse_config(connection, &worktree)?;
-                Ok(Response::Corpus(docs(&worktree, &project.name, &config)))
+                Ok(Response::Corpus(self.library(config).corpus(&worktree, &project.name)))
             }
             Request::Open { worktree, path } => {
                 let (worktree, _) = listed(&worktree)?;
@@ -369,9 +369,10 @@ impl Daemon {
         Ok(ParseConfig::with(&[&user, &file]))
     }
 
-    fn library(&self, config: ParseConfig) -> Arc<Documents> {
+    /// One library per distinct effective config.
+    fn library(&self, config: ParseConfig) -> Arc<Library> {
         let mut libraries = self.libraries.lock().expect("libraries");
-        Arc::clone(libraries.entry(config.clone()).or_insert_with(|| Arc::new(Documents::new(config))))
+        Arc::clone(libraries.entry(config.clone()).or_insert_with(|| Arc::new(Library::new(config))))
     }
 
     /// Keeps the last valid user layer when the file stops loading.

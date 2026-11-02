@@ -4,14 +4,14 @@ use spec_viewer_config::Mode as Theme;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
+    /// `root` is absolute on `host`, the configured remote host, else resolved here.
     Tui {
         root: PathBuf,
+        host: Option<String>,
         theme: Option<Theme>,
     },
     /// Runs this host's daemon, exiting after `idle_exit` seconds without clients when set.
-    Daemon {
-        idle_exit: Option<u64>,
-    },
+    Daemon { idle_exit: Option<u64> },
     /// Relays stdio to this host's daemon, starting it when none runs.
     Relay,
 }
@@ -31,6 +31,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         };
     }
     let mut root = None;
+    let mut host = None;
     let mut theme = None;
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
@@ -40,6 +41,8 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 Some("dark") => Theme::Dark,
                 other => return Err(format!("invalid theme: {}", other.unwrap_or(""))),
             });
+        } else if arg == "--host" {
+            host = Some(iter.next().ok_or("missing --host NAME")?.clone());
         } else if arg.starts_with("--") {
             return Err(format!("unknown option: {arg}"));
         } else if root.is_none() {
@@ -48,10 +51,14 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             return Err(format!("unexpected argument: {arg}"));
         }
     }
-    Ok(Command::Tui {
-        root: resolve_root(root.unwrap_or("."))?,
-        theme,
-    })
+    let root = match &host {
+        Some(_) => match root.map(PathBuf::from) {
+            Some(root) if root.is_absolute() => root,
+            _ => return Err(format!("with --host, ROOT must be an absolute path: {}", root.unwrap_or(""))),
+        },
+        None => resolve_root(root.unwrap_or("."))?,
+    };
+    Ok(Command::Tui { root, host, theme })
 }
 
 fn resolve_root(root: &str) -> Result<PathBuf, String> {
@@ -72,11 +79,32 @@ mod tests {
 
     #[test]
     fn tui_defaults_root_to_current_directory() {
-        let Command::Tui { root, theme } = parse(&[]).unwrap() else {
+        let Command::Tui { root, host, theme } = parse(&[]).unwrap() else {
             panic!("a terminal session")
         };
         assert_eq!(root, std::fs::canonicalize(".").unwrap());
-        assert_eq!(theme, None);
+        assert_eq!((host, theme), (None, None));
+    }
+
+    #[test]
+    fn host_takes_an_absolute_root_as_it_is() {
+        assert_eq!(
+            parse(&args(&["--host", "box", "/srv/missing-here"])),
+            Ok(Command::Tui {
+                root: "/srv/missing-here".into(),
+                host: Some("box".into()),
+                theme: None,
+            })
+        );
+        assert_eq!(
+            parse(&args(&["relative", "--host", "box"])).unwrap_err(),
+            "with --host, ROOT must be an absolute path: relative"
+        );
+        assert_eq!(
+            parse(&args(&["--host", "box"])).unwrap_err(),
+            "with --host, ROOT must be an absolute path: "
+        );
+        assert_eq!(parse(&args(&["--host"])).unwrap_err(), "missing --host NAME");
     }
 
     #[test]
