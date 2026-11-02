@@ -1,6 +1,6 @@
 ---
 title: Daemon
-status: implementing
+status: implemented
 author: Antoine Bouteiller
 date: 2026-11-02
 module:
