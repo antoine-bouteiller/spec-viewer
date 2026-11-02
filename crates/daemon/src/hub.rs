@@ -112,9 +112,13 @@ impl Hub {
     pub(crate) fn states(&self) -> Vec<HostState> {
         self.hosts
             .iter()
-            .map(|host| HostState {
-                name: host.name.clone(),
-                connected: host.link.lock().expect("link").client.is_some(),
+            .map(|host| {
+                let link = host.link.lock().expect("link");
+                HostState {
+                    name: host.name.clone(),
+                    connected: link.client.is_some(),
+                    error: link.client.is_none().then(|| link.error.clone()),
+                }
             })
             .collect()
     }

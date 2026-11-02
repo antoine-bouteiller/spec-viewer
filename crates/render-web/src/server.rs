@@ -1,16 +1,17 @@
-//! HTTP server: the embedded client, the JSON API, and server-sent reload events.
+//! HTTP server: the embedded client, the JSON API, and server-sent reload events, as a client of
+//! the daemon.
 use std::{
     collections::HashMap,
     io::{self, BufRead, BufReader, Read, Write},
-    net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, TcpStream},
+    net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, mpsc::RecvTimeoutError},
     time::Duration,
 };
 
 use serde::Serialize;
-use spec_viewer_config::{Binding, Code, Color, Config, Key, Keys, Mode};
-use spec_viewer_core::{ChipValue, DocError, DocNode, Document, Library, Status, TocEntry};
+use spec_viewer_config::{Binding, Code, Color, Config, Key, Keys, Mode, StatusConfig};
+use spec_viewer_protocol::{ChipValue, Client, DocNode, Document, Error, Status, TocEntry};
 
 use crate::html::{Html, to_html};
 
@@ -20,14 +21,19 @@ const APP_CSS: &str = include_str!("../assets/app.css");
 const HEARTBEAT: Duration = Duration::from_secs(15);
 const HEAD_LIMIT: u64 = 16 * 1024;
 
-/// Binds `127.0.0.1:<preferred>`, else any free port, and serves on background threads until exit.
-pub fn start(library: Library, config: &Config, preferred: Option<u16>) -> io::Result<SocketAddr> {
-    let ip = IpAddr::V4(Ipv4Addr::LOCALHOST);
-    let listener = preferred
-        .and_then(|port| TcpListener::bind((ip, port)).ok())
-        .map_or_else(|| TcpListener::bind((ip, 0)), Ok)?;
-    let address = listener.local_addr()?;
-    let state = Arc::new(State::new(library, config));
+/// The gateway's view of its daemon.
+pub struct Backend {
+    /// An in-process connection.
+    pub client: Client,
+    /// Keeps the daemon from idling out while the returned value lives; held per events stream.
+    pub hold: Box<dyn Fn() -> Box<dyn Send> + Send + Sync>,
+}
+
+/// Serves the web app on `listener` on background threads until exit. `config` is the daemon
+/// host's user config, for the keys and the palette.
+pub fn start(listener: TcpListener, config: &Config, backend: Backend) -> io::Result<()> {
+    let port = listener.local_addr()?.port();
+    let state = Arc::new(State::new(config, backend, port));
     std::thread::spawn(move || {
         for mut stream in listener.incoming().flatten() {
             let state = Arc::clone(&state);
@@ -35,29 +41,49 @@ pub fn start(library: Library, config: &Config, preferred: Option<u16>) -> io::R
                 if stream.set_read_timeout(Some(Duration::from_secs(5))).is_err() {
                     return;
                 }
-                if let Some(target) = request_target(&mut stream) {
-                    state.handle(stream, &target);
+                if let Some((target, host)) = request_head(&mut stream) {
+                    if allowed(host.as_deref(), state.port) {
+                        state.handle(stream, &target);
+                    } else {
+                        text(403, "forbidden").send(&mut stream);
+                    }
                 }
             });
         }
     });
-    Ok(address)
+    Ok(())
 }
 
-/// Reads the request head and returns its target. Any method is served as GET and every response
-/// closes the connection, so request bodies and keep-alive never need handling.
-fn request_target(stream: &mut TcpStream) -> Option<String> {
+/// A `Host` naming loopback by name or address, with the gateway's port. Any other name could be a
+/// DNS-rebound page reaching the API.
+fn allowed(host: Option<&str>, port: u16) -> bool {
+    let Some(host) = host else { return false };
+    let host = host.to_ascii_lowercase();
+    ["localhost", "127.0.0.1", "[::1]"]
+        .iter()
+        .any(|name| host == format!("{name}:{port}") || (port == 80 && host == *name))
+}
+
+/// Reads the request head and returns its target and `Host` header. Any method is served as GET
+/// and every response closes the connection, so request bodies and keep-alive never need handling.
+fn request_head(stream: &mut TcpStream) -> Option<(String, Option<String>)> {
     let mut reader = BufReader::new(stream.take(HEAD_LIMIT));
     let mut line = String::new();
     reader.read_line(&mut line).ok()?;
     let target = line.split(' ').nth(1)?.to_owned();
+    let mut host = None;
     loop {
         line.clear();
         if reader.read_line(&mut line).ok()? == 0 {
             return None;
         }
         if line == "\r\n" || line == "\n" {
-            return Some(target);
+            return Some((target, host));
+        }
+        if let Some((name, value)) = line.split_once(':')
+            && name.eq_ignore_ascii_case("host")
+        {
+            host = Some(value.trim().to_owned());
         }
     }
 }
@@ -74,6 +100,7 @@ impl Reply {
             200 => "OK",
             403 => "Forbidden",
             404 => "Not Found",
+            502 => "Bad Gateway",
             _ => "Internal Server Error",
         };
         let mut head = format!(
@@ -92,114 +119,177 @@ impl Reply {
     }
 }
 
-/// HTML per document file, reused while the core cache returns the same parse.
-type Rendered = HashMap<PathBuf, (Arc<Document>, Arc<Html>)>;
+/// A worktree named by `host` and `wt`, as the daemon resolved it.
+#[derive(Clone)]
+struct Target {
+    host: Option<String>,
+    path: PathBuf,
+    statuses: Vec<StatusConfig>,
+}
+
+/// HTML per host and document file, reused while the document is unchanged.
+type Rendered = HashMap<(Option<String>, PathBuf), (Arc<Document>, Arc<Html>)>;
 
 struct State {
-    library: Library,
-    statuses: Vec<String>,
+    backend: Backend,
+    config: Config,
+    port: u16,
+    /// For `/theme.css` without a worktree: the daemon's own statuses.
     theme_css: String,
     keys: serde_json::Value,
+    targets: Mutex<HashMap<(Option<String>, String), Target>>,
     rendered: Mutex<Rendered>,
 }
 
-impl State {
-    fn new(library: Library, config: &Config) -> Self {
-        let statuses: Vec<String> = config.parse.statuses.iter().map(|status| status.name.clone()).collect();
-        let mut theme_css = String::new();
-        for (mode, dark) in [(Mode::Light, false), (Mode::Dark, true)] {
-            let mut rules = String::new();
-            // A mode whose palette lacks a status colour leaves those statuses at the unknown tone.
-            let resolved = config.resolve(mode).ok();
-            if let Some(resolved) = &resolved {
-                for (index, name) in statuses.iter().enumerate() {
-                    if let Some(color) = resolved.statuses.get(name) {
-                        rules.push_str(&format!("--tone-{index}: {};\n", css_color(*color)));
-                    }
-                }
-                // The design tokens behind ANSI slots are foreground colours; only a hex surface applies.
-                if let Color::Rgb(..) = resolved.roles.code_bg {
-                    rules.push_str(&format!("--code-bg: {};\n", css_color(resolved.roles.code_bg)));
-                }
+fn theme_css(config: &Config, statuses: &[StatusConfig]) -> String {
+    let mut theme_css = String::new();
+    for (mode, dark) in [(Mode::Light, false), (Mode::Dark, true)] {
+        let mut rules = String::new();
+        // A status naming no palette colour of the mode keeps the unknown tone.
+        let colors = config.status_colors(mode, statuses);
+        for (index, status) in statuses.iter().enumerate() {
+            if let Some(color) = colors.get(&status.name) {
+                rules.push_str(&format!("--tone-{index}: {};\n", css_color(*color)));
             }
-            let ansi = resolved.map_or(spec_viewer_config::ANSI_SLOTS.map(|(_, slot)| Color::Ansi(slot)), |resolved| {
-                resolved.ansi
-            });
-            rules.push_str(&crate::highlight::rules(&ansi.map(css_color)));
-            let name = if dark { "dark" } else { "light" };
-            theme_css.push_str(&format!(
-                "@media (prefers-color-scheme: {name}) {{ :root:not([data-theme]) {{\n{rules}}} }}\n:root[data-theme='{name}'] {{\n{rules}}}\n"
-            ));
         }
+        let resolved = config.resolve(mode).ok();
+        // The design tokens behind ANSI slots are foreground colours; only a hex surface applies.
+        if let Some(resolved) = &resolved
+            && let Color::Rgb(..) = resolved.roles.code_bg
+        {
+            rules.push_str(&format!("--code-bg: {};\n", css_color(resolved.roles.code_bg)));
+        }
+        let ansi = resolved.map_or(spec_viewer_config::ANSI_SLOTS.map(|(_, slot)| Color::Ansi(slot)), |resolved| {
+            resolved.ansi
+        });
+        rules.push_str(&crate::highlight::rules(&ansi.map(css_color)));
+        let name = if dark { "dark" } else { "light" };
+        theme_css.push_str(&format!(
+            "@media (prefers-color-scheme: {name}) {{ :root:not([data-theme]) {{\n{rules}}} }}\n:root[data-theme='{name}'] {{\n{rules}}}\n"
+        ));
+    }
+    theme_css
+}
+
+/// The status and body for a failed daemon request.
+fn failure(error: &Error) -> Reply {
+    match error {
+        Error::NotAProject | Error::UnlistedWorktree | Error::Forbidden => text(403, "forbidden"),
+        Error::NotFound => text(404, "not found"),
+        Error::UnknownHost => text(404, "unknown host"),
+        Error::HostUnreachable { message } => text(502, message),
+        Error::Config { .. } | Error::Protocol { .. } => text(500, &error.to_string()),
+    }
+}
+
+impl State {
+    fn new(config: &Config, backend: Backend, port: u16) -> Self {
         Self {
-            library,
-            statuses,
-            theme_css,
+            theme_css: theme_css(config, &config.parse.statuses),
             keys: keys_json(&config.keys),
+            config: config.clone(),
+            backend,
+            port,
+            targets: Mutex::default(),
             rendered: Mutex::default(),
         }
     }
 
-    fn handle(&self, mut stream: TcpStream, target: &str) {
-        let (path, query) = target.split_once('?').unwrap_or((target, ""));
+    fn client(&self) -> &Client {
+        &self.backend.client
+    }
+
+    fn handle(&self, mut stream: TcpStream, path_and_query: &str) {
+        let (path, query) = path_and_query.split_once('?').unwrap_or((path_and_query, ""));
         let query = Query(query);
         if path == "/api/events" {
-            return match self.worktree(&query) {
-                Some(worktree) => self.events(&mut stream, &worktree),
-                None => text(403, "forbidden").send(&mut stream),
+            return match self.target(&query, false) {
+                Ok(target) => self.events(&mut stream, &target),
+                Err(reply) => reply.send(&mut stream),
             };
         }
         let reply = match path {
             "/" => asset(INDEX, "text/html; charset=utf-8"),
             "/app.js" => asset(APP_JS, "text/javascript; charset=utf-8"),
             "/app.css" => asset(APP_CSS, "text/css; charset=utf-8"),
+            "/theme.css" if query.get("wt").is_some() => self.target(&query, false).map_or_else(
+                |reply| reply,
+                |target| asset(&theme_css(&self.config, &target.statuses), "text/css; charset=utf-8"),
+            ),
             "/theme.css" => asset(&self.theme_css, "text/css; charset=utf-8"),
             "/api/projects" => self.projects(),
             "/api/keys" => json(&self.keys),
-            "/api/docs" => self
-                .worktree(&query)
-                .map_or_else(|| text(403, "forbidden"), |worktree| self.docs(&worktree)),
-            "/api/search" => self.worktree(&query).map_or_else(
-                || text(403, "forbidden"),
-                |worktree| self.search(&worktree, query.get("q").as_deref().unwrap_or("")),
+            "/api/docs" => self.target(&query, true).map_or_else(|reply| reply, |target| self.docs(&target)),
+            "/api/search" => self.target(&query, false).map_or_else(
+                |reply| reply,
+                |target| self.search(&target, query.get("q").as_deref().unwrap_or("")),
             ),
-            "/api/doc" => self.worktree(&query).map_or_else(
-                || text(403, "forbidden"),
-                |worktree| self.doc(&worktree, query.get("path").as_deref().unwrap_or("")),
+            "/api/doc" => self.target(&query, false).map_or_else(
+                |reply| reply,
+                |target| self.doc(&target, query.get("path").as_deref().unwrap_or("")),
             ),
             _ => text(404, "not found"),
         };
         reply.send(&mut stream);
     }
 
-    /// Only a worktree the project currently lists may be read.
-    fn worktree(&self, query: &Query) -> Option<PathBuf> {
-        let wanted = std::fs::canonicalize(query.get("wt")?).ok()?;
-        self.library
-            .refresh_project()
-            .worktrees
-            .into_iter()
-            .find(|worktree| worktree.path == wanted)
-            .map(|worktree| worktree.path)
+    /// The worktree that `Resolve` finds for `wt` on `host`, resolved again on `refresh`. Resolving
+    /// adds its project to that host's known projects.
+    fn target(&self, query: &Query, refresh: bool) -> Result<Target, Reply> {
+        let wt = query.get("wt").ok_or_else(|| text(403, "forbidden"))?;
+        let host = query.get("host").filter(|host| !host.is_empty());
+        let key = (host.clone(), wt.clone());
+        if !refresh && let Some(target) = self.targets.lock().expect("targets").get(&key) {
+            return Ok(target.clone());
+        }
+        let resolved = self
+            .client()
+            .resolve(host.as_deref(), PathBuf::from(&wt).as_path())
+            .map_err(|error| failure(&error))?;
+        let worktree = &resolved.project.worktrees[resolved.worktree];
+        let target = Target {
+            host: worktree.host.clone(),
+            path: worktree.path.clone(),
+            statuses: resolved.statuses,
+        };
+        self.targets.lock().expect("targets").insert(key, target.clone());
+        Ok(target)
     }
 
     fn projects(&self) -> Reply {
-        let project = self.library.refresh_project();
+        let projects = match self.client().projects(None) {
+            Ok(projects) => projects,
+            Err(error) => return failure(&error),
+        };
+        let unreachable: Vec<_> = self
+            .client()
+            .hosts()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|host| !host.connected)
+            .map(|host| serde_json::json!({ "host": host.name, "error": host.error.unwrap_or_default() }))
+            .collect();
         json(&serde_json::json!({
-            "projects": [{
-                "name": project.name,
-                "path": project.path,
-                "worktrees": project.worktrees.iter().map(|worktree| serde_json::json!({
-                    "name": worktree.name,
-                    "main": worktree.main,
-                    "path": worktree.path,
-                })).collect::<Vec<_>>(),
-            }],
+            "projects": projects.iter().map(|project| {
+                let mut value = serde_json::json!({
+                    "name": project.name,
+                    "path": project.path,
+                    "worktrees": project.worktrees,
+                });
+                if let Some(origin) = &project.origin {
+                    value["origin"] = origin.as_str().into();
+                }
+                value
+            }).collect::<Vec<_>>(),
+            "unreachable": unreachable,
         }))
     }
 
-    fn docs(&self, worktree: &Path) -> Reply {
-        let corpus = self.library.corpus(worktree);
+    fn docs(&self, target: &Target) -> Reply {
+        let corpus = match self.client().corpus(target.host.as_deref(), &target.path) {
+            Ok(corpus) => corpus,
+            Err(error) => return failure(&error),
+        };
         json(&DocsJson {
             changed: corpus.changed,
             project: corpus.project,
@@ -208,24 +298,27 @@ impl State {
                 .iter()
                 .map(|tab| TabJson {
                     name: &tab.name,
-                    nodes: tab.nodes.iter().map(|node| self.node(node)).collect(),
+                    nodes: tab.nodes.iter().map(|node| node_json(&target.statuses, node)).collect(),
                 })
                 .collect(),
         })
     }
 
-    fn search(&self, worktree: &Path, query: &str) -> Reply {
-        let corpus = self.library.corpus(worktree);
-        let hits = spec_viewer_core::search(&corpus.tabs, query);
+    fn search(&self, target: &Target, query: &str) -> Reply {
+        let corpus = match self.client().corpus(target.host.as_deref(), &target.path) {
+            Ok(corpus) => corpus,
+            Err(error) => return failure(&error),
+        };
+        let hits = spec_viewer_protocol::search(&corpus.tabs, query);
         json(&SearchJson {
-            total: spec_viewer_core::search(&corpus.tabs, "").len(),
+            total: spec_viewer_protocol::search(&corpus.tabs, "").len(),
             hits: hits
                 .iter()
                 .map(|hit| HitJson {
                     tab: &corpus.tabs[hit.tab].name,
                     name: &hit.node.name,
                     path: &hit.path,
-                    status: self.status(hit.node.status.as_ref()),
+                    status: status_json(&target.statuses, hit.node.status.as_ref()),
                     archived: hit.node.archived.unwrap_or(false),
                     title_matches: &hit.title_matches,
                     path_matches: &hit.path_matches,
@@ -234,19 +327,19 @@ impl State {
         })
     }
 
-    fn doc(&self, worktree: &Path, rel: &str) -> Reply {
-        let opened = match self.library.open(worktree, rel) {
+    fn doc(&self, target: &Target, rel: &str) -> Reply {
+        let opened = match self.client().open(target.host.as_deref(), &target.path, rel) {
             Ok(opened) => opened,
-            Err(DocError::Forbidden) => return text(403, "forbidden"),
-            Err(DocError::NotFound) => return text(404, "not found"),
+            Err(error) => return failure(&error),
         };
         let html = {
             let mut rendered = self.rendered.lock().expect("render cache");
-            match rendered.get(&opened.path) {
-                Some((document, html)) if Arc::ptr_eq(document, &opened.document) => Arc::clone(html),
+            let key = (target.host.clone(), opened.path.clone());
+            match rendered.get(&key) {
+                Some((document, html)) if **document == *opened.document => Arc::clone(html),
                 _ => {
                     let html = Arc::new(to_html(&opened.document));
-                    rendered.insert(opened.path.clone(), (Arc::clone(&opened.document), Arc::clone(&html)));
+                    rendered.insert(key, (Arc::clone(&opened.document), Arc::clone(&html)));
                     html
                 }
             }
@@ -257,7 +350,7 @@ impl State {
             root_path: &opened.root_path,
             meta: MetaJson {
                 title: &meta.title,
-                status: self.status(meta.status.as_ref()),
+                status: status_json(&target.statuses, meta.status.as_ref()),
                 author: meta.author.as_deref(),
                 date: meta.date.as_deref(),
                 related: &meta.related,
@@ -288,19 +381,21 @@ impl State {
         })
     }
 
-    fn events(&self, stream: &mut TcpStream, worktree: &Path) {
-        let watch = match self.library.watch(worktree) {
+    /// Holds the daemon up while open. The heartbeat surfaces a closed connection as a write
+    /// error, which drops the watch.
+    fn events(&self, stream: &mut TcpStream, target: &Target) {
+        let watch = match self.client().watch(target.host.as_deref(), &target.path) {
             Ok(watch) => watch,
-            Err(error) => return text(500, &error.to_string()).send(stream),
+            Err(error) => return failure(&error).send(stream),
         };
+        let _hold = (self.backend.hold)();
         let mut send = |chunk: &str| stream.write_all(chunk.as_bytes()).and_then(|()| stream.flush());
         if send("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n").is_err() {
             return;
         }
-        // The heartbeat surfaces a closed connection as a write error, which drops the watch.
         loop {
-            let chunk = match watch.reloads.recv_timeout(HEARTBEAT) {
-                Ok(()) => "data: reload\n\n",
+            let chunk = match watch.recv_timeout(HEARTBEAT) {
+                Ok(_) => "data: reload\n\n",
                 Err(RecvTimeoutError::Timeout) => ": ping\n\n",
                 Err(RecvTimeoutError::Disconnected) => return,
             };
@@ -309,37 +404,38 @@ impl State {
             }
         }
     }
+}
 
-    fn node(&self, node: &DocNode) -> NodeJson {
-        NodeJson {
-            name: node.name.clone(),
-            path: node.path.clone(),
-            kind: node.kind.clone(),
-            status: self.status(node.status.as_ref()),
-            archived: node.archived.unwrap_or(false),
-            companion: node.companion,
-            children: node
-                .children
-                .as_ref()
-                .map(|children| children.iter().map(|child| self.node(child)).collect()),
-        }
+fn node_json(statuses: &[StatusConfig], node: &DocNode) -> NodeJson {
+    NodeJson {
+        name: node.name.clone(),
+        path: node.path.clone(),
+        kind: node.kind.clone(),
+        status: status_json(statuses, node.status.as_ref()),
+        archived: node.archived.unwrap_or(false),
+        companion: node.companion,
+        children: node
+            .children
+            .as_ref()
+            .map(|children| children.iter().map(|child| node_json(statuses, child)).collect()),
     }
+}
 
-    fn status(&self, status: Option<&Status>) -> Option<StatusJson> {
-        let status = status?;
-        let index = status
-            .known
-            .then(|| self.statuses.iter().position(|name| *name == status.name))
-            .flatten();
-        Some(StatusJson {
-            name: status.name.clone(),
-            known: index.is_some(),
-            tone: index.map_or_else(
-                || "var(--status-unknown)".into(),
-                |index| format!("var(--tone-{index}, var(--status-unknown))"),
-            ),
-        })
-    }
+/// `tone` indexes the worktree's statuses, as `/theme.css?host=&wt=` numbers them.
+fn status_json(statuses: &[StatusConfig], status: Option<&Status>) -> Option<StatusJson> {
+    let status = status?;
+    let index = status
+        .known
+        .then(|| statuses.iter().position(|configured| configured.name == status.name))
+        .flatten();
+    Some(StatusJson {
+        name: status.name.clone(),
+        known: index.is_some(),
+        tone: index.map_or_else(
+            || "var(--status-unknown)".into(),
+            |index| format!("var(--tone-{index}, var(--status-unknown))"),
+        ),
+    })
 }
 
 fn css_color(color: Color) -> String {

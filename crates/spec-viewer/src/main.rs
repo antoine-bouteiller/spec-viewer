@@ -1,13 +1,14 @@
-use std::{process::ExitCode, time::Duration};
+use std::{net::TcpListener, process::ExitCode, sync::Arc, time::Duration};
 
 mod cli;
 
 use cli::Command;
 use spec_viewer_config::{Config, Layer};
 use spec_viewer_core::{Library, ParseConfig};
-use spec_viewer_daemon::{Options, relay, run};
+use spec_viewer_daemon::{Daemon, Options, relay, run};
 use spec_viewer_protocol::Runtime;
 use spec_viewer_render_tui::Theme;
+use spec_viewer_render_web::Backend;
 
 fn main() -> ExitCode {
     match start() {
@@ -25,7 +26,7 @@ fn start() -> Result<ExitCode, String> {
     let (root, theme) = match cli::parse(&args)? {
         Command::Tui { root, theme } => (root, theme),
         Command::Daemon { idle_exit } => {
-            run(Options::from_env(idle_exit.map(Duration::from_secs)), |_, _| {})?;
+            run(Options::from_env(idle_exit.map(Duration::from_secs)), gateway)?;
             return Ok(ExitCode::SUCCESS);
         }
         Command::Relay => {
@@ -38,16 +39,24 @@ fn start() -> Result<ExitCode, String> {
     let worktree = Layer::read(&library.containing_worktree().path.join(".spec-viewer.toml")).map_err(|error| error.to_string())?;
     config.parse = ParseConfig::with(&[&config.layer, &worktree.unwrap_or_default()]);
     let theme = Theme::from_config(&config, theme).map_err(|error| error.to_string())?;
-    let web = Library::new(&root, config.parse.clone()).map_err(|error| error.to_string())?;
     let library = library.with_parse_config(config.parse.clone());
-    let address = spec_viewer_render_web::start(web, &config, None).map_err(|error| format!("cannot start web server: {error}"))?;
-    Ok(spec_viewer_render_tui::run(
-        library,
-        theme,
-        config.keys,
-        Some(format!("http://{address}")),
-        config.tui.diff,
-    ))
+    Ok(spec_viewer_render_tui::run(library, theme, config.keys, None, config.tui.diff))
+}
+
+/// Serves the web app as an in-process client of `daemon`.
+fn gateway(daemon: &Arc<Daemon>, listener: TcpListener) {
+    let client = match daemon.connect() {
+        Ok(client) => client,
+        Err(error) => return eprintln!("spec-viewer: no web app: {error}"),
+    };
+    let held = Arc::clone(daemon);
+    let backend = Backend {
+        client,
+        hold: Box::new(move || Box::new(held.hold())),
+    };
+    if let Err(error) = spec_viewer_render_web::start(listener, daemon.config(), backend) {
+        eprintln!("spec-viewer: no web app: {error}");
+    }
 }
 
 /// `<this executable> daemon --idle-exit 300`, as frontends spawn it.
