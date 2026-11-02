@@ -11,6 +11,19 @@ fn run(root: &Path, user: &Path, args: &[&str]) -> Output {
         .output()
         .unwrap()
 }
+fn repository() -> tempfile::TempDir {
+    let root = tempfile::tempdir().unwrap();
+    assert!(
+        Command::new("git")
+            .arg("-C")
+            .arg(root.path())
+            .args(["init", "-q"])
+            .status()
+            .unwrap()
+            .success()
+    );
+    root
+}
 fn assert_error(output: Output, file: &Path, key: &str) {
     assert_eq!(output.status.code(), Some(1));
     assert!(output.stdout.is_empty());
@@ -23,7 +36,7 @@ fn assert_error(output: Output, file: &Path, key: &str) {
 
 #[test]
 fn vc_7_binary_config_errors_are_single_lines_with_file_and_key() {
-    let root = tempfile::tempdir().unwrap();
+    let root = repository();
     let user = tempfile::tempdir().unwrap();
     std::fs::create_dir(user.path().join("spec-viewer")).unwrap();
     let user_file = user.path().join("spec-viewer/config.toml");
@@ -39,7 +52,7 @@ fn vc_7_binary_config_errors_are_single_lines_with_file_and_key() {
 
 #[test]
 fn vc_8_binary_rejects_frontend_sections_in_a_worktree_file_and_config_option() {
-    let root = tempfile::tempdir().unwrap();
+    let root = repository();
     let user = tempfile::tempdir().unwrap();
     let file = root.path().join(".spec-viewer.toml");
     for section in [

@@ -1587,6 +1587,13 @@ mod tests {
 
     fn app() -> (tempfile::TempDir, App) {
         let root = tempfile::tempdir().unwrap();
+        let status = std::process::Command::new("git")
+            .arg("init")
+            .arg("-q")
+            .arg(root.path())
+            .status()
+            .unwrap();
+        assert!(status.success());
         std::fs::create_dir(root.path().join(".plan")).unwrap();
         std::fs::write(root.path().join(".plan/first.md"), "## First\n\nG-1 [next](second.md)\n").unwrap();
         std::fs::write(root.path().join(".plan/second.md"), "## Second\n").unwrap();
@@ -1595,13 +1602,6 @@ mod tests {
     }
 
     fn add_spec(root: &tempfile::TempDir) {
-        let status = std::process::Command::new("git")
-            .arg("init")
-            .arg("-q")
-            .arg(root.path())
-            .status()
-            .unwrap();
-        assert!(status.success());
         std::fs::create_dir(root.path().join("spec")).unwrap();
         std::fs::write(root.path().join("spec/a.spec.md"), "## A\n").unwrap();
     }

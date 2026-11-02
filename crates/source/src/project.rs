@@ -35,23 +35,14 @@ fn porcelain_field<'a>(block: &'a str, prefix: &str) -> Option<&'a str> {
     })
 }
 
+/// The project of the Git worktree containing `root`; an error outside one.
 pub fn project_of(root: &Path) -> io::Result<Project> {
     let root = std::fs::canonicalize(root)?;
     if !root.is_dir() {
         return Err(io::Error::other("not a directory"));
     }
-    let Ok(common) = git(&root, &["rev-parse", "--git-common-dir"]) else {
-        return Ok(Project {
-            key: root.clone(),
-            name: basename(&root),
-            path: root.clone(),
-            worktrees: vec![Worktree {
-                name: basename(&root),
-                main: true,
-                path: root,
-            }],
-        });
-    };
+    let common =
+        git(&root, &["rev-parse", "--git-common-dir"]).map_err(|_| io::Error::new(io::ErrorKind::NotFound, "not inside a Git worktree"))?;
     let key = std::fs::canonicalize(root.join(trim(&common)))?;
     let output = git(&root, &["worktree", "list", "--porcelain", "-z"])?;
     let worktrees: Vec<_> = trim(&output)
@@ -65,6 +56,7 @@ pub fn project_of(root: &Path) -> io::Result<Project> {
             let path = std::fs::canonicalize(porcelain_field(&block, "worktree ")?).ok()?;
             let branch = porcelain_field(&block, "branch refs/heads/");
             Some(Worktree {
+                host: None,
                 main: index == 0,
                 name: branch.map_or_else(|| basename(&path), str::to_owned),
                 path,
@@ -80,8 +72,33 @@ pub fn project_of(root: &Path) -> io::Result<Project> {
         key,
         name: basename(&main.path),
         path: main.path.clone(),
+        origin: git(&root, &["config", "--get", "remote.origin.url"])
+            .ok()
+            .map(|url| normalize_origin(&url)),
         worktrees,
     })
+}
+
+/// `url` without its scheme, user, port, trailing `/`, and `.git`, with the host lowercased; the
+/// scp form `host:path` reads as `host/path`.
+pub fn normalize_origin(url: &str) -> String {
+    let url = trim(url);
+    let (authority, path) = match url.split_once("://") {
+        Some((_, rest)) => rest.split_once('/').unwrap_or((rest, "")),
+        None => match url.split_once(':') {
+            Some((authority, path)) if !authority.contains('/') => (authority, path),
+            _ => ("", url),
+        },
+    };
+    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    let host = host.split(':').next().unwrap_or_default().to_lowercase();
+    let path = path.trim_end_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path).trim_matches('/');
+    if host.is_empty() {
+        format!("/{path}")
+    } else {
+        format!("{host}/{path}")
+    }
 }
 
 /// Tab documents changed since the merge base with the remote `main`, committed, uncommitted, or untracked.
@@ -152,20 +169,34 @@ mod tests {
         root
     }
     #[test]
-    fn non_git_project() {
+    fn a_directory_outside_git_is_not_a_project() {
         let root = tempfile::tempdir().unwrap();
+        assert_eq!(project_of(root.path()).unwrap_err().kind(), io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn vc_10_origins_normalize_to_host_and_path() {
+        for (url, origin) in [
+            ("git@GitHub.com:o/r.git", "github.com/o/r"),
+            ("https://github.com/o/r", "github.com/o/r"),
+            ("https://user@GitHub.com:8443/o/r.git/\n", "github.com/o/r"),
+            ("ssh://git@github.com:22/o/r.git", "github.com/o/r"),
+            ("github.com:o/r/", "github.com/o/r"),
+            ("/srv/git/r.git", "/srv/git/r"),
+            ("file:///srv/git/r.git", "/srv/git/r"),
+        ] {
+            assert_eq!(normalize_origin(url), origin, "{url}");
+        }
+    }
+
+    #[test]
+    fn a_project_carries_its_normalized_origin() {
+        let root = repository();
+        assert_eq!(project_of(root.path()).unwrap().origin, None);
+        run(root.path(), &["remote", "add", "origin", "git@GitHub.com:o/r.git"]);
         let project = project_of(root.path()).unwrap();
-        let real = fs::canonicalize(root.path()).unwrap();
-        assert_eq!(project.key, real);
-        assert_eq!(project.path, real);
-        assert_eq!(
-            project.worktrees,
-            [Worktree {
-                name: real.file_name().unwrap().to_string_lossy().into_owned(),
-                main: true,
-                path: real
-            }]
-        );
+        assert_eq!(project.origin.as_deref(), Some("github.com/o/r"));
+        assert!(project.worktrees.iter().all(|worktree| worktree.host.is_none()));
     }
 
     #[test]

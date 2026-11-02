@@ -12,6 +12,17 @@ use spec_viewer_render_tui::{
 use std::{io, path::Path};
 use support::fixture::Fixture;
 
+fn repository() -> tempfile::TempDir {
+    let root = tempfile::tempdir().unwrap();
+    let status = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root.path())
+        .args(["init", "-q"])
+        .status()
+        .unwrap();
+    assert!(status.success());
+    root
+}
 /// A session whose user config is `source`.
 fn configured(root: &Path, source: &str, override_mode: Option<Mode>) -> App {
     let config = user_config(root, source);
@@ -53,7 +64,7 @@ fn assert_text_fg_from_column(buffer: &Buffer, text: &str, color: Color, start: 
 
 #[test]
 fn vc_4_worktree_statuses_replace_defaults_in_tree_and_header() {
-    let root = tempfile::tempdir().unwrap();
+    let root = repository();
     std::fs::create_dir(root.path().join(".plan")).unwrap();
     std::fs::write(
         root.path().join(".plan/shipped.md"),
@@ -82,7 +93,7 @@ fn vc_4_worktree_statuses_replace_defaults_in_tree_and_header() {
 
 #[test]
 fn vc_5_custom_checklist_replaces_all_header_chips() {
-    let root = tempfile::tempdir().unwrap();
+    let root = repository();
     std::fs::create_dir(root.path().join(".plan")).unwrap();
     std::fs::write(root.path().join(".plan/risks.md"), "# Risk plan\n## Risks\n- [x] identified\n- [ ] remaining\n## Implementation\n### Phase\n- [x] task\n## Acceptance criteria\n- [x] done\n").unwrap();
     let mut app = configured(
@@ -102,7 +113,7 @@ fn vc_5_custom_checklist_replaces_all_header_chips() {
 
 #[test]
 fn vc_6_palette_overrides_recolour_border_xrefs_and_status() {
-    let root = tempfile::tempdir().unwrap();
+    let root = repository();
     std::fs::create_dir(root.path().join(".plan")).unwrap();
     std::fs::write(
         root.path().join(".plan/a.md"),
@@ -233,7 +244,7 @@ fn vc_7_session_keeps_startup_config_on_reload_and_worktree_switch() {
 
 #[test]
 fn vc_5_headings_chip_label_is_configured_and_zero_chips_are_omitted() {
-    let root = tempfile::tempdir().unwrap();
+    let root = repository();
     std::fs::create_dir(root.path().join(".plan")).unwrap();
     std::fs::write(root.path().join(".plan/a.md"), "# Plan\n## Risks\n### First\n### Second\n").unwrap();
     let mut app = configured(
