@@ -144,8 +144,10 @@ fn a_lost_connection_fails_pending_and_later_calls() {
     let (client, _) = client(|reader, _| {
         let _ = next_request(reader);
     });
+    assert!(!client.is_lost());
     let error = client.corpus(None, Path::new("/a")).unwrap_err();
     assert!(matches!(error, Error::HostUnreachable { .. }), "{error:?}");
+    assert!(client.is_lost());
     let error = client.hosts().unwrap_err();
     assert!(matches!(error, Error::HostUnreachable { .. }), "{error:?}");
 }

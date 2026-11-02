@@ -19,7 +19,22 @@ pub struct Watch {
 }
 
 /// A running watch; dropping it stops watching.
-pub struct Watcher(#[allow(dead_code)] Arc<Mutex<RecommendedWatcher>>);
+pub struct Watcher {
+    watcher: Arc<Mutex<RecommendedWatcher>>,
+    set: Option<Arc<Mutex<WatchSet>>>,
+}
+
+impl Watcher {
+    /// Watches the tab folders and document directories of the current `configs` now, for a
+    /// config change that made no event in the worktree.
+    pub fn refresh(&self) {
+        if let Some(set) = &self.set {
+            set.lock()
+                .expect("watch set")
+                .watch_document_directories(&mut self.watcher.lock().expect("watcher"));
+        }
+    }
+}
 
 /// Tab folders are watched recursively; whole-worktree tab directories are found with `git_paths`.
 pub fn watch(worktree: &Path, config: &ParseConfig) -> notify::Result<Watch> {
@@ -49,19 +64,23 @@ pub fn watch_with(
     let watcher = Arc::new(Mutex::new(watcher));
     let mut set = WatchSet::new(worktree, Box::new(configs));
     set.start(&mut watcher.lock().expect("watcher"));
-    let weak = Arc::downgrade(&watcher);
+    let set = Arc::new(Mutex::new(set));
+    let (weak, shared) = (Arc::downgrade(&watcher), Arc::clone(&set));
     std::thread::spawn(move || {
-        debounce(&event_receiver, notify, |relevant| match relevant {
-            Some(event) => set.relevant(event),
-            None => {
-                if let Some(watcher) = weak.upgrade() {
-                    set.watch_document_directories(&mut watcher.lock().expect("watcher"));
+        debounce(&event_receiver, notify, |relevant| {
+            let mut set = shared.lock().expect("watch set");
+            match relevant {
+                Some(event) => set.relevant(event),
+                None => {
+                    if let Some(watcher) = weak.upgrade() {
+                        set.watch_document_directories(&mut watcher.lock().expect("watcher"));
+                    }
+                    true
                 }
-                true
             }
         })
     });
-    Ok(Watcher(watcher))
+    Ok(Watcher { watcher, set: Some(set) })
 }
 
 /// Calls `notify` once per burst of changes to any of `files`, which need not exist, until it
@@ -96,7 +115,10 @@ pub fn watch_files(files: Vec<PathBuf>, notify: impl FnMut() -> bool + Send + 's
             event.is_none_or(|event| !event.kind.is_access() && event.paths.iter().any(|path| files.contains(path)))
         })
     });
-    Ok(Watcher(Arc::new(Mutex::new(watcher))))
+    Ok(Watcher {
+        watcher: Arc::new(Mutex::new(watcher)),
+        set: None,
+    })
 }
 
 /// `filter(Some(event))` decides whether an event counts; `filter(None)` runs once per burst
@@ -299,6 +321,27 @@ mod tests {
         tabs.lock().unwrap().tabs[0].folder = Some("notes".into());
         std::fs::write(root.join(".spec-viewer.toml"), "").unwrap();
         assert_eq!(reloads.recv_timeout(Duration::from_secs(5)), Ok(()));
+        std::fs::write(root.join("notes/a.md"), "# A\n").unwrap();
+        assert_eq!(reloads.recv_timeout(Duration::from_secs(5)), Ok(()));
+    }
+
+    #[test]
+    fn refresh_watches_the_folder_of_a_tab_added_without_a_worktree_event() {
+        let directory = repository();
+        let root = root(&directory);
+        std::fs::create_dir(root.join("notes")).unwrap();
+        let tabs = Arc::new(Mutex::new(ParseConfig::default()));
+        let (sender, reloads) = mpsc::channel();
+        let configs = Arc::clone(&tabs);
+        let watcher = watch_with(
+            &root,
+            move || vec![configs.lock().unwrap().clone()],
+            move || sender.send(()).is_ok(),
+        )
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        tabs.lock().unwrap().tabs[0].folder = Some("notes".into());
+        watcher.refresh();
         std::fs::write(root.join("notes/a.md"), "# A\n").unwrap();
         assert_eq!(reloads.recv_timeout(Duration::from_secs(5)), Ok(()));
     }

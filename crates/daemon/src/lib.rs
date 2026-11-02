@@ -185,6 +185,12 @@ impl Daemon {
         self.watches.len()
     }
 
+    /// The number of local config files that forwarded watches follow.
+    #[doc(hidden)]
+    pub fn followed_configs(&self) -> usize {
+        self.hub.followed_len()
+    }
+
     /// An in-process connection, which does not keep the daemon from idling out.
     pub fn connect(self: &Arc<Self>) -> Result<Client, Error> {
         let (near, far) = UnixStream::pair().map_err(Error::unreachable)?;
@@ -240,6 +246,7 @@ impl Daemon {
                 }
                 ClientMessage::User { user } => {
                     *connection.user.lock().expect("connection user") = Some(user);
+                    self.watches.refresh();
                     connection.changed_all();
                 }
                 ClientMessage::Override { worktree, layer } => {
@@ -250,6 +257,7 @@ impl Daemon {
                         None => overrides.remove(&worktree),
                     };
                     drop(overrides);
+                    self.watches.refresh();
                     connection.changed_all();
                 }
                 ClientMessage::Hello { .. } => {}
@@ -385,13 +393,15 @@ impl Daemon {
             }
         };
         {
+            // Held while sending, so a host connecting meanwhile cannot send an older layer last.
             let mut user = self.user.lock().expect("user layer");
             if *user == layer {
                 return;
             }
             user.clone_from(&layer);
+            self.hub.send_user(&layer);
         }
-        self.hub.send_user(&layer);
+        self.watches.refresh();
         for connection in self.live_connections() {
             if connection.user.lock().expect("connection user").is_none() {
                 connection.changed_all();

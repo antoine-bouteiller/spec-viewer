@@ -8,6 +8,7 @@ use std::{
     sync::{
         Arc, Condvar, Mutex, Weak,
         atomic::{AtomicBool, Ordering},
+        mpsc,
     },
     time::{Duration, Instant},
 };
@@ -23,19 +24,18 @@ const FIRST_RETRY: Duration = Duration::from_secs(1);
 const LAST_RETRY: Duration = Duration::from_secs(120);
 /// How long a request waits for a reconnection attempt it triggered.
 const CONNECT_WAIT: Duration = Duration::from_secs(10);
+/// How long a host command has to answer the handshake.
+const HANDSHAKE: Duration = Duration::from_secs(30);
 
 pub(crate) struct Hub {
     hosts: Vec<Arc<Host>>,
     /// Forwarded watches by connection and watch id; re-made on every reconnection.
     forwards: Mutex<HashMap<(u64, u64), Forward>>,
-    /// Each local config file an override follows, and the remote worktrees following it.
-    followed: Mutex<HashMap<PathBuf, (Watcher, Followers)>>,
+    /// A watcher per local config file that a forwarded watch's override follows.
+    followed: Mutex<HashMap<PathBuf, Watcher>>,
     /// The origin of each known local project path.
     origins: Mutex<HashMap<PathBuf, Option<String>>>,
 }
-
-/// `(host, worktree)` pairs.
-type Followers = HashSet<(String, PathBuf)>;
 
 pub(crate) struct Host {
     name: String,
@@ -47,6 +47,8 @@ pub(crate) struct Host {
 #[derive(Default)]
 struct Link {
     client: Option<Arc<Client>>,
+    /// Counts connections, so work begun on a lost one is not credited to its successor.
+    generation: u64,
     error: String,
     /// Finished connection attempts.
     attempts: u64,
@@ -62,7 +64,12 @@ struct Forward {
     connection: Weak<Connection>,
     host: Arc<Host>,
     worktree: PathBuf,
+    /// Stops the pump of the current remote watch.
     stop: Arc<AtomicBool>,
+    /// The connection generation of the current remote watch; 0 before the first.
+    generation: u64,
+    /// The local config file the worktree's override follows.
+    file: Option<PathBuf>,
 }
 
 /// Ends a forwarded watch when dropped.
@@ -73,10 +80,8 @@ struct ForwardHandle {
 
 impl Drop for ForwardHandle {
     fn drop(&mut self) {
-        if let Some(daemon) = self.daemon.upgrade()
-            && let Some(forward) = daemon.hub.forwards.lock().expect("forwards").remove(&self.key)
-        {
-            forward.stop.store(true, Ordering::Relaxed);
+        if let Some(daemon) = self.daemon.upgrade() {
+            daemon.hub.unforward(self.key);
         }
     }
 }
@@ -123,6 +128,7 @@ impl Hub {
             .collect()
     }
 
+    /// The caller holds the daemon's user layer lock, so sends follow the order of edits.
     pub(crate) fn send_user(&self, user: &Layer) {
         for host in &self.hosts {
             let client = host.link.lock().expect("link").client.clone();
@@ -130,6 +136,10 @@ impl Hub {
                 let _ = client.send_user(user.clone());
             }
         }
+    }
+
+    pub(crate) fn followed_len(&self) -> usize {
+        self.followed.lock().expect("followed").len()
     }
 
     fn host(&self, name: &str) -> Option<&Arc<Host>> {
@@ -209,13 +219,20 @@ impl Hub {
         request: Request,
     ) -> Result<Response, Error> {
         let host = self.host(name).ok_or(Error::UnknownHost)?;
-        let client = host.client()?;
+        let (client, generation) = host.client()?;
         match request {
             Request::Resolve { root } => {
+                // The override applies before Resolve loads the worktree's config.
+                if let Ok(project) = client.project(None, &root) {
+                    host.learn(&project);
+                    if let Some(worktree) = containing(&project, &root) {
+                        self.ensure_override(daemon, host, &client, generation, &worktree)?;
+                    }
+                }
                 let mut resolved = client.resolve(None, &root)?;
                 host.learn(&resolved.project);
                 let worktree = resolved.project.worktrees[resolved.worktree].path.clone();
-                if self.ensure_override(daemon, host, &client, &worktree)? {
+                if self.ensure_override(daemon, host, &client, generation, &worktree)?.0 {
                     resolved = client.resolve(None, &root)?;
                 }
                 let project = self.merged(daemon, host.tag(resolved.project), Some(name));
@@ -241,76 +258,150 @@ impl Hub {
                 Ok(Response::Projects(projects.into_iter().map(|project| host.tag(project)).collect()))
             }
             Request::Corpus { ref worktree } | Request::Open { ref worktree, .. } => {
-                self.ensure_override(daemon, host, &client, worktree)?;
+                self.ensure_override(daemon, host, &client, generation, worktree)?;
                 client.call(None, request)
             }
-            Request::Watch { worktree } => {
-                self.ensure_override(daemon, host, &client, &worktree)?;
-                let remote = client.watch(None, &worktree)?;
-                let stop = Arc::new(AtomicBool::new(false));
-                pump(remote, Arc::downgrade(connection), id, Arc::clone(&stop));
-                let forward = Forward {
-                    connection: Arc::downgrade(connection),
-                    host: Arc::clone(host),
-                    worktree,
-                    stop,
-                };
-                let key = (connection.id, id);
-                self.forwards.lock().expect("forwards").insert(key, forward);
-                let handle = ForwardHandle {
-                    daemon: Arc::downgrade(daemon),
-                    key,
-                };
-                connection.watches.lock().expect("connection watches").insert(id, Box::new(handle));
-                Ok(Response::Watching)
-            }
+            Request::Watch { worktree } => self.watch(daemon, connection, id, host, worktree),
             Request::Hosts | Request::Unwatch { .. } => client.call(None, request),
         }
     }
 
+    /// Registers the forwarded watch before making the remote one, so a reconnection meanwhile
+    /// re-makes it; a remote watch made on a connection lost since is made again on the current one.
+    fn watch(
+        &self,
+        daemon: &Arc<Daemon>,
+        connection: &Arc<Connection>,
+        id: u64,
+        host: &Arc<Host>,
+        worktree: PathBuf,
+    ) -> Result<Response, Error> {
+        let (mut client, mut generation) = host.client()?;
+        let (_, file) = self.ensure_override(daemon, host, &client, generation, &worktree)?;
+        let key = (connection.id, id);
+        self.forwards.lock().expect("forwards").insert(
+            key,
+            Forward {
+                connection: Arc::downgrade(connection),
+                host: Arc::clone(host),
+                worktree: worktree.clone(),
+                stop: Arc::new(AtomicBool::new(false)),
+                generation: 0,
+                file: file.clone(),
+            },
+        );
+        let handle = ForwardHandle {
+            daemon: Arc::downgrade(daemon),
+            key,
+        };
+        if let Some(file) = &file {
+            self.follow(daemon, file);
+        }
+        loop {
+            let made = client.watch(None, &worktree);
+            let current = {
+                let link = host.link.lock().expect("link");
+                link.client.clone().map(|client| (client, link.generation))
+            };
+            let mut forwards = self.forwards.lock().expect("forwards");
+            let Some(forward) = forwards.get_mut(&key) else {
+                return Err(Error::unreachable("the watch ended while it started"));
+            };
+            if forward.generation != 0 {
+                break;
+            }
+            match (made, current) {
+                (Ok(remote), Some((_, now))) if now == generation => {
+                    forward.generation = generation;
+                    pump(remote, Arc::downgrade(connection), id, Arc::clone(&forward.stop));
+                    break;
+                }
+                (Err(error), Some((_, now))) if now == generation => {
+                    drop(forwards);
+                    drop(handle);
+                    return Err(error);
+                }
+                // Lost: the reconnection re-makes it.
+                (_, None) => break,
+                (_, Some((now_client, now))) => {
+                    drop(forwards);
+                    (client, generation) = (now_client, now);
+                    self.ensure_override(daemon, host, &client, generation, &worktree)?;
+                }
+            }
+        }
+        connection.watches.lock().expect("connection watches").insert(id, Box::new(handle));
+        Ok(Response::Watching)
+    }
+
+    fn unforward(&self, key: (u64, u64)) {
+        let removed = self.forwards.lock().expect("forwards").remove(&key);
+        if let Some(forward) = removed {
+            forward.stop.store(true, Ordering::Relaxed);
+            if let Some(file) = forward.file
+                && !self
+                    .forwards
+                    .lock()
+                    .expect("forwards")
+                    .values()
+                    .any(|other| other.file.as_ref() == Some(&file))
+            {
+                self.followed.lock().expect("followed").remove(&file);
+            }
+        }
+    }
+
     /// Makes `worktree` on `host` read the local main worktree's `.spec-viewer.toml` when its
-    /// project has a local clone, and its own file otherwise. Returns whether that changed.
-    fn ensure_override(&self, daemon: &Arc<Daemon>, host: &Arc<Host>, client: &Client, worktree: &Path) -> Result<bool, Error> {
+    /// project has a local clone, and its own file otherwise. Returns whether that changed, and the
+    /// local file it reads.
+    fn ensure_override(
+        &self,
+        daemon: &Arc<Daemon>,
+        host: &Arc<Host>,
+        client: &Client,
+        generation: u64,
+        worktree: &Path,
+    ) -> Result<(bool, Option<PathBuf>), Error> {
         let known = host.link.lock().expect("link").origins.get(worktree).cloned();
         let origin = match known {
             Some(origin) => origin,
-            None => match client.resolve(None, worktree) {
-                Ok(resolved) => {
-                    host.learn(&resolved.project);
-                    resolved.project.origin
+            // Project, unlike Resolve, loads no config, so a broken remote file can be replaced.
+            None => match client.project(None, worktree) {
+                Ok(project) => {
+                    host.learn(&project);
+                    project.origin
                 }
                 // The forwarded request reports the error.
-                Err(_) => return Ok(false),
+                Err(_) => return Ok((false, None)),
             },
         };
-        let desired = match origin.and_then(|origin| self.local_with_origin(daemon, &origin)) {
-            Some(local) => {
-                let file = local.path.join(".spec-viewer.toml");
-                self.follow(daemon, &file, &host.name, worktree);
-                Some(
-                    Layer::read(&file)
-                        .map_err(|error| Error::Config {
-                            message: error.to_string(),
-                        })?
-                        .unwrap_or_default(),
-                )
-            }
+        let file = origin
+            .and_then(|origin| self.local_with_origin(daemon, &origin))
+            .map(|local| local.path.join(".spec-viewer.toml"));
+        let desired = match &file {
+            Some(file) => Some(
+                Layer::read(file)
+                    .map_err(|error| Error::Config {
+                        message: error.to_string(),
+                    })?
+                    .unwrap_or_default(),
+            ),
             None => None,
         };
         let mut link = host.link.lock().expect("link");
-        if link.sent.get(worktree).cloned().flatten() == desired {
-            return Ok(false);
+        // Overrides belong to a connection; one sent on a lost connection would be credited to the next.
+        if link.generation != generation || link.sent.get(worktree).cloned().flatten() == desired {
+            return Ok((false, file));
         }
         client.send_override(worktree, desired.clone())?;
         link.sent.insert(worktree.to_path_buf(), desired);
-        Ok(true)
+        Ok((true, file))
     }
 
-    /// Re-sends the overrides that follow `file` whenever it changes.
-    fn follow(&self, daemon: &Arc<Daemon>, file: &Path, host: &str, worktree: &Path) {
+    /// Watches `file` while a forwarded watch's override follows it.
+    fn follow(&self, daemon: &Arc<Daemon>, file: &Path) {
         let mut followed = self.followed.lock().expect("followed");
-        if let Some((_, followers)) = followed.get_mut(file) {
-            followers.insert((host.to_owned(), worktree.to_path_buf()));
+        if followed.contains_key(file) {
             return;
         }
         let (weak, changed) = (Arc::downgrade(daemon), file.to_path_buf());
@@ -321,33 +412,72 @@ impl Hub {
         });
         match watcher {
             Ok(watcher) => {
-                followed.insert(
-                    file.to_path_buf(),
-                    (watcher, HashSet::from([(host.to_owned(), worktree.to_path_buf())])),
-                );
+                followed.insert(file.to_path_buf(), watcher);
             }
             Err(error) => eprintln!("spec-viewer: cannot watch {}: {error}", file.display()),
         }
     }
 
+    /// Re-sends the overrides following `file`; their watches receive `Changed` either way, and a
+    /// file that no longer loads fails their next request.
     fn refresh(&self, daemon: &Arc<Daemon>, file: &Path) {
-        let followers = self
-            .followed
+        let followers: Vec<_> = self
+            .forwards
             .lock()
-            .expect("followed")
-            .get(file)
-            .map(|(_, followers)| followers.clone())
-            .unwrap_or_default();
-        for (name, worktree) in followers {
-            let Some(host) = self.host(&name) else { continue };
-            let client = host.link.lock().expect("link").client.clone();
-            if let Some(client) = client
-                && let Err(error) = self.ensure_override(daemon, host, &client, &worktree)
-            {
-                eprintln!("spec-viewer: {error}");
+            .expect("forwards")
+            .iter()
+            .filter(|(_, forward)| forward.file.as_deref() == Some(file))
+            .map(|(_, forward)| (Arc::clone(&forward.host), forward.worktree.clone()))
+            .collect();
+        let mut done = HashSet::new();
+        for (host, worktree) in followers {
+            let current = {
+                let link = host.link.lock().expect("link");
+                link.client.clone().map(|client| (client, link.generation))
+            };
+            let Some((client, generation)) = current else { continue };
+            if !done.insert((host.name.clone(), worktree.clone())) {
+                continue;
+            }
+            match self.ensure_override(daemon, &host, &client, generation, &worktree) {
+                // The remote daemon sends `Changed` for the new override.
+                Ok((true, _)) => {}
+                // An unchanged layer may follow a broken edit, which the watches saw fail.
+                Ok((false, _)) => self.notify(&host, &worktree),
+                Err(error) => {
+                    eprintln!("spec-viewer: {error}");
+                    self.notify(&host, &worktree);
+                }
             }
         }
     }
+
+    /// Sends `Changed` to every forwarded watch of `worktree` on `host`.
+    fn notify(&self, host: &Arc<Host>, worktree: &Path) {
+        let targets: Vec<_> = self
+            .forwards
+            .lock()
+            .expect("forwards")
+            .iter()
+            .filter(|(_, forward)| Arc::ptr_eq(&forward.host, host) && forward.worktree == worktree)
+            .map(|((_, id), forward)| (forward.connection.clone(), *id))
+            .collect();
+        for (connection, id) in targets {
+            if let Some(connection) = connection.upgrade() {
+                connection.send(&DaemonMessage::Changed { id });
+            }
+        }
+    }
+}
+
+/// The worktree of `project` containing `root`, by longest path prefix.
+fn containing(project: &Project, root: &Path) -> Option<PathBuf> {
+    project
+        .worktrees
+        .iter()
+        .filter(|worktree| root.starts_with(&worktree.path))
+        .max_by_key(|worktree| worktree.path.components().count())
+        .map(|worktree| worktree.path.clone())
 }
 
 impl Host {
@@ -365,11 +495,11 @@ impl Host {
         }
     }
 
-    /// The connection, after one reconnection attempt when there is none.
-    fn client(&self) -> Result<Arc<Client>, Error> {
+    /// The connection and its generation, after one reconnection attempt when there is none.
+    fn client(&self) -> Result<(Arc<Client>, u64), Error> {
         let mut link = self.link.lock().expect("link");
         if let Some(client) = &link.client {
-            return Ok(Arc::clone(client));
+            return Ok((Arc::clone(client), link.generation));
         }
         let target = link.attempts + 1;
         link.wake = true;
@@ -382,9 +512,10 @@ impl Host {
             }
             link = self.changed.wait_timeout(link, left).expect("link").0;
         }
-        link.client
-            .clone()
-            .ok_or_else(|| Error::unreachable(format!("{}: {}", self.name, link.error)))
+        match &link.client {
+            Some(client) => Ok((Arc::clone(client), link.generation)),
+            None => Err(Error::unreachable(format!("{}: {}", self.name, link.error))),
+        }
     }
 
     fn finish(&self, result: Result<Arc<Client>, String>) {
@@ -392,7 +523,10 @@ impl Host {
         link.attempts += 1;
         link.sent.clear();
         match result {
-            Ok(client) => link.client = Some(client),
+            Ok(client) => {
+                link.client = Some(client);
+                link.generation += 1;
+            }
             Err(error) => link.error = error,
         }
         self.changed.notify_all();
@@ -426,14 +560,33 @@ fn supervise(daemon: &Weak<Daemon>, host: &Arc<Host>) {
         let Some(user) = daemon.upgrade().map(|daemon| daemon.user.lock().expect("user layer").clone()) else {
             return;
         };
-        match connect(&host.argv, user) {
+        match connect(&host.argv, user.clone()) {
             Ok((client, mut child)) => {
-                host.finish(Ok(Arc::new(client)));
+                let client = Arc::new(client);
+                host.finish(Ok(Arc::clone(&client)));
                 backoff = FIRST_RETRY;
                 if let Some(daemon) = daemon.upgrade() {
+                    {
+                        // An edit during the handshake skipped this host.
+                        let current = daemon.user.lock().expect("user layer");
+                        if *current != user {
+                            let _ = client.send_user(current.clone());
+                        }
+                    }
                     daemon.host_connected(host);
                 }
-                let status = child.wait().map_or_else(|error| error.to_string(), |status| status.to_string());
+                // A command may outlive the protocol on its stdio, or end it.
+                let status = loop {
+                    match child.try_wait() {
+                        Ok(Some(status)) => break status.to_string(),
+                        Ok(None) if client.is_lost() => {
+                            let _ = child.kill();
+                            break child.wait().map_or_else(|error| error.to_string(), |status| status.to_string());
+                        }
+                        Ok(None) => std::thread::sleep(Duration::from_millis(200)),
+                        Err(error) => break error.to_string(),
+                    }
+                };
                 host.lost(format!("the connection ended ({status})"));
                 if let Some(daemon) = daemon.upgrade() {
                     daemon.host_down(host);
@@ -446,6 +599,7 @@ fn supervise(daemon: &Weak<Daemon>, host: &Arc<Host>) {
     }
 }
 
+/// Runs the host command and completes the handshake within `HANDSHAKE`.
 fn connect(argv: &[String], user: Layer) -> Result<(Client, Child), String> {
     let (program, args) = argv.split_first().ok_or("an empty command")?;
     let mut child = Command::new(program)
@@ -456,7 +610,12 @@ fn connect(argv: &[String], user: Layer) -> Result<(Client, Child), String> {
         .spawn()
         .map_err(|error| format!("cannot run {program}: {error}"))?;
     let (stdout, stdin) = (child.stdout.take().expect("piped stdout"), child.stdin.take().expect("piped stdin"));
-    match Client::over(stdout, stdin, Some(user)) {
+    let (done, handshake) = mpsc::channel();
+    std::thread::spawn(move || done.send(Client::over(stdout, stdin, Some(user))));
+    let result = handshake
+        .recv_timeout(HANDSHAKE)
+        .unwrap_or_else(|_| Err(Error::unreachable(format!("no answer within {} s", HANDSHAKE.as_secs()))));
+    match result {
         Ok(client) => Ok((client, child)),
         Err(error) => {
             let _ = child.kill();
@@ -475,12 +634,12 @@ fn pump(remote: Watch, connection: Weak<Connection>, id: u64, stop: Arc<AtomicBo
                     Some(connection) => connection.send(&DaemonMessage::Changed { id }),
                     None => return,
                 },
-                Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                Ok(_) | Err(mpsc::RecvTimeoutError::Timeout) => {
                     if stop.load(Ordering::Relaxed) {
                         return;
                     }
                 }
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
             }
         }
     });
@@ -503,16 +662,36 @@ fn merge(projects: Vec<Project>) -> Vec<Project> {
 }
 
 impl Daemon {
-    /// Re-makes the host's forwarded watches; every watch receives `Changed`.
-    fn host_connected(&self, host: &Arc<Host>) {
-        let client = host.link.lock().expect("link").client.clone();
-        if let Some(client) = client {
-            let mut forwards = self.hub.forwards.lock().expect("forwards");
-            for ((_, id), forward) in forwards.iter_mut().filter(|(_, forward)| Arc::ptr_eq(&forward.host, host)) {
-                if let Ok(remote) = client.watch(None, &forward.worktree) {
+    /// Restores the overrides, re-makes the host's forwarded watches, and sends `Changed` to every
+    /// watch. Blocking requests run without the forwards lock.
+    fn host_connected(self: &Arc<Self>, host: &Arc<Host>) {
+        let current = {
+            let link = host.link.lock().expect("link");
+            link.client.clone().map(|client| (client, link.generation))
+        };
+        if let Some((client, generation)) = current {
+            let pending: Vec<_> = self
+                .hub
+                .forwards
+                .lock()
+                .expect("forwards")
+                .iter()
+                .filter(|(_, forward)| Arc::ptr_eq(&forward.host, host) && forward.generation < generation)
+                .map(|(key, forward)| (*key, forward.worktree.clone()))
+                .collect();
+            for (key, worktree) in pending {
+                if let Err(error) = self.hub.ensure_override(self, host, &client, generation, &worktree) {
+                    eprintln!("spec-viewer: {error}");
+                }
+                let Ok(remote) = client.watch(None, &worktree) else { continue };
+                let mut forwards = self.hub.forwards.lock().expect("forwards");
+                if let Some(forward) = forwards.get_mut(&key)
+                    && forward.generation < generation
+                {
                     forward.stop.store(true, Ordering::Relaxed);
                     forward.stop = Arc::new(AtomicBool::new(false));
-                    pump(remote, forward.connection.clone(), *id, Arc::clone(&forward.stop));
+                    forward.generation = generation;
+                    pump(remote, forward.connection.clone(), key.1, Arc::clone(&forward.stop));
                 }
             }
         }
