@@ -1,5 +1,6 @@
 //! The per-host daemon: it holds the corpus, serves the protocol on every transport, and starts the
 //! web gateway.
+mod hub;
 mod known;
 mod lifecycle;
 mod watches;
@@ -24,6 +25,7 @@ use spec_viewer_core::{DocError, Project, docs, document::Documents};
 use spec_viewer_protocol::{Client, ClientMessage, DaemonMessage, Error, PROTOCOL, Request, Resolved, Response, Runtime, receive, send};
 use spec_viewer_source::{Watcher, project_of, watch_files};
 
+use hub::Hub;
 use known::Known;
 use watches::Watches;
 
@@ -56,6 +58,7 @@ pub struct Daemon {
     known: Known,
     libraries: Mutex<HashMap<ParseConfig, Arc<Documents>>>,
     watches: Watches,
+    hub: Hub,
     connections: Mutex<HashMap<u64, Weak<Connection>>>,
     next_connection: AtomicU64,
     web: Mutex<Option<String>>,
@@ -65,6 +68,7 @@ pub struct Daemon {
 
 /// One client connection and the layers it set.
 pub(crate) struct Connection {
+    id: u64,
     writer: Mutex<Box<dyn Write + Send>>,
     /// `None` takes the daemon's own user layer.
     user: Mutex<Option<Layer>>,
@@ -117,20 +121,21 @@ impl Activity {
 }
 
 impl Daemon {
-    /// Loads the user config and starts watching it.
+    /// Loads the user config, starts watching it, and connects to its hosts.
     pub fn new(options: &Options) -> Result<Arc<Self>, spec_viewer_config::Error> {
         let config = Config::load_file(options.user_config.as_deref())?;
         let daemon = Arc::new(Self {
             user: Mutex::new(config.layer.clone()),
-            config,
             known: Known::load(options.known.clone()),
             libraries: Mutex::default(),
             watches: Watches::default(),
+            hub: Hub::new(&config.hosts),
             connections: Mutex::default(),
             next_connection: AtomicU64::new(1),
             web: Mutex::default(),
             activity: Arc::default(),
             user_watch: Mutex::default(),
+            config,
         });
         if let Some(file) = options.user_config.clone() {
             let weak = Arc::downgrade(&daemon);
@@ -147,6 +152,7 @@ impl Daemon {
                 ),
             }
         }
+        Hub::start(&daemon);
         Ok(daemon)
     }
 
@@ -212,6 +218,7 @@ impl Daemon {
         }
         let id = self.next_connection.fetch_add(1, Ordering::Relaxed);
         let connection = Arc::new(Connection {
+            id,
             writer: Mutex::new(Box::new(writer)),
             user: Mutex::new(user),
             overrides: Mutex::default(),
@@ -254,14 +261,35 @@ impl Daemon {
     }
 
     fn handle(self: &Arc<Self>, connection: &Arc<Connection>, id: u64, host: Option<String>, request: Request) -> Result<Response, Error> {
-        if host.is_some() {
-            return Err(Error::UnknownHost);
+        // Watch ids belong to the connection, whichever host serves the watch.
+        if let Request::Unwatch { id } = request {
+            connection.watches.lock().expect("connection watches").remove(&id);
+            return Ok(Response::Unwatched);
         }
+        if let Some(host) = host {
+            return self.hub.forward(self, connection, id, &host, request);
+        }
+        // A hub's connection sees only this host, so a remote daemon never reaches further hosts.
+        let merging = connection.user.lock().expect("connection user").is_none();
         match request {
-            Request::Hosts => Ok(Response::Hosts(vec![])),
+            Request::Hosts => Ok(Response::Hosts(self.hub.states())),
+            Request::Projects if merging => Ok(Response::Projects(self.hub.merge_all(self.projects()))),
             Request::Projects => Ok(Response::Projects(self.projects())),
-            Request::Resolve { root } => self.resolve(connection, &root).map(Response::Resolved),
-            Request::Project { key } => project_of(&key).map(Response::Project).map_err(|_| Error::NotAProject),
+            Request::Resolve { root } => {
+                let mut resolved = self.resolve(connection, &root)?;
+                if merging {
+                    resolved.project = self.hub.merged(self, resolved.project, None);
+                }
+                Ok(Response::Resolved(resolved))
+            }
+            Request::Project { key } => {
+                let project = project_of(&key).map_err(|_| Error::NotAProject)?;
+                Ok(Response::Project(if merging {
+                    self.hub.merged(self, project, None)
+                } else {
+                    project
+                }))
+            }
             Request::Corpus { worktree } => {
                 let (worktree, project) = listed(&worktree)?;
                 let config = self.parse_config(connection, &worktree)?;
@@ -286,10 +314,7 @@ impl Daemon {
                     .insert(id, Box::new(subscription));
                 Ok(Response::Watching)
             }
-            Request::Unwatch { id } => {
-                connection.watches.lock().expect("connection watches").remove(&id);
-                Ok(Response::Unwatched)
-            }
+            Request::Unwatch { .. } => unreachable!("handled above"),
         }
     }
 
@@ -363,8 +388,9 @@ impl Daemon {
             if *user == layer {
                 return;
             }
-            *user = layer;
+            user.clone_from(&layer);
         }
+        self.hub.send_user(&layer);
         for connection in self.live_connections() {
             if connection.user.lock().expect("connection user").is_none() {
                 connection.changed_all();

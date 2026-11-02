@@ -1612,6 +1612,8 @@ version = "0.1.0"
 dependencies = [
  "spec-viewer-config",
  "spec-viewer-core",
+ "spec-viewer-daemon",
+ "spec-viewer-protocol",
  "spec-viewer-render-tui",
  "spec-viewer-render-web",
  "tempfile",
