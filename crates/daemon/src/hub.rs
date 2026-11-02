@@ -3,6 +3,7 @@
 //! local `.spec-viewer.toml`.
 use std::{
     collections::{HashMap, HashSet},
+    os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     sync::{
@@ -225,7 +226,12 @@ impl Hub {
                 // The override applies before Resolve loads the worktree's config.
                 if let Ok(project) = client.project(None, &root) {
                     host.learn(&project);
-                    if let Some(worktree) = containing(&project, &root) {
+                    // An uncanonical root matches no worktree; every one takes the same override.
+                    let worktrees = match containing(&project, &root) {
+                        Some(worktree) => vec![worktree],
+                        None => project.worktrees.iter().map(|worktree| worktree.path.clone()).collect(),
+                    };
+                    for worktree in worktrees {
                         self.ensure_override(daemon, host, &client, generation, &worktree)?;
                     }
                 }
@@ -378,6 +384,7 @@ impl Hub {
         let file = origin
             .and_then(|origin| self.local_with_origin(daemon, &origin))
             .map(|local| local.path.join(".spec-viewer.toml"));
+        self.retarget(daemon, host, worktree, file.as_deref());
         let desired = match &file {
             Some(file) => Some(
                 Layer::read(file)
@@ -396,6 +403,32 @@ impl Hub {
         client.send_override(worktree, desired.clone())?;
         link.sent.insert(worktree.to_path_buf(), desired);
         Ok((true, file))
+    }
+
+    /// Points the forwarded watches of `worktree` on `host` at `file`, as a local clone appears,
+    /// goes, or changes, and follows only the files some forward still uses.
+    fn retarget(&self, daemon: &Arc<Daemon>, host: &Arc<Host>, worktree: &Path, file: Option<&Path>) {
+        let used: HashSet<PathBuf> = {
+            let mut forwards = self.forwards.lock().expect("forwards");
+            let mut moved = false;
+            for forward in forwards.values_mut() {
+                if Arc::ptr_eq(&forward.host, host) && forward.worktree == worktree && forward.file.as_deref() != file {
+                    forward.file = file.map(Path::to_path_buf);
+                    moved = true;
+                }
+            }
+            if !moved {
+                return;
+            }
+            forwards.values().filter_map(|forward| forward.file.clone()).collect()
+        };
+        self.followed
+            .lock()
+            .expect("followed")
+            .retain(|followed, _| used.contains(followed));
+        if let Some(file) = file {
+            self.follow(daemon, file);
+        }
     }
 
     /// Watches `file` while a forwarded watch's override follows it.
@@ -579,10 +612,7 @@ fn supervise(daemon: &Weak<Daemon>, host: &Arc<Host>) {
                 let status = loop {
                     match child.try_wait() {
                         Ok(Some(status)) => break status.to_string(),
-                        Ok(None) if client.is_lost() => {
-                            let _ = child.kill();
-                            break child.wait().map_or_else(|error| error.to_string(), |status| status.to_string());
-                        }
+                        Ok(None) if client.is_lost() => break kill(&mut child),
                         Ok(None) => std::thread::sleep(Duration::from_millis(200)),
                         Err(error) => break error.to_string(),
                     }
@@ -602,11 +632,13 @@ fn supervise(daemon: &Weak<Daemon>, host: &Arc<Host>) {
 /// Runs the host command and completes the handshake within `HANDSHAKE`.
 fn connect(argv: &[String], user: Layer) -> Result<(Client, Child), String> {
     let (program, args) = argv.split_first().ok_or("an empty command")?;
+    // Its own process group, so killing it also ends descendants holding its stdout.
     let mut child = Command::new(program)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
+        .process_group(0)
         .spawn()
         .map_err(|error| format!("cannot run {program}: {error}"))?;
     let (stdout, stdin) = (child.stdout.take().expect("piped stdout"), child.stdin.take().expect("piped stdin"));
@@ -618,11 +650,19 @@ fn connect(argv: &[String], user: Layer) -> Result<(Client, Child), String> {
     match result {
         Ok(client) => Ok((client, child)),
         Err(error) => {
-            let _ = child.kill();
-            let status = child.wait().map_or_else(|error| error.to_string(), |status| status.to_string());
+            let status = kill(&mut child);
             Err(format!("{error} ({status})"))
         }
     }
+}
+
+/// Kills the command's process group and reaps it.
+fn kill(child: &mut Child) -> String {
+    if let Ok(group) = i32::try_from(child.id()) {
+        // SAFETY: signals the group `connect` created for this child.
+        unsafe { libc::kill(-group, libc::SIGKILL) };
+    }
+    child.wait().map_or_else(|error| error.to_string(), |status| status.to_string())
 }
 
 /// Forwards a remote watch's changes as `Changed { id }` until stopped or disconnected.
