@@ -202,7 +202,8 @@ impl Client {
         })
     }
 
-    fn call(&self, host: Option<&str>, request: Request) -> Result<Response, Error> {
+    /// Sends any request and waits for its response.
+    pub fn call(&self, host: Option<&str>, request: Request) -> Result<Response, Error> {
         let (_, response) = self.shared.request(host, request, |_, _| {})?;
         response.recv().map_err(|_| self.shared.lost())?
     }

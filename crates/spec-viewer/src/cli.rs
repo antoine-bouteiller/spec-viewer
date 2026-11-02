@@ -4,11 +4,32 @@ use spec_viewer_config::Mode as Theme;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Command {
-    Tui { root: PathBuf, theme: Option<Theme> },
+    Tui {
+        root: PathBuf,
+        theme: Option<Theme>,
+    },
+    /// Runs this host's daemon, exiting after `idle_exit` seconds without clients when set.
+    Daemon {
+        idle_exit: Option<u64>,
+    },
+    /// Relays stdio to this host's daemon, starting it when none runs.
+    Relay,
 }
 
 /// Parses `argv` without the program name. Errors are the one-line stderr message, without prefix.
 pub fn parse(args: &[String]) -> Result<Command, String> {
+    if args.first().is_some_and(|arg| arg == "daemon") {
+        return match args[1..].iter().map(String::as_str).collect::<Vec<_>>()[..] {
+            [] => Ok(Command::Daemon { idle_exit: None }),
+            ["--stdio"] => Ok(Command::Relay),
+            ["--idle-exit", seconds] => seconds
+                .parse()
+                .map(|seconds| Command::Daemon { idle_exit: Some(seconds) })
+                .map_err(|_| format!("invalid --idle-exit: {seconds}")),
+            ["--idle-exit"] => Err("invalid --idle-exit: ".into()),
+            [option, ..] => Err(format!("unexpected daemon argument: {option}")),
+        };
+    }
     let mut root = None;
     let mut theme = None;
     let mut iter = args.iter();
@@ -51,9 +72,26 @@ mod tests {
 
     #[test]
     fn tui_defaults_root_to_current_directory() {
-        let Command::Tui { root, theme } = parse(&[]).unwrap();
+        let Command::Tui { root, theme } = parse(&[]).unwrap() else {
+            panic!("a terminal session")
+        };
         assert_eq!(root, std::fs::canonicalize(".").unwrap());
         assert_eq!(theme, None);
+    }
+
+    #[test]
+    fn daemon_takes_stdio_or_an_idle_exit() {
+        assert_eq!(parse(&args(&["daemon"])), Ok(Command::Daemon { idle_exit: None }));
+        assert_eq!(parse(&args(&["daemon", "--stdio"])), Ok(Command::Relay));
+        assert_eq!(
+            parse(&args(&["daemon", "--idle-exit", "300"])),
+            Ok(Command::Daemon { idle_exit: Some(300) })
+        );
+        assert_eq!(parse(&args(&["daemon", "--idle-exit", "x"])).unwrap_err(), "invalid --idle-exit: x");
+        assert_eq!(
+            parse(&args(&["daemon", "--stdio", "--idle-exit", "1"])).unwrap_err(),
+            "unexpected daemon argument: --stdio"
+        );
     }
 
     #[test]

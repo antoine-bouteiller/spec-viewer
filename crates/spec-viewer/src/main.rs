@@ -1,10 +1,12 @@
-use std::process::ExitCode;
+use std::{process::ExitCode, time::Duration};
 
 mod cli;
 
 use cli::Command;
 use spec_viewer_config::{Config, Layer};
 use spec_viewer_core::{Library, ParseConfig};
+use spec_viewer_daemon::{Options, relay, run};
+use spec_viewer_protocol::Runtime;
 use spec_viewer_render_tui::Theme;
 
 fn main() -> ExitCode {
@@ -20,7 +22,17 @@ fn main() -> ExitCode {
 
 fn start() -> Result<ExitCode, String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let Command::Tui { root, theme } = cli::parse(&args)?;
+    let (root, theme) = match cli::parse(&args)? {
+        Command::Tui { root, theme } => (root, theme),
+        Command::Daemon { idle_exit } => {
+            run(Options::from_env(idle_exit.map(Duration::from_secs)), |_, _| {})?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        Command::Relay => {
+            relay(&Runtime::from_env(), spawn_daemon()?).map_err(|error| error.to_string())?;
+            return Ok(ExitCode::SUCCESS);
+        }
+    };
     let mut config = Config::load().map_err(|error| error.to_string())?;
     let library = Library::new(&root, ParseConfig::default()).map_err(|error| error.to_string())?;
     let worktree = Layer::read(&library.containing_worktree().path.join(".spec-viewer.toml")).map_err(|error| error.to_string())?;
@@ -36,4 +48,11 @@ fn start() -> Result<ExitCode, String> {
         Some(format!("http://{address}")),
         config.tui.diff,
     ))
+}
+
+/// `<this executable> daemon --idle-exit 300`, as frontends spawn it.
+fn spawn_daemon() -> Result<std::process::Command, String> {
+    let mut command = std::process::Command::new(std::env::current_exe().map_err(|error| error.to_string())?);
+    command.args(["daemon", "--idle-exit", "300"]);
+    Ok(command)
 }
