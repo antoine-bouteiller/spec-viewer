@@ -8,12 +8,10 @@ mod types;
 mod watch;
 
 pub use corpus::{Entry, git_paths, list, resolve};
-pub use project::{Viewer, changed, normalize_origin, project_of};
+pub use project::{changed, normalize_origin, project_of};
 pub use stamp::Stamp;
 pub use types::{DocError, Project, ResolvedDoc, Worktree};
 pub use watch::{Watch, Watcher, watch, watch_files, watch_with};
-
-pub type WatchResult<T> = notify::Result<T>;
 
 pub fn read(resolved: &ResolvedDoc) -> Result<(String, Stamp), DocError> {
     let stamp = std::fs::metadata(&resolved.real)

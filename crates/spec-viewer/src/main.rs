@@ -5,7 +5,7 @@ mod cli;
 use cli::Command;
 use spec_viewer_config::Config;
 use spec_viewer_daemon::{Daemon, Options, relay, run};
-use spec_viewer_protocol::{Client, Runtime};
+use spec_viewer_protocol::{Client, Error, Runtime};
 use spec_viewer_render_tui::Theme;
 use spec_viewer_render_web::Backend;
 
@@ -22,8 +22,8 @@ fn main() -> ExitCode {
 
 fn start() -> Result<ExitCode, String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let (root, theme) = match cli::parse(&args)? {
-        Command::Tui { root, theme } => (root, theme),
+    let (root, host, theme) = match cli::parse(&args)? {
+        Command::Tui { root, host, theme } => (root, host, theme),
         Command::Daemon { idle_exit } => {
             run(Options::from_env(idle_exit.map(Duration::from_secs)), gateway)?;
             return Ok(ExitCode::SUCCESS);
@@ -35,10 +35,13 @@ fn start() -> Result<ExitCode, String> {
     };
     let config = Config::load().map_err(|error| error.to_string())?;
     let theme = Theme::from_config(&config, theme).map_err(|error| error.to_string())?;
-    let client = Client::connect().map_err(|error| error.to_string())?;
+    let client = Client::connect().map_err(|error| match error {
+        Error::Protocol { daemon, client } => format!("the daemon on this host speaks protocol {daemon}, this client {client}"),
+        error => error.to_string(),
+    })?;
     Ok(spec_viewer_render_tui::run(
         client,
-        None,
+        host.as_deref(),
         &root,
         theme,
         config.keys,

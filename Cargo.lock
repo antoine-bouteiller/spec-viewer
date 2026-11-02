@@ -1612,7 +1612,6 @@ version = "0.1.0"
 dependencies = [
  "serde_json",
  "spec-viewer-config",
- "spec-viewer-core",
  "spec-viewer-daemon",
  "spec-viewer-protocol",
  "spec-viewer-render-tui",

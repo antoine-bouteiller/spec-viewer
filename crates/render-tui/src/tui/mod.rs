@@ -29,7 +29,7 @@ use ratatui::{Terminal, backend::Backend, backend::CrosstermBackend, layout::Rec
 
 use crate::terminal::Theme;
 use spec_viewer_config::Keys;
-use spec_viewer_protocol::Client;
+use spec_viewer_protocol::{Client, Error};
 
 struct Restore;
 
@@ -73,7 +73,10 @@ pub fn run(client: Client, host: Option<&str>, root: &Path, theme: Theme, keys: 
 
 fn start(client: Client, host: Option<&str>, root: &Path, theme: Theme, keys: Keys, diff: bool) -> io::Result<()> {
     // Report an unknown root or a broken config before the terminal changes mode.
-    client.resolve(host, root).map_err(io::Error::other)?;
+    client.resolve(host, root).map_err(|error| match (error, host) {
+        (Error::UnknownHost, Some(host)) => io::Error::other(format!("unknown host: {host}")),
+        (error, _) => io::Error::other(error),
+    })?;
     let previous_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |information| {
         restore();

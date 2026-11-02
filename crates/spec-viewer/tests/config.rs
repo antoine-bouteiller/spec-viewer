@@ -170,3 +170,21 @@ fn vc_7_binary_cli_boundary_errors_are_single_lines() {
         assert!(stderr.contains(expected));
     }
 }
+
+#[test]
+fn host_errors_name_the_host() {
+    let user = User::new();
+    std::fs::create_dir_all(user.path().join("spec-viewer")).unwrap();
+    std::fs::write(
+        user.path().join("spec-viewer/config.toml"),
+        "[web]\nport = 0\n[[host]]\nname = 'box'\ncommand = ['false']\n",
+    )
+    .unwrap();
+    for (host, expected) in [("nope", "spec-viewer: unknown host: nope\n"), ("box", "spec-viewer: box: ")] {
+        let output = run(Path::new("/srv/anywhere"), &user, &["--host", host]);
+        assert_eq!(output.status.code(), Some(1));
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.starts_with(expected), "{stderr}");
+        assert_eq!(stderr.lines().count(), 1, "{stderr}");
+    }
+}
