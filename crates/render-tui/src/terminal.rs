@@ -3,7 +3,7 @@ use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
 };
-use spec_viewer_core::{Block, Component, ComponentBody, Document, Inline, ListItem, TocEntry};
+use spec_viewer_protocol::{Block, Component, ComponentBody, Document, Inline, ListItem, TocEntry};
 use unicode_width::UnicodeWidthChar;
 
 pub use crate::Theme;

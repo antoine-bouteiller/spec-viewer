@@ -1689,6 +1689,8 @@ dependencies = [
  "ratatui",
  "spec-viewer-config",
  "spec-viewer-core",
+ "spec-viewer-daemon",
+ "spec-viewer-protocol",
  "syntect",
  "tempfile",
  "two-face",

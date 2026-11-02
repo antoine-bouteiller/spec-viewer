@@ -17,13 +17,22 @@ use ratatui::{
 use super::navigation::{self, Row};
 use crate::terminal::{Target, TargetSpan, TermDoc, Theme, to_terminal, wrap};
 use spec_viewer_config::{Action, Binding, Code, HintAction, Key, Keys, Modifiers, PickerAction, SearchAction};
-use spec_viewer_core::{self as core, ChipValue, Docs, Hit, Library, Opened, Project};
+use spec_viewer_protocol::{self as protocol, ChipValue, Client, Corpus as Docs, Error, Hit, Opened, Project, Watch, Worktree};
 
 const PAN_STEP: isize = 8;
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 /// A `(line, column)` point of the rendered document; columns count from the viewport's left edge.
 type Point = (usize, usize);
+
+/// A worktree's name, `(main)`, and the host serving it.
+fn label(worktree: &Worktree) -> String {
+    let main = if worktree.main { " (main)" } else { "" };
+    match &worktree.host {
+        Some(host) => format!("{}{main} · {host}", worktree.name),
+        None => format!("{}{main}", worktree.name),
+    }
+}
 
 /// An index into `Docs::tabs`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,7 +74,7 @@ pub enum RailEntry {
 }
 
 pub struct App {
-    library: Library,
+    client: Client,
     output: Box<dyn Write>,
     pub project: Project,
     pub worktree: usize,
@@ -110,20 +119,18 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(library: Library, theme: Theme, output: impl Write + 'static) -> io::Result<Self> {
-        let project = library.project();
-        let worktree = project
-            .worktrees
-            .iter()
-            .position(|worktree| worktree.path == library.containing_worktree().path)
-            .unwrap_or(0);
+    /// Opens the worktree containing `root`, absolute on `host`.
+    pub fn new(client: Client, host: Option<&str>, root: &Path, mut theme: Theme, output: impl Write + 'static) -> io::Result<Self> {
+        let resolved = client.resolve(host, root).map_err(io::Error::other)?;
+        theme.set_statuses(&resolved.statuses);
+        let (project, worktree) = (resolved.project, resolved.worktree);
         let selected = project
             .worktrees
             .get(worktree)
             .ok_or_else(|| io::Error::other("project has no accessible worktree"))?;
-        let docs = library.corpus(&selected.path);
+        let docs = client.corpus(selected.host.as_deref(), &selected.path).map_err(io::Error::other)?;
         let mut app = Self {
-            library,
+            client,
             output: Box::new(output),
             project,
             worktree,
@@ -190,11 +197,11 @@ impl App {
         &self.docs.tabs[tab.0].name
     }
 
-    fn tab_docs(&self, tab: Tab) -> &[core::DocNode] {
+    fn tab_docs(&self, tab: Tab) -> &[protocol::DocNode] {
         &self.docs.tabs[tab.0].nodes
     }
 
-    fn all_docs(&self) -> Vec<core::DocNode> {
+    fn all_docs(&self) -> Vec<protocol::DocNode> {
         self.docs.tabs.iter().flat_map(|tab| &tab.nodes).cloned().collect()
     }
 
@@ -211,15 +218,38 @@ impl App {
         format!("{subject} — spec-viewer")
     }
 
+    fn current(&self) -> &Worktree {
+        &self.project.worktrees[self.worktree]
+    }
+
     pub fn worktree_path(&self) -> &Path {
-        &self.project.worktrees[self.worktree].path
+        &self.current().path
     }
 
-    pub(super) fn watch(&self) -> io::Result<core::Watch> {
-        self.library.watch(self.worktree_path()).map_err(io::Error::other)
+    /// The host serving the current worktree; `None` is the frontend's own daemon.
+    pub fn worktree_host(&self) -> Option<&str> {
+        self.current().host.as_deref()
     }
 
-    fn listed(&self) -> &[core::DocNode] {
+    /// One `Changed` per burst of changes to the current worktree.
+    pub fn watch(&self) -> Result<Watch, Error> {
+        self.client.watch(self.worktree_host(), self.worktree_path())
+    }
+
+    /// Lists `worktree`'s project again and selects it, with its statuses.
+    fn select(&mut self, worktree: &Worktree) -> Result<(), Error> {
+        let resolved = self.client.resolve(worktree.host.as_deref(), &worktree.path)?;
+        self.theme.set_statuses(&resolved.statuses);
+        self.project = resolved.project;
+        self.worktree = resolved.worktree;
+        Ok(())
+    }
+
+    fn corpus(&self) -> Result<Docs, Error> {
+        self.client.corpus(self.worktree_host(), self.worktree_path())
+    }
+
+    fn listed(&self) -> &[protocol::DocNode] {
         self.tab_docs(self.tab)
     }
 
@@ -241,7 +271,7 @@ impl App {
     pub fn hits(&self) -> Vec<Hit> {
         self.search
             .as_ref()
-            .map(|search| core::search(&self.docs.tabs, &search.query))
+            .map(|search| protocol::search(&self.docs.tabs, &search.query))
             .unwrap_or_default()
     }
 
@@ -289,7 +319,7 @@ impl App {
     }
 
     pub fn open(&mut self, path: &str) {
-        match self.library.open(self.worktree_path(), path) {
+        match self.client.open(self.worktree_host(), self.worktree_path(), path) {
             Ok(doc) => {
                 let all = self.all_docs();
                 self.expanded.extend(navigation::ancestors(&all, &doc.root_path, ""));
@@ -311,20 +341,24 @@ impl App {
             Err(error) => {
                 self.doc = None;
                 self.rendered = TermDoc::default();
-                self.message = Some(format!("Could not load document: {error:?}"));
+                self.message = Some(format!("Could not load document: {error}"));
             }
         }
         self.cancel_hints();
     }
 
+    /// Refreshes the worktree list, the statuses, and the corpus, and reopens the document. A
+    /// failure keeps the last corpus and shows the error.
     pub fn reload(&mut self) {
-        let path = self.worktree_path().to_path_buf();
-        let project = self.library.refresh_project();
-        if let Some(index) = project.worktrees.iter().position(|worktree| worktree.path == path) {
-            self.worktree = index;
-            self.project = project;
+        let current = self.current().clone();
+        let loaded = self.select(&current).and_then(|()| self.corpus());
+        match loaded {
+            Ok(docs) => self.docs = docs,
+            Err(error) => {
+                self.message = Some(format!("Could not reload: {error}"));
+                return;
+            }
         }
-        self.docs = self.library.corpus(self.worktree_path());
         self.settle_tab();
         self.expanded.clear();
         if let Some(path) = self.doc.as_ref().map(|doc| doc.root_path.clone()) {
@@ -394,10 +428,11 @@ impl App {
     /// The web app's URL for the current worktree, tab, filter mode, and document.
     pub fn web_link(&self) -> Option<String> {
         let base = self.web_url.as_ref()?;
-        let mut query = vec![
+        let mut query: Vec<_> = self.worktree_host().map(|host| ("host", host.to_owned())).into_iter().collect();
+        query.extend([
             ("wt", self.worktree_path().to_string_lossy().into_owned()),
             ("tab", self.tab_name(self.tab).to_owned()),
-        ];
+        ]);
         if let Some(doc) = &self.doc {
             query.push(("doc", doc.root_path.clone()));
         }
@@ -505,11 +540,20 @@ impl App {
                 Some(PickerAction::Up) => self.picker = Some(selection.saturating_sub(1)),
                 Some(PickerAction::Down) => self.picker = Some((selection + 1).min(self.project.worktrees.len().saturating_sub(1))),
                 Some(PickerAction::Open) => {
-                    self.worktree = selection;
                     self.picker = None;
-                    self.clear_document();
-                    self.docs = self.library.corpus(self.worktree_path());
-                    self.settle_tab();
+                    let target = self.project.worktrees[selection].clone();
+                    let previous = (self.project.clone(), self.worktree);
+                    match self.select(&target).and_then(|()| self.corpus()) {
+                        Ok(docs) => {
+                            self.clear_document();
+                            self.docs = docs;
+                            self.settle_tab();
+                        }
+                        Err(error) => {
+                            (self.project, self.worktree) = previous;
+                            self.message = Some(format!("Could not open {}: {error}", target.name));
+                        }
+                    }
                 }
                 None => {}
             }
@@ -564,10 +608,9 @@ impl App {
                 self.sidebar_selection = self.rows().iter().position(|row| row.current).unwrap_or(0);
             }
             Action::Worktrees => {
-                let path = self.worktree_path().to_path_buf();
-                self.project = self.library.refresh_project();
-                if let Some(index) = self.project.worktrees.iter().position(|worktree| worktree.path == path) {
-                    self.worktree = index;
+                let current = self.current().clone();
+                if let Err(error) = self.select(&current) {
+                    self.message = Some(format!("Could not list worktrees: {error}"));
                 }
                 if !self.project.worktrees.is_empty() {
                     self.picker = Some(self.worktree);
@@ -938,7 +981,7 @@ impl App {
                 .project
                 .worktrees
                 .iter()
-                .map(|worktree| ListItem::new(format!("{}{}", worktree.name, if worktree.main { " (main)" } else { "" })))
+                .map(|worktree| ListItem::new(label(worktree)))
                 .collect();
             frame.render_stateful_widget(
                 List::new(items)
@@ -985,7 +1028,7 @@ impl App {
     /// A centered prompt over a results list, after Telescope's layout without a preview.
     fn draw_search(&mut self, frame: &mut Frame, area: Rect) {
         let hits = self.hits();
-        let total = core::search(&self.docs.tabs, "").len();
+        let total = protocol::search(&self.docs.tabs, "").len();
         let Some(search) = &mut self.search else {
             return;
         };
@@ -1081,7 +1124,7 @@ impl App {
         let worktree = &self.project.worktrees[self.worktree];
         let header = regions[0];
         let row = |line: u16, x: u16, width: usize| Rect::new(header.x + x, header.y + line, width as u16, 1).intersection(header);
-        let worktree = format!("{}{} ▾", worktree.name, if worktree.main { " (main)" } else { "" });
+        let worktree = format!("{} ▾", label(worktree));
         let worktree_width = unicode_width::UnicodeWidthStr::width(worktree.as_str());
         let mut clicks = vec![(row(0, 0, worktree_width), Click::Worktree)];
         let mut tabs = String::new();
@@ -1606,13 +1649,21 @@ mod tests {
         std::fs::write(root.path().join("spec/a.spec.md"), "## A\n").unwrap();
     }
 
-    fn app_at(root: &tempfile::TempDir) -> App {
-        App::new(
-            Library::new(root.path(), core::ParseConfig::default()).unwrap(),
-            Theme::default(),
-            io::sink(),
-        )
+    /// A client of an in-process daemon with no user config.
+    fn client() -> Client {
+        spec_viewer_daemon::Daemon::new(&spec_viewer_daemon::Options {
+            runtime: protocol::Runtime::at("/nonexistent"),
+            user_config: None,
+            known: None,
+            idle_exit: None,
+        })
         .unwrap()
+        .connect()
+        .unwrap()
+    }
+
+    fn app_at(root: &tempfile::TempDir) -> App {
+        App::new(client(), None, root.path(), Theme::default(), io::sink()).unwrap()
     }
 
     #[test]
@@ -1634,6 +1685,23 @@ mod tests {
         assert!(!app.quit);
         app.handle_key(KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE));
         assert!(app.quit);
+    }
+
+    #[test]
+    fn a_remote_worktree_is_labelled_with_its_host_and_the_link_carries_it() {
+        let (_root, mut app) = app();
+        app.web_url = Some("http://localhost:4747".into());
+        app.project.worktrees[0].host = Some("box".into());
+        app.project.worktrees[0].main = true;
+        assert_eq!(
+            label(&app.project.worktrees[0]),
+            format!("{} (main) · box", app.project.worktrees[0].name)
+        );
+        let worktree = percent_encode(&app.worktree_path().to_string_lossy());
+        assert_eq!(
+            app.web_link().unwrap(),
+            format!("http://localhost:4747/?host=box&wt={worktree}&tab=plans")
+        );
     }
 
     #[test]
@@ -1698,17 +1766,14 @@ mod tests {
         add_spec(&root);
         std::fs::create_dir_all(root.path().join("docs/adr")).unwrap();
         std::fs::write(root.path().join("docs/adr/one.md"), "## One\n").unwrap();
-        let mut config = core::ParseConfig::default();
-        config.tabs.insert(
-            1,
-            spec_viewer_config::TabConfig {
-                name: "adr".into(),
-                folder: Some("docs/adr".into()),
-                kinds: None,
-                companions: vec![],
-            },
-        );
-        let mut app = App::new(Library::new(root.path(), config).unwrap(), Theme::default(), io::sink()).unwrap();
+        let tab = |name: &str, folder: Option<&str>, kinds: &str| {
+            let folder = folder.map(|folder| format!("folder = '{folder}'\n")).unwrap_or_default();
+            format!("[[tab]]\nname = '{name}'\n{folder}{kinds}")
+        };
+        let (plans, specs) = (tab("plans", Some(".plan"), ""), tab("specs", None, "kinds = ['spec']\n"));
+        let file = root.path().join(".spec-viewer.toml");
+        std::fs::write(&file, format!("{plans}{}{specs}", tab("adr", Some("docs/adr"), ""))).unwrap();
+        let mut app = app_at(&root);
         assert_eq!(app.tabs(), [Tab(0), Tab(1), Tab(2)]);
         app.handle_key(KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE));
         assert_eq!(app.tab, Tab(1));
@@ -1722,9 +1787,8 @@ mod tests {
         let screen: String = terminal.backend().buffer().content.iter().map(|cell| cell.symbol()).collect();
         assert!(screen.contains("plans adr [specs]"), "{screen}");
 
-        let mut config = core::ParseConfig::default();
-        config.tabs.remove(0);
-        let app = App::new(Library::new(root.path(), config).unwrap(), Theme::default(), io::sink()).unwrap();
+        std::fs::write(&file, specs).unwrap();
+        let app = app_at(&root);
         assert_eq!(app.tabs(), [Tab(0)]);
         assert_eq!(app.tab_name(Tab(0)), "specs");
         assert!(app.rows().iter().all(|row| row.node.path.as_deref() != Some(".plan/first.md")));

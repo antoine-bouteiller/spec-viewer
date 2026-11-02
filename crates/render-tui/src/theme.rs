@@ -1,8 +1,8 @@
 //! Resolve renderer-neutral configuration once.
 use ratatui::style::Color;
-use spec_viewer_config::{Ansi, Color as ConfigColor, Config, Error, Mode, ResolvedTheme, Roles};
-use spec_viewer_core::Status;
-use std::collections::BTreeMap;
+use spec_viewer_config::{Ansi, Color as ConfigColor, Config, Error, Mode, ResolvedTheme, Roles, StatusConfig};
+use spec_viewer_protocol::Status;
+use std::{collections::BTreeMap, sync::Arc};
 
 #[derive(Clone, Debug)]
 pub struct Theme {
@@ -12,6 +12,8 @@ pub struct Theme {
     pub ansi: [Color; 16],
     statuses: BTreeMap<String, Color>,
     auto_light: Option<Box<Theme>>,
+    /// Resolves a project's statuses against this frontend's palette.
+    config: Arc<Config>,
 }
 impl Default for Theme {
     fn default() -> Self {
@@ -40,7 +42,21 @@ impl Theme {
                 .unwrap(),
             statuses: statuses.into_iter().map(|(name, color)| (name, color_to_terminal(color))).collect(),
             auto_light: None,
+            config: Arc::new(config.clone()),
         })
+    }
+    /// Colours the project's statuses from this palette; one naming no palette colour shows as
+    /// `status_unknown`.
+    pub fn set_statuses(&mut self, statuses: &[StatusConfig]) {
+        self.statuses = self
+            .config
+            .status_colors(self.mode, statuses)
+            .into_iter()
+            .map(|(name, color)| (name, color_to_terminal(color)))
+            .collect();
+        if let Some(light) = &mut self.auto_light {
+            light.set_statuses(statuses);
+        }
     }
     pub(crate) fn is_auto(&self) -> bool {
         self.auto_light.is_some()

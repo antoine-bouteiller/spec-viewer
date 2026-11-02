@@ -4,7 +4,6 @@ mod support;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend, buffer::Buffer, style::Color};
 use spec_viewer_config::{Config, Mode};
-use spec_viewer_core::Library;
 use spec_viewer_render_tui::{
     Theme,
     tui::{App, Focus},
@@ -23,11 +22,11 @@ fn repository() -> tempfile::TempDir {
     assert!(status.success());
     root
 }
-/// A session whose user config is `source`.
+/// A session whose user config, for both the frontend and the daemon, is `source`.
 fn configured(root: &Path, source: &str, override_mode: Option<Mode>) -> App {
     let config = user_config(root, source);
     let theme = Theme::from_config(&config, override_mode).unwrap();
-    App::new(Library::new(root, config.parse).unwrap(), theme, io::sink()).unwrap()
+    App::new(support::client(Some(&root.join("user.toml"))), None, root, theme, io::sink()).unwrap()
 }
 fn user_config(root: &Path, source: &str) -> Config {
     let file = root.join("user.toml");
@@ -76,11 +75,12 @@ fn vc_4_worktree_statuses_replace_defaults_in_tree_and_header() {
         "---\ntitle: Done plan\nstatus: done\n---\n## Body\n",
     )
     .unwrap();
-    let mut app = configured(
-        root.path(),
+    std::fs::write(
+        root.path().join(".spec-viewer.toml"),
         "[[status]]\nname='shipped'\naliases=['released']\ncolor='magenta'",
-        Some(Mode::Dark),
-    );
+    )
+    .unwrap();
+    let mut app = configured(root.path(), "", Some(Mode::Dark));
     app.open(".plan/shipped.md");
     app.handle_key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE));
     assert_eq!(assert_text_fg(&draw(&mut app), "[shipped]", Color::Magenta), 2);
@@ -220,26 +220,39 @@ fn vc_6_hex_palette_dialect_buffer_uses_only_palette_colours() {
 }
 
 #[test]
-fn vc_7_session_keeps_startup_config_on_reload_and_worktree_switch() {
+fn statuses_follow_each_worktree_config_and_the_theme_stays_the_sessions() {
     let fixture = Fixture::new();
     let mut app = configured(
         &fixture.root,
         "[theme.roles]\naccent='magenta'\n[[status]]\nname='shipped'\naliases=['in-progress']\ncolor='magenta'",
         Some(Mode::Dark),
     );
-    std::fs::write(fixture.root.join(".spec-viewer.toml"), "[theme.roles]\naccent='red'").unwrap();
-    std::fs::write(fixture.sibling.join(".spec-viewer.toml"), "[theme.roles]\naccent='green'").unwrap();
     app.open(".plan/rollout/index.md");
-    app.reload();
     assert_text_fg(&draw(&mut app), "[shipped]", Color::Magenta);
+    std::fs::write(
+        fixture.sibling.join(".spec-viewer.toml"),
+        "[[status]]\nname='shipped'\naliases=['in-progress']\ncolor='red'",
+    )
+    .unwrap();
     app.handle_key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
     app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
     assert_eq!(app.worktree_path(), fixture.sibling);
     app.focus = Focus::Sidebar;
-    assert_eq!(draw(&mut app)[(0, 0)].fg, Color::Magenta);
+    assert_eq!(
+        draw(&mut app)[(0, 0)].fg,
+        Color::Magenta,
+        "frontend sections come from the session's user config"
+    );
     app.open(".plan/rollout/index.md");
-    assert_text_fg(&draw(&mut app), "[shipped]", Color::Magenta);
+    assert_text_fg(&draw(&mut app), "[shipped]", Color::Red);
+    std::fs::write(
+        fixture.sibling.join(".spec-viewer.toml"),
+        "[[status]]\nname='shipped'\naliases=['in-progress']\ncolor='green'",
+    )
+    .unwrap();
+    app.reload();
+    assert_text_fg(&draw(&mut app), "[shipped]", Color::Green);
 }
 
 #[test]
@@ -268,7 +281,14 @@ fn keys_rebind_actions_and_the_hints_show_them() {
         &fixture.root,
         "[keys]\nquit='x'\nswitch_tab='alt+1..9'\ncopy_name='shift+n'\nhints=[]\n[keys.search_dialog]\nclose='ctrl+g'",
     );
-    let mut app = App::new(Library::new(&fixture.root, config.parse).unwrap(), Theme::default(), io::sink()).unwrap();
+    let mut app = App::new(
+        support::client(Some(&fixture.root.join("user.toml"))),
+        None,
+        &fixture.root,
+        Theme::default(),
+        io::sink(),
+    )
+    .unwrap();
     app.keys = config.keys;
     let press = |app: &mut App, code, modifiers| app.handle_key(KeyEvent::new(code, modifiers));
     app.open(".plan/rollout/index.md");

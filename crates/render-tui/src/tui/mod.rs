@@ -6,8 +6,10 @@ pub use app::{App, Focus, Hint, RailEntry, Search, Tab};
 
 use std::{
     io::{self, Write},
+    path::Path,
     process::ExitCode,
     sync::atomic::{AtomicBool, Ordering},
+    sync::mpsc::TryRecvError,
     time::Duration,
 };
 
@@ -27,6 +29,7 @@ use ratatui::{Terminal, backend::Backend, backend::CrosstermBackend, layout::Rec
 
 use crate::terminal::Theme;
 use spec_viewer_config::Keys;
+use spec_viewer_protocol::Client;
 
 struct Restore;
 
@@ -56,9 +59,10 @@ fn restore() {
     );
 }
 
-/// `diff` is the initial state of the `Diff` toggle.
-pub fn run(library: spec_viewer_core::Library, theme: Theme, keys: Keys, web_url: Option<String>, diff: bool) -> ExitCode {
-    match start(library, theme, keys, web_url, diff) {
+/// A session on the worktree containing `root`, absolute on `host`. `diff` is the initial state of
+/// the `Diff` toggle.
+pub fn run(client: Client, host: Option<&str>, root: &Path, theme: Theme, keys: Keys, diff: bool) -> ExitCode {
+    match start(client, host, root, theme, keys, diff) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("spec-viewer: {error}");
@@ -67,7 +71,9 @@ pub fn run(library: spec_viewer_core::Library, theme: Theme, keys: Keys, web_url
     }
 }
 
-fn start(library: spec_viewer_core::Library, theme: Theme, keys: Keys, web_url: Option<String>, diff: bool) -> io::Result<()> {
+fn start(client: Client, host: Option<&str>, root: &Path, theme: Theme, keys: Keys, diff: bool) -> io::Result<()> {
+    // Report an unknown root or a broken config before the terminal changes mode.
+    client.resolve(host, root).map_err(io::Error::other)?;
     let previous_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |information| {
         restore();
@@ -76,7 +82,8 @@ fn start(library: spec_viewer_core::Library, theme: Theme, keys: Keys, web_url: 
     enable_raw_mode()?;
     let _restore = Restore;
     let (detected, input) = if theme.is_auto() { theme::detect() } else { (None, Vec::new()) };
-    let mut app = App::new(library, theme.resolve_auto(detected), io::stdout())?;
+    let web_url = client.web_url().map(str::to_owned);
+    let mut app = App::new(client, host, root, theme.resolve_auto(detected), io::stdout())?;
     app.web_url = web_url;
     app.keys = keys;
     app.diff = diff;
@@ -102,16 +109,30 @@ fn start(library: spec_viewer_core::Library, theme: Theme, keys: Keys, web_url: 
     let mut terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     let mut title = String::new();
     let mut linked: Option<Rect> = None;
-    let mut watched_path = app.worktree_path().to_path_buf();
-    let mut watcher = app.watch()?;
+    let mut watched = None;
+    let mut watcher = None;
     while !app.quit {
-        if app.worktree_path() != watched_path {
-            watched_path = app.worktree_path().to_path_buf();
-            watcher = app.watch()?;
+        let current = (app.worktree_host().map(str::to_owned), app.worktree_path().to_path_buf());
+        if watched.as_ref() != Some(&current) {
+            watched = Some(current);
+            watcher = match app.watch() {
+                Ok(watch) => Some(watch),
+                Err(error) => {
+                    app.message = Some(format!("Live reload is off: {error}"));
+                    None
+                }
+            };
         }
         let mut reload = false;
-        while watcher.reloads.try_recv().is_ok() {
-            reload = true;
+        while let Some(watch) = &watcher {
+            match watch.try_recv() {
+                Ok(_) => reload = true,
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    app.message = Some("Lost the connection to the daemon; live reload is off.".into());
+                    watcher = None;
+                }
+            }
         }
         if reload {
             app.reload();

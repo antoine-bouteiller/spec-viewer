@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-spec-viewer-core = { path = "../core" }
+spec-viewer-protocol = { path = "../protocol" }
 spec-viewer-config = { path = "../config" }
 ratatui.workspace = true
 crossterm.workspace = true
@@ -17,6 +17,8 @@ mermaid-text.workspace = true
 unicode-width.workspace = true
 
 [dev-dependencies]
+spec-viewer-core = { path = "../core" }
+spec-viewer-daemon = { path = "../daemon" }
 base64.workspace = true
 insta.workspace = true
 tempfile.workspace = true

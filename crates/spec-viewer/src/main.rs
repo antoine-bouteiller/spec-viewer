@@ -3,10 +3,9 @@ use std::{net::TcpListener, process::ExitCode, sync::Arc, time::Duration};
 mod cli;
 
 use cli::Command;
-use spec_viewer_config::{Config, Layer};
-use spec_viewer_core::{Library, ParseConfig};
+use spec_viewer_config::Config;
 use spec_viewer_daemon::{Daemon, Options, relay, run};
-use spec_viewer_protocol::Runtime;
+use spec_viewer_protocol::{Client, Runtime};
 use spec_viewer_render_tui::Theme;
 use spec_viewer_render_web::Backend;
 
@@ -34,13 +33,17 @@ fn start() -> Result<ExitCode, String> {
             return Ok(ExitCode::SUCCESS);
         }
     };
-    let mut config = Config::load().map_err(|error| error.to_string())?;
-    let library = Library::new(&root, ParseConfig::default()).map_err(|error| error.to_string())?;
-    let worktree = Layer::read(&library.containing_worktree().path.join(".spec-viewer.toml")).map_err(|error| error.to_string())?;
-    config.parse = ParseConfig::with(&[&config.layer, &worktree.unwrap_or_default()]);
+    let config = Config::load().map_err(|error| error.to_string())?;
     let theme = Theme::from_config(&config, theme).map_err(|error| error.to_string())?;
-    let library = library.with_parse_config(config.parse.clone());
-    Ok(spec_viewer_render_tui::run(library, theme, config.keys, None, config.tui.diff))
+    let client = Client::connect().map_err(|error| error.to_string())?;
+    Ok(spec_viewer_render_tui::run(
+        client,
+        None,
+        &root,
+        theme,
+        config.keys,
+        config.tui.diff,
+    ))
 }
 
 /// Serves the web app as an in-process client of `daemon`.
