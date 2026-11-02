@@ -102,6 +102,8 @@ const sameHost = (item) => (item.host ?? undefined) === url.host
 const worktree = () => choices().find((item) => item.path === url.wt && sameHost(item))
 // The worktree's request parameters.
 const target = () => (url.host ? { host: url.host, wt: url.wt } : { wt: url.wt })
+// The selected worktree's identity: one path may name worktrees on two hosts.
+const here = () => `${url.host ?? ''}\n${url.wt ?? ''}`
 const listed = () => tabs().find((item) => item.name === tab())?.nodes ?? []
 
 // Tree model.
@@ -314,7 +316,7 @@ const toggle = (key) => {
 }
 
 const resetTree = () => {
-  const id = `${url.wt}:${tab()}`
+  const id = `${here()}:${tab()}`
   if (state.treeId !== id) {
     state.treeId = id
     state.expanded = new Set()
@@ -778,16 +780,24 @@ const getJson = async (path, params) => {
   return response.json()
 }
 
-// Status tones are numbered per worktree.
-const loadTheme = () => {
-  $('theme-css').href = url.wt ? `/theme.css?${new URLSearchParams(target())}` : '/theme.css'
+// Status tones are numbered per worktree; a revision refetches them after a config change.
+let themeRevision = 0
+const loadTheme = (refetch = false) => {
+  if (refetch) {
+    themeRevision += 1
+  }
+  const params = new URLSearchParams(target())
+  if (themeRevision) {
+    params.set('revision', themeRevision)
+  }
+  $('theme-css').href = url.wt ? `/theme.css?${params}` : '/theme.css'
 }
 
 const loadDocs = async () => {
-  const wt = url.wt
+  const at = here()
   try {
     const docs = await getJson('/api/docs', target())
-    if (url.wt === wt) {
+    if (here() === at) {
       state.docs = docs
       state.docsError = null
       // Opening a worktree adds its project to the known ones.
@@ -796,12 +806,12 @@ const loadDocs = async () => {
       }
     }
   } catch (error) {
-    if (url.wt === wt) {
+    if (here() === at) {
       state.docs = NO_DOCS
       state.docsError = error.message
     }
   }
-  if (url.wt === wt) {
+  if (here() === at) {
     document.title = state.docs.project ? `${state.docs.project} · Specs` : 'Specs'
     resetTree()
     renderAll()
@@ -811,7 +821,7 @@ const loadDocs = async () => {
 // A reload of the open document keeps its scroll position; opening another scrolls to the top.
 const loadDoc = async () => {
   const { wt, doc } = url
-  const key = wt && doc ? `${wt}|${doc}` : ''
+  const key = wt && doc ? `${here()}\n${doc}` : ''
   const silent = key === state.docKey && !state.pending
   state.docKey = key
   if (!key) {
@@ -849,8 +859,11 @@ let events = null
 const connectEvents = () => {
   events?.close()
   events = url.wt ? new EventSource(`/api/events?${new URLSearchParams(target())}`) : null
-  events?.addEventListener('message', () => {
-    void loadDocs()
+  // The corpus request resolves the worktree again, so the statuses the stylesheet and the
+  // document then use are current.
+  events?.addEventListener('message', async () => {
+    await loadDocs()
+    loadTheme(true)
     void loadDoc()
     if (searchDialog.open) {
       void runSearch()
