@@ -2,11 +2,13 @@
 use std::{
     collections::HashMap,
     io::{BufReader, Read, Write},
+    net::Shutdown,
     ops::Deref,
+    os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::Command,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, Weak,
         mpsc::{self, Receiver, Sender},
     },
 };
@@ -79,9 +81,13 @@ impl Client {
     /// `connect` with another runtime directory and daemon command, for tests.
     #[doc(hidden)]
     pub fn connect_with(runtime: &Runtime, spawn: Command) -> Result<Self, Error> {
-        let stream = runtime.connect(spawn).map_err(Error::unreachable)?;
+        Self::over_socket(runtime.connect(spawn).map_err(Error::unreachable)?, None)
+    }
+
+    /// `over` a socket, shut down once the client and its watches are dropped.
+    pub fn over_socket(stream: UnixStream, user: Option<Layer>) -> Result<Self, Error> {
         let reader = stream.try_clone().map_err(Error::unreachable)?;
-        Self::over(reader, stream, None)
+        Self::over(reader, Closing(stream), user)
     }
 
     /// The handshake over any pair of streams. `user` is sent in `Hello`; only the hub passes `Some`.
@@ -108,8 +114,8 @@ impl Client {
                 ..State::default()
             }),
         });
-        let routed = Arc::clone(&shared);
-        std::thread::spawn(move || routed.route(reader));
+        let routed = Arc::downgrade(&shared);
+        std::thread::spawn(move || Shared::route(&routed, reader));
         Ok(Self { shared, web })
     }
 
@@ -202,6 +208,24 @@ impl Client {
     }
 }
 
+/// Shuts the socket down when dropped, which ends the reader thread's clone too.
+struct Closing(UnixStream);
+
+impl Write for Closing {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
+impl Drop for Closing {
+    fn drop(&mut self) {
+        let _ = self.0.shutdown(Shutdown::Both);
+    }
+}
+
 fn unexpected(response: &Response) -> Error {
     Error::unreachable(format!("unexpected response {response:?}"))
 }
@@ -257,14 +281,16 @@ impl Shared {
         Error::unreachable(state.lost.as_deref().unwrap_or("the daemon closed the connection"))
     }
 
-    fn route(&self, mut reader: impl std::io::BufRead) {
+    /// Holds only a weak reference, so dropping the client and its watches drops the writer.
+    fn route(shared: &Weak<Self>, mut reader: impl std::io::BufRead) {
         let reason = loop {
             let message = match receive::<DaemonMessage>(&mut reader) {
                 Ok(Some(message)) => message,
                 Ok(None) => break "the daemon closed the connection".to_owned(),
                 Err(error) => break format!("the daemon connection failed: {error}"),
             };
-            let mut state = self.state.lock().expect("client state");
+            let Some(shared) = shared.upgrade() else { return };
+            let mut state = shared.state.lock().expect("client state");
             match message {
                 DaemonMessage::Response { id, result } => {
                     if let Some(sender) = state.pending.remove(&id) {
@@ -286,7 +312,8 @@ impl Shared {
                 DaemonMessage::Welcome { .. } => {}
             }
         };
-        let mut state = self.state.lock().expect("client state");
+        let Some(shared) = shared.upgrade() else { return };
+        let mut state = shared.state.lock().expect("client state");
         state.lost = Some(reason);
         state.pending.clear();
         state.watches.clear();
