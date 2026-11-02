@@ -48,15 +48,16 @@ impl Runtime {
         self.dir.join("daemon.log")
     }
 
-    /// Creates the directory with mode `0700`; an existing one must have that mode and be owned by
-    /// this user.
+    /// Creates the directory with mode `0700`; an existing one must be a directory, not a symlink,
+    /// of that mode and owned by this user.
     pub fn prepare(&self) -> io::Result<()> {
         match fs::DirBuilder::new().recursive(true).mode(0o700).create(&self.dir) {
             Ok(()) => {}
             Err(error) => return Err(io::Error::new(error.kind(), format!("{}: {error}", self.dir.display()))),
         }
-        let metadata = fs::metadata(&self.dir)?;
-        if metadata.uid() != uid() || metadata.permissions().mode() & 0o777 != 0o700 {
+        // Not followed: a symlink in a shared directory could point at another user's directory.
+        let metadata = fs::symlink_metadata(&self.dir)?;
+        if !metadata.is_dir() || metadata.uid() != uid() || metadata.permissions().mode() & 0o777 != 0o700 {
             return Err(io::Error::new(
                 io::ErrorKind::PermissionDenied,
                 format!("{}: expected a directory of mode 0700 owned by this user", self.dir.display()),
@@ -126,6 +127,17 @@ mod tests {
         assert!(error.to_string().contains(&runtime.dir().display().to_string()), "{error}");
         assert_eq!(runtime.socket(), runtime.dir().join("daemon-v1.sock"));
         assert_eq!(runtime.lock(), runtime.dir().join("daemon-v1.lock"));
+    }
+
+    #[test]
+    fn a_symlink_to_a_private_directory_is_rejected() {
+        let base = tempfile::tempdir().unwrap();
+        let target = base.path().join("elsewhere");
+        fs::DirBuilder::new().mode(0o700).create(&target).unwrap();
+        let runtime = Runtime::at(base.path().join("spec-viewer"));
+        std::os::unix::fs::symlink(&target, runtime.dir()).unwrap();
+        let error = runtime.prepare().unwrap_err();
+        assert!(error.to_string().contains(&runtime.dir().display().to_string()), "{error}");
     }
 
     #[test]
