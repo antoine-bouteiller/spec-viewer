@@ -1649,6 +1649,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "spec-viewer-protocol"
+version = "0.1.0"
+dependencies = [
+ "insta",
+ "libc",
+ "serde",
+ "serde_json",
+ "spec-viewer-config",
+ "spec-viewer-core",
+ "tempfile",
+]
+
+[[package]]
 name = "spec-viewer-render-tui"
 version = "0.1.0"
 dependencies = [

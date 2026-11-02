@@ -1,0 +1,41 @@
+---
+source: crates/protocol/tests/wire.rs
+expression: "redacted(&json, &root)"
+---
+{
+  "changed": null,
+  "project": "corpus",
+  "tabs": [
+    {
+      "name": "plans",
+      "nodes": []
+    },
+    {
+      "name": "specs",
+      "nodes": [
+        {
+          "name": "spec",
+          "path": null,
+          "kind": "dir",
+          "status": null,
+          "archived": null,
+          "companion": false,
+          "children": [
+            {
+              "name": "Spec Dialect Fixture",
+              "path": "spec/dialect.spec.mdx",
+              "kind": "leaf",
+              "status": {
+                "name": "accepted",
+                "known": true
+              },
+              "archived": null,
+              "companion": false,
+              "children": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
