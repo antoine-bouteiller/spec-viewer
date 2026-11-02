@@ -6,7 +6,7 @@ use std::{
     net::{TcpListener, TcpStream},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, mpsc::RecvTimeoutError},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use serde::Serialize;
@@ -381,28 +381,50 @@ impl State {
         })
     }
 
-    /// Holds the daemon up while open. The heartbeat surfaces a closed connection as a write
-    /// error, which drops the watch.
+    /// Holds the daemon up while open, and checks for a closed peer twice a second, so a closed
+    /// page releases it within an `--idle-exit` of one second.
     fn events(&self, stream: &mut TcpStream, target: &Target) {
         let watch = match self.client().watch(target.host.as_deref(), &target.path) {
             Ok(watch) => watch,
             Err(error) => return failure(&error).send(stream),
         };
         let _hold = (self.backend.hold)();
-        let mut send = |chunk: &str| stream.write_all(chunk.as_bytes()).and_then(|()| stream.flush());
-        if send("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n").is_err() {
+        let send = |stream: &mut TcpStream, chunk: &str| stream.write_all(chunk.as_bytes()).and_then(|()| stream.flush());
+        if send(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
+        )
+        .is_err()
+        {
             return;
         }
+        let mut pinged = Instant::now();
         loop {
-            let chunk = match watch.recv_timeout(HEARTBEAT) {
+            let chunk = match watch.recv_timeout(Duration::from_millis(500)) {
                 Ok(_) => "data: reload\n\n",
-                Err(RecvTimeoutError::Timeout) => ": ping\n\n",
+                Err(RecvTimeoutError::Timeout) if closed(stream) => return,
+                Err(RecvTimeoutError::Timeout) if pinged.elapsed() >= HEARTBEAT => ": ping\n\n",
+                Err(RecvTimeoutError::Timeout) => continue,
                 Err(RecvTimeoutError::Disconnected) => return,
             };
-            if send(chunk).is_err() {
+            pinged = Instant::now();
+            if send(stream, chunk).is_err() {
                 return;
             }
         }
+    }
+}
+
+/// Whether the peer closed `stream`. An events client sends nothing after its request.
+fn closed(stream: &TcpStream) -> bool {
+    if stream.set_nonblocking(true).is_err() {
+        return true;
+    }
+    let peeked = stream.peek(&mut [0; 1]);
+    let _ = stream.set_nonblocking(false);
+    match peeked {
+        Ok(read) => read == 0,
+        Err(error) => error.kind() != io::ErrorKind::WouldBlock,
     }
 }
 

@@ -183,15 +183,13 @@ fn events_stream_a_reload_when_a_plan_changes() {
     assert_eq!(line, "data: reload\n");
     assert_eq!(gateway.daemon.idle(since), None, "vc_2: an open events stream keeps the daemon up");
     drop(reader);
-    // The server learns of the close from a failed write, which may take a second event.
-    let start = Instant::now();
-    for index in 0.. {
-        if gateway.daemon.idle(since).is_some() {
-            break;
-        }
-        assert!(start.elapsed() < Duration::from_secs(10), "a closed stream releases the daemon");
-        std::fs::write(root.join(format!(".plan/c{index}.md")), "# Gamma\n").unwrap();
-        std::thread::sleep(Duration::from_millis(300));
+    let closed = Instant::now();
+    while gateway.daemon.idle(since).is_none() {
+        assert!(
+            closed.elapsed() < Duration::from_secs(3),
+            "vc_2: a closed stream releases the daemon within 3 s"
+        );
+        std::thread::sleep(Duration::from_millis(50));
     }
 }
 
