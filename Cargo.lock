@@ -1632,6 +1632,7 @@ dependencies = [
 name = "spec-viewer-core"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "spec-viewer-config",
  "spec-viewer-parser",
  "spec-viewer-source",
@@ -1643,6 +1644,7 @@ name = "spec-viewer-parser"
 version = "0.1.0"
 dependencies = [
  "markdown",
+ "serde",
  "spec-viewer-config",
 ]
 
@@ -1682,6 +1684,7 @@ name = "spec-viewer-source"
 version = "0.1.0"
 dependencies = [
  "notify",
+ "serde",
  "spec-viewer-config",
  "tempfile",
 ]

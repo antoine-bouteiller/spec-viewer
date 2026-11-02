@@ -4,9 +4,10 @@ use std::sync::{Arc, Mutex};
 
 use crate::cache::Cache;
 use crate::{DocError, Document, ParseConfig, parse};
+use serde::{Deserialize, Serialize};
 use spec_viewer_source::{read, resolve};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Opened {
     pub path: PathBuf,
     pub root_path: String,

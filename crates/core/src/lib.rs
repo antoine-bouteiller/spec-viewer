@@ -19,7 +19,7 @@ pub use spec_viewer_parser::{
     Align, Block, Chip, ChipValue, CodeTab, ComparisonOption, Component, ComponentBody, Degraded, Document, Inline, ListItem, MarginNote,
     Meta, NodeDetail, Status, Step, TocEntry, body_below_header, parse, parse_meta,
 };
-pub use spec_viewer_source::{DocError, Project, ResolvedDoc, Stamp, Watch, WatchResult, Worktree, project_of, watch};
+pub use spec_viewer_source::{DocError, Project, ResolvedDoc, Stamp, Watch, WatchResult, Worktree, normalize_origin, project_of, watch};
 pub use tree::build_tree;
 pub use types::Docs as Corpus;
 pub use types::*;

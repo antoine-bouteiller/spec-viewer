@@ -1,7 +1,8 @@
 //! Renderer-independent document structure. Source code stays unhighlighted.
 use crate::{Degraded, Meta, TocEntry};
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Document {
     pub meta: Meta,
     pub blocks: Vec<Block>,
@@ -9,7 +10,7 @@ pub struct Document {
     pub degraded: Option<Degraded>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Block {
     Heading {
         depth: u8,
@@ -42,7 +43,7 @@ pub enum Block {
     Degraded,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Align {
     None,
     Left,
@@ -50,13 +51,13 @@ pub enum Align {
     Right,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListItem {
     pub checked: Option<bool>,
     pub blocks: Vec<Block>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Inline {
     Text(String),
     Strong(Vec<Inline>),
@@ -81,7 +82,7 @@ pub enum Inline {
     Component(Box<Component>),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Component {
     CodeTabs {
         tabs: Vec<CodeTab>,
@@ -114,33 +115,33 @@ pub enum Component {
 }
 
 /// Component children may be inline prose or markdown blocks.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComponentBody {
     pub blocks: Vec<Block>,
     pub inline: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CodeTab {
     pub label: String,
     pub body: ComponentBody,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ComparisonOption {
     pub name: String,
     pub body: ComponentBody,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MarginNote {
     pub line: String,
     pub body: ComponentBody,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeDetail {
     pub name: String,
     pub body: ComponentBody,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Step {
     pub title: String,
     pub body: ComponentBody,

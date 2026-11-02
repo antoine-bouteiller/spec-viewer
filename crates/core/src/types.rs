@@ -1,4 +1,5 @@
 use crate::Status;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DocMeta {
@@ -10,7 +11,7 @@ pub struct DocMeta {
     pub parent_spec: Option<String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DocNode {
     pub name: String,
     pub path: Option<String>,
@@ -23,13 +24,13 @@ pub struct DocNode {
 }
 
 /// A configured tab and its documents.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TabDocs {
     pub name: String,
     pub nodes: Vec<DocNode>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Docs {
     /// Tab documents changed from the remote `main`; `None` when unknown.
     pub changed: Option<Vec<String>>,

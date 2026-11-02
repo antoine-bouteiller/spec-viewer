@@ -8,7 +8,7 @@ mod types;
 mod watch;
 
 pub use corpus::{Entry, git_paths, list, resolve};
-pub use project::{Viewer, changed, project_of};
+pub use project::{Viewer, changed, normalize_origin, project_of};
 pub use stamp::Stamp;
 pub use types::{DocError, Project, ResolvedDoc, Worktree};
 pub use watch::{Watch, watch};

@@ -9,16 +9,17 @@ mod types;
 
 pub use ast::*;
 pub use metadata::{body_below_header, parse_meta};
+use serde::{Deserialize, Serialize};
 pub use spec_viewer_config::ParseConfig;
 pub use types::{Chip, ChipValue, Meta, Status};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TocEntry {
     pub id: String,
     pub text: String,
     pub depth: u8,
 }
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Degraded {
     pub reason: String,
     pub message: String,
