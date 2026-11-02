@@ -1,0 +1,20 @@
+[package]
+name = "spec-viewer-protocol"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+spec-viewer-core = { path = "../core" }
+spec-viewer-config = { path = "../config" }
+libc.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

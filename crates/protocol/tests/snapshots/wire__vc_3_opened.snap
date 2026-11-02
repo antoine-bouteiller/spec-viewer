@@ -1,0 +1,623 @@
+---
+source: crates/protocol/tests/wire.rs
+expression: "redacted(&json, &root)"
+---
+{
+  "path": "<root>/spec/dialect.spec.mdx",
+  "root_path": "spec/dialect.spec.mdx",
+  "document": {
+    "meta": {
+      "title": "Spec Dialect Fixture",
+      "status": {
+        "name": "accepted",
+        "known": true
+      },
+      "author": null,
+      "date": null,
+      "related": [],
+      "chips": [
+        {
+          "label": "AC",
+          "value": {
+            "Checklist": {
+              "done": 0,
+              "total": 0
+            }
+          }
+        },
+        {
+          "label": "T",
+          "value": {
+            "Checklist": {
+              "done": 0,
+              "total": 0
+            }
+          }
+        },
+        {
+          "label": "phases",
+          "value": {
+            "Count": 0
+          }
+        }
+      ],
+      "lines": 140,
+      "legacy": false,
+      "kind": null,
+      "parent_spec": null,
+      "archived": null
+    },
+    "blocks": [
+      {
+        "Heading": {
+          "depth": 2,
+          "id": "1-overview",
+          "content": [
+            {
+              "Text": "1. Overview"
+            }
+          ]
+        }
+      },
+      {
+        "Paragraph": [
+          {
+            "Text": "This checked-in fixture exercises the document dialect for "
+          },
+          {
+            "Code": "AC-001"
+          },
+          {
+            "Text": " and "
+          },
+          {
+            "Code": "T-010"
+          },
+          {
+            "Text": ". It keeps ordinary prose alongside an inline type, "
+          },
+          {
+            "Code": "List<String>"
+          },
+          {
+            "Text": ", and the expression "
+          },
+          {
+            "Component": {
+              "Unknown": {
+                "name": "expression",
+                "blocks": [
+                  {
+                    "Paragraph": [
+                      {
+                        "Text": "someValue"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "Text": " so degradation remains local."
+          }
+        ]
+      },
+      {
+        "List": {
+          "ordered": false,
+          "start": null,
+          "loose": false,
+          "items": [
+            {
+              "checked": null,
+              "blocks": [
+                {
+                  "Paragraph": [
+                    {
+                      "Text": "A reader can compare source examples."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "checked": null,
+              "blocks": [
+                {
+                  "Paragraph": [
+                    {
+                      "Text": "A reviewer can follow the rendering path."
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "checked": null,
+              "blocks": [
+                {
+                  "Paragraph": [
+                    {
+                      "Text": "The bracketed reference is preserved as "
+                    },
+                    {
+                      "Xref": {
+                        "id": "KD-3.1",
+                        "family": "kd"
+                      }
+                    },
+                    {
+                      "Text": "."
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "Heading": {
+          "depth": 3,
+          "id": "11-rendered-table",
+          "content": [
+            {
+              "Text": "1.1 Rendered table"
+            }
+          ]
+        }
+      },
+      {
+        "Table": {
+          "align": [
+            "None",
+            "None",
+            "None"
+          ],
+          "head": [
+            [
+              {
+                "Text": "Capability"
+              }
+            ],
+            [
+              {
+                "Text": "Fixture evidence"
+              }
+            ],
+            [
+              {
+                "Text": "Status"
+              }
+            ]
+          ],
+          "rows": [
+            [
+              [
+                {
+                  "Text": "Components"
+                }
+              ],
+              [
+                {
+                  "Text": "MDX bridge elements"
+                }
+              ],
+              [
+                {
+                  "Text": "Ready"
+                }
+              ]
+            ],
+            [
+              [
+                {
+                  "Text": "Diagrams"
+                }
+              ],
+              [
+                {
+                  "Text": "Mermaid source"
+                }
+              ],
+              [
+                {
+                  "Text": "Ready"
+                }
+              ]
+            ],
+            [
+              [
+                {
+                  "Text": "References"
+                }
+              ],
+              [
+                {
+                  "Text": "AC-001 and T-010"
+                }
+              ],
+              [
+                {
+                  "Text": "Ready"
+                }
+              ]
+            ]
+          ]
+        }
+      },
+      {
+        "Heading": {
+          "depth": 2,
+          "id": "2-component-dialect",
+          "content": [
+            {
+              "Text": "2. Component dialect"
+            }
+          ]
+        }
+      },
+      {
+        "Component": {
+          "CodeTabs": {
+            "tabs": [
+              {
+                "label": "TypeScript",
+                "body": {
+                  "blocks": [
+                    {
+                      "Code": {
+                        "lang": "ts",
+                        "source": "export type Task = {\n  id: 'T-010'\n  completed: boolean\n}\n\nconst task: Task = { id: 'T-010', completed: false }\n"
+                      }
+                    }
+                  ],
+                  "inline": false
+                }
+              },
+              {
+                "label": "JSON",
+                "body": {
+                  "blocks": [
+                    {
+                      "Code": {
+                        "lang": "json",
+                        "source": "{\n  \"title\": \"Spec Dialect Fixture\",\n  \"status\": \"accepted\",\n  \"checks\": [\"components\", \"mermaid\"]\n}\n"
+                      }
+                    }
+                  ],
+                  "inline": false
+                }
+              }
+            ],
+            "blocks": []
+          }
+        }
+      },
+      {
+        "Component": {
+          "Comparison": {
+            "options": [
+              {
+                "name": "Keep source visible",
+                "body": {
+                  "blocks": [
+                    {
+                      "Paragraph": [
+                        {
+                          "Text": "Readable source gives reviewers a dependable fallback."
+                        }
+                      ]
+                    }
+                  ],
+                  "inline": false
+                }
+              },
+              {
+                "name": "Enhance in browser",
+                "body": {
+                  "blocks": [
+                    {
+                      "Paragraph": [
+                        {
+                          "Text": "The browser can replace valid Mermaid only after the document arrives."
+                        }
+                      ]
+                    }
+                  ],
+                  "inline": false
+                }
+              }
+            ],
+            "blocks": []
+          }
+        }
+      },
+      {
+        "Component": {
+          "DecisionMatrix": {
+            "score": "4",
+            "blocks": [
+              {
+                "Paragraph": [
+                  {
+                    "Text": "The selected path retains source while presenting a compact decision matrix."
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "Component": {
+          "AnnotatedDiff": {
+            "blocks": [
+              {
+                "Code": {
+                  "lang": "diff",
+                  "source": "- const mode = \"draft\";\n+ const mode = \"accepted\";\n"
+                }
+              }
+            ],
+            "notes": [
+              {
+                "line": "1",
+                "body": {
+                  "blocks": [
+                    {
+                      "Paragraph": [
+                        {
+                          "Text": "The removed value was only provisional."
+                        }
+                      ]
+                    }
+                  ],
+                  "inline": true
+                }
+              },
+              {
+                "line": "2",
+                "body": {
+                  "blocks": [
+                    {
+                      "Paragraph": [
+                        {
+                          "Text": "The replacement matches the fixture status."
+                        }
+                      ]
+                    }
+                  ],
+                  "inline": true
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "Component": {
+          "Flowchart": {
+            "source": "flowchart TD\nDraft[Draft] --> Review[Review]\nReview --> Accepted[Accepted]",
+            "details": [
+              {
+                "name": "Draft",
+                "body": {
+                  "blocks": [
+                    {
+                      "Paragraph": [
+                        {
+                          "Text": "An author starts with ordinary prose and examples."
+                        }
+                      ]
+                    }
+                  ],
+                  "inline": true
+                }
+              },
+              {
+                "name": "Accepted",
+                "body": {
+                  "blocks": [
+                    {
+                      "Paragraph": [
+                        {
+                          "Text": "A reviewer confirms all required constructs."
+                        }
+                      ]
+                    }
+                  ],
+                  "inline": true
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "Component": {
+          "StepRail": {
+            "steps": [
+              {
+                "title": "Author",
+                "body": {
+                  "blocks": [
+                    {
+                      "Paragraph": [
+                        {
+                          "Text": "Write realistic source content and component children."
+                        }
+                      ]
+                    }
+                  ],
+                  "inline": false
+                }
+              },
+              {
+                "title": "Render",
+                "body": {
+                  "blocks": [
+                    {
+                      "Paragraph": [
+                        {
+                          "Text": "Convert MDX bridge elements into their documented markup."
+                        }
+                      ]
+                    }
+                  ],
+                  "inline": false
+                }
+              },
+              {
+                "title": "Review",
+                "body": {
+                  "blocks": [
+                    {
+                      "Paragraph": [
+                        {
+                          "Text": "Check both enhanced diagrams and visible fallback source."
+                        }
+                      ]
+                    }
+                  ],
+                  "inline": false
+                }
+              }
+            ],
+            "blocks": []
+          }
+        }
+      },
+      {
+        "Component": {
+          "Unknown": {
+            "name": "FeatureViewer",
+            "blocks": [
+              {
+                "Paragraph": [
+                  {
+                    "Text": "This unsupported component deliberately retains child content in its placeholder."
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      {
+        "Heading": {
+          "depth": 2,
+          "id": "3-code-and-diagrams",
+          "content": [
+            {
+              "Text": "3. Code and diagrams"
+            }
+          ]
+        }
+      },
+      {
+        "Paragraph": [
+          {
+            "Text": "A shell command remains ordinary highlighted content:"
+          }
+        ]
+      },
+      {
+        "Code": {
+          "lang": "bash",
+          "source": "bun run check\ncurl -s http://localhost:3000/api/doc\n"
+        }
+      },
+      {
+        "Paragraph": [
+          {
+            "Text": "An unknown lexer must remain escaped source rather than failing the render:"
+          }
+        ]
+      },
+      {
+        "Code": {
+          "lang": "brainfuck",
+          "source": "++[>++<-]>.\n"
+        }
+      },
+      {
+        "Paragraph": [
+          {
+            "Text": "This Mermaid diagram is valid and should render in the browser:"
+          }
+        ]
+      },
+      {
+        "Mermaid": {
+          "source": "flowchart TD\n  Source --> Render\n  Render --> Browser\n"
+        }
+      },
+      {
+        "Paragraph": [
+          {
+            "Text": "This Mermaid diagram is intentionally malformed, so its source "
+          },
+          {
+            "Code": "<pre>"
+          },
+          {
+            "Text": " should stay visible:"
+          }
+        ]
+      },
+      {
+        "Mermaid": {
+          "source": "flowchart TD\n  Broken --> --> Syntax\n"
+        }
+      },
+      {
+        "Heading": {
+          "depth": 3,
+          "id": "31-closing-notes",
+          "content": [
+            {
+              "Text": "3.1 Closing notes"
+            }
+          ]
+        }
+      },
+      {
+        "Paragraph": [
+          {
+            "Text": "The fixture includes prose, a list, a table, code, references, and supported dialect components without imports, exports, or unclosed JSX tags."
+          }
+        ]
+      }
+    ],
+    "toc": [
+      {
+        "id": "1-overview",
+        "text": "1. Overview",
+        "depth": 2
+      },
+      {
+        "id": "11-rendered-table",
+        "text": "1.1 Rendered table",
+        "depth": 3
+      },
+      {
+        "id": "2-component-dialect",
+        "text": "2. Component dialect",
+        "depth": 2
+      },
+      {
+        "id": "3-code-and-diagrams",
+        "text": "3. Code and diagrams",
+        "depth": 2
+      },
+      {
+        "id": "31-closing-notes",
+        "text": "3.1 Closing notes",
+        "depth": 3
+      }
+    ],
+    "degraded": null
+  }
+}
