@@ -53,6 +53,18 @@
         let
           cfg = config.programs.spec-viewer;
           tomlFormat = pkgs.formats.toml { };
+          daemon = [
+            (lib.getExe cfg.package)
+            "daemon"
+          ];
+          # The daemon runs git, ssh, and each host's command; service managers start with a bare PATH.
+          path = lib.concatStringsSep ":" [
+            "${config.home.profileDirectory}/bin"
+            "/run/current-system/sw/bin"
+            "/nix/var/nix/profiles/default/bin"
+            "/usr/bin"
+            "/bin"
+          ];
         in
         {
           options.programs.spec-viewer = {
@@ -67,6 +79,11 @@
               default = { };
               description = "Written to {file}`$XDG_CONFIG_HOME/spec-viewer/config.toml`.";
             };
+            daemon.enable = lib.mkOption {
+              type = lib.types.bool;
+              default = true;
+              description = "Whether to keep `spec-viewer daemon` running as a launchd agent or systemd user service.";
+            };
           };
 
           config = lib.mkIf cfg.enable {
@@ -74,6 +91,33 @@
             xdg.configFile."spec-viewer/config.toml" = lib.mkIf (cfg.settings != { }) {
               source = tomlFormat.generate "spec-viewer-config.toml" cfg.settings;
             };
+
+            # A daemon that loses the lock to an auto-spawned one exits 0, so both managers restart
+            # on success too, until it takes over after the other idles out.
+            launchd.agents.spec-viewer = lib.mkIf (cfg.daemon.enable && pkgs.stdenv.hostPlatform.isDarwin) {
+              enable = true;
+              config = {
+                ProgramArguments = daemon;
+                EnvironmentVariables.PATH = path;
+                KeepAlive = true;
+                RunAtLoad = true;
+                ProcessType = "Background";
+                ThrottleInterval = 10;
+              };
+            };
+
+            systemd.user.services.spec-viewer =
+              lib.mkIf (cfg.daemon.enable && pkgs.stdenv.hostPlatform.isLinux)
+                {
+                  Unit.Description = "spec-viewer daemon";
+                  Service = {
+                    ExecStart = lib.escapeShellArgs daemon;
+                    Environment = [ "PATH=${path}" ];
+                    Restart = "always";
+                    RestartSec = 10;
+                  };
+                  Install.WantedBy = [ "default.target" ];
+                };
           };
         };
 
