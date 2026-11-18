@@ -1,4 +1,9 @@
 {
   $schema: 'https://docs.renovatebot.com/renovate-schema.json',
   extends: ['github>antoine-bouteiller/renovate'],
+  nix: {
+    enabled: true,
+    // Inputs track branches, so only a lock refresh moves them, e.g. rust-overlay to a new toolchain.
+    lockFileMaintenance: { enabled: true },
+  },
 }
