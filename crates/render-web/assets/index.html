@@ -11,6 +11,7 @@
     <script>
       var stored = localStorage.getItem('spec-viewer.theme')
       if (stored === 'light' || stored === 'dark') document.documentElement.setAttribute('data-theme', stored)
+      if (localStorage.getItem('spec-viewer.sidebar') === 'collapsed') document.documentElement.dataset.sidebar = 'collapsed'
     </script>
     <link rel="stylesheet" href="/app.css" />
     <link id="theme-css" rel="stylesheet" href="/theme.css" />
@@ -19,6 +20,12 @@
     <div class="app">
       <aside class="sidebar">
         <header class="sidebar-header">
+          <button id="sidebar-toggle" type="button" class="sidebar-toggle" aria-controls="nav" aria-expanded="true" aria-label="Collapse file tree">
+            <svg fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" viewBox="0 0 24 24">
+              <path d="M3 6C3 4.34315 4.34315 3 6 3H18C19.6569 3 21 4.34315 21 6V18C21 19.6569 19.6569 21 18 21H6C4.34315 21 3 19.6569 3 18V6Z" />
+              <path d="M9 3V21" />
+            </svg>
+          </button>
           <span class="brand">Specs<span class="brand-dot">.</span></span>
           <div class="theme-selector" role="radiogroup" aria-label="Theme">
             <button type="button" role="radio" class="theme-option" data-mode="light">light</button>

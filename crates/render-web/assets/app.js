@@ -1,6 +1,7 @@
 // Web client for spec-viewer: sidebar tree, structure rail, and the server-rendered document.
 const MERMAID = 'https://cdn.jsdelivr.net/npm/mermaid@12/dist/mermaid.esm.min.mjs'
 const THEME_KEY = 'spec-viewer.theme'
+const SIDEBAR_KEY = 'spec-viewer.sidebar'
 const UNKNOWN_TONE = 'var(--status-unknown)'
 const NO_DOCS = { changed: null, project: '', tabs: [] }
 
@@ -11,6 +12,7 @@ const rail = $('rail')
 const content = $('content')
 const diffToggle = $('diff')
 const searchTrigger = $('search-open')
+const sidebarToggle = $('sidebar-toggle')
 const searchDialog = $('search')
 const searchInput = $('search-input')
 const searchResults = $('search-results')
@@ -524,12 +526,37 @@ searchDialog.addEventListener('click', (event) => {
 
 addEventListener('keydown', (event) => {
   const typing = event.target.closest?.('input, select, textarea, [contenteditable]')
-  const shortcut = pressed(event, keys.main.search)
-  if (shortcut && !typing && !searchDialog.open) {
+  if (typing || searchDialog.open) {
+    return
+  }
+  if (pressed(event, keys.main.search)) {
     event.preventDefault()
     openSearch()
+  } else if (pressed(event, keys.main.toggle_panel)) {
+    event.preventDefault()
+    setSidebar(document.documentElement.dataset.sidebar === 'collapsed')
   }
 })
+
+// Sidebar collapse, kept in `localStorage` like the theme.
+
+const setSidebar = (expanded) => {
+  if (expanded) {
+    delete document.documentElement.dataset.sidebar
+    localStorage.removeItem(SIDEBAR_KEY)
+  } else {
+    document.documentElement.dataset.sidebar = 'collapsed'
+    localStorage.setItem(SIDEBAR_KEY, 'collapsed')
+  }
+  sidebarToggle.setAttribute('aria-expanded', String(expanded))
+  const label = `${expanded ? 'Collapse' : 'Expand'} file tree`
+  const key = keyLabel(keys.main.toggle_panel)
+  sidebarToggle.setAttribute('aria-label', label)
+  sidebarToggle.title = key ? `${label} (${key})` : label
+}
+
+sidebarToggle.addEventListener('click', () => setSidebar(document.documentElement.dataset.sidebar === 'collapsed'))
+setSidebar(document.documentElement.dataset.sidebar !== 'collapsed')
 
 diffToggle.addEventListener('click', () => {
   setUrl({ diff: url.diff === 'true' ? undefined : 'true' })
@@ -933,6 +960,7 @@ const loadKeys = async () => {
   const searchKey = searchTrigger.querySelector('.search-key')
   searchKey.textContent = keyLabel(keys.main.search) ?? ''
   searchKey.hidden = !searchKey.textContent
+  setSidebar(document.documentElement.dataset.sidebar !== 'collapsed')
   const dialog = keys.search_dialog
   const [up, down] = [keyLabel(dialog.up), keyLabel(dialog.down)]
   const move = up && down ? ([...up].length === 1 && [...down].length === 1 ? up + down : `${up}/${down}`) : undefined

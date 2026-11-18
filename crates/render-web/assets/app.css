@@ -306,6 +306,39 @@ select {
   border-right-width: 1px;
 }
 
+[data-sidebar='collapsed'] .sidebar {
+  width: auto;
+
+  & :is(.brand, .theme-selector, .filter-bar, .sidebar-nav) {
+    display: none;
+  }
+}
+
+.sidebar-toggle {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin: -0.25rem 0.5rem -0.25rem -0.5rem;
+  border-radius: 0.375rem;
+  color: var(--muted);
+  cursor: pointer;
+
+  &:hover {
+    background-color: var(--bg-hover);
+    color: var(--fg);
+  }
+
+  & svg {
+    width: 1rem;
+    height: 1rem;
+  }
+}
+
+[data-sidebar='collapsed'] .sidebar-toggle {
+  margin-right: -0.5rem;
+}
+
 .sidebar-header {
   display: flex;
   align-items: center;
