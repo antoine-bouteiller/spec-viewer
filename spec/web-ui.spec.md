@@ -165,7 +165,9 @@ The search line's key and the dialog footer show the first key of each action. A
 reruns an open search. A missing `wt` selects the first project's main worktree and keeps `doc`; an unlisted one loads
 and then appears in the dropdown, which groups each project's worktrees and labels remote ones with
 their host. A focused tree row moves with `keys.up` and `keys.down`, expands and collapses with
-`keys.right` and `keys.left`, and opens with `keys.open`; the defaults add `j`, `k`, `l`, and `h` to the arrows. The rail highlights the
+`keys.right` and `keys.left`, and opens with `keys.open`; the defaults add `j`, `k`, `l`, and `h` to the arrows.
+`keys.toggle_panel` (default `b`) outside a text field, or the button left of the brand, collapses the
+sidebar to that button and expands it again; the choice is kept in `localStorage`. The rail highlights the
 section under the top of the page. A click on an xref chip copies its ID; a click on a doc link opens
 its document. A reload event refetches the corpus and the open document, keeping the scroll
 position. A diagram that fails to render, or a CDN that fails to load, leaves its source visible.

@@ -16,8 +16,8 @@ port = 4747                    # the web app on http://localhost:<port>; 0 takes
 [tui]
 diff = false                   # start with Diff on: tabs list only changed documents
 
-# Keybindings, shared by the terminal and the web app (which uses search, the tree's up, down, left,
-# right, and open, and search_dialog). A value is one key or an array of keys; [] unbinds the action.
+# Keybindings, shared by the terminal and the web app (which uses search, toggle_panel, the tree's up,
+# down, left, right, and open, and search_dialog). A value is one key or an array of keys; [] unbinds the action.
 # A key is a character or a name (enter, tab, esc, backspace, delete, insert, up, down, left, right,
 # home, end, pageup, pagedown, space, plus, minus, comma, period, slash, backslash, backtick,
 # semicolon, f1 … f24) after optional ctrl+, alt+, shift+, and cmd+ modifiers: "ctrl+u", "shift+tab".
@@ -32,7 +32,7 @@ search = ["/", "ctrl+k", "cmd+k"]
 diff = "d"
 open_web = "o"
 toggle_files = "e"             # sidebar or rail, with a document open
-toggle_panel = "b"             # hide or show the left pane, with a document open
+toggle_panel = "b"             # hide or show the left pane, with a document open; on the web, the sidebar
 toggle_focus = ["tab", "shift+tab"]
 copy_path = "y"
 copy_name = "Y"
