@@ -101,7 +101,8 @@ pub fn normalize_origin(url: &str) -> String {
     }
 }
 
-/// Tab documents changed since the merge base with the remote `main`, committed, uncommitted, or untracked.
+/// Tab documents changed since the merge base with the remote `main`, committed, uncommitted, or untracked,
+/// plus the ignored files of folder tabs, which Git never reports as changed.
 pub fn changed(worktree: &Path, config: &ParseConfig) -> Option<Vec<String>> {
     let refs = git(worktree, &["for-each-ref", "--format=%(refname)", "refs/remotes"]).ok()?;
     let refs: Vec<_> = refs.split('\n').filter(|reference| reference.ends_with("/main")).collect();
@@ -116,6 +117,12 @@ pub fn changed(worktree: &Path, config: &ParseConfig) -> Option<Vec<String>> {
     let mut args = vec!["ls-files", "--others", "--exclude-standard", "-z", "--"];
     args.extend(MARKDOWN);
     output += &git(worktree, &args).ok()?;
+    let folders: Vec<_> = config.tabs.iter().filter_map(|tab| tab.folder.as_deref()).collect();
+    if !folders.is_empty() {
+        let mut args = vec!["ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--"];
+        args.extend(folders);
+        output += &git(worktree, &args).ok()?;
+    }
     Some(
         output
             .split('\0')
@@ -233,6 +240,18 @@ mod tests {
             changed,
             [".plan/plan.examples.md", "first.spec.md", "second.spec.md", "untracked.spec.md"]
         );
+    }
+
+    #[test]
+    fn ignored_files_count_as_changed_in_folder_tabs_only() {
+        let root = repository();
+        run(root.path(), &["commit", "--allow-empty", "-qm", "base"]);
+        run(root.path(), &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        fs::write(root.path().join(".git/info/exclude"), ".plan/\nignored.spec.md\n").unwrap();
+        fs::create_dir_all(root.path().join(".plan/nested")).unwrap();
+        fs::write(root.path().join(".plan/nested/plan.md"), "plan\n").unwrap();
+        fs::write(root.path().join("ignored.spec.md"), "ignored\n").unwrap();
+        assert_eq!(changed(root.path(), &ParseConfig::default()).unwrap(), [".plan/nested/plan.md"]);
     }
 
     #[test]

@@ -180,7 +180,9 @@ parent is its `parent-spec` when set, else by position: a leaf's is the only `ki
 in its directory, a sub-umbrella's the only one in the parent directory. A directory with two
 umbrellas gives no positional parent. A subfolder's `index.md` is a `plan` owning the other files there as
 its `phase` files. Companions (`<stem>[.<topic>].<companion>.*`) sit under the document of the
-longest stem that has one, in `companions` order. `Diff` shows a
+longest stem that has one, in `companions` order. `Diff` keeps the documents changed since the
+merge base with the remote `main`, committed, uncommitted, or untracked, and every Git-ignored file
+of a tab with a `folder`. It shows a
 flat list with paths and omits attached companions and an umbrella's leaves, listing the umbrella
 when one of its leaves changed. A document row never expands. A family member
 keeps its owner row current, and ancestors of the open document expand. `Diff` persists
@@ -380,3 +382,4 @@ function through `/api/search` (`spec/web-ui.spec.md` `[CT-2]`).
 | 2026-10-28 | `Diff` lists an umbrella instead of its leaves; search finds leaves again                                                                | CT-2, CT-6                           | Leaves are reached through the umbrella's rail                   |
 | 2026-10-30 | Drag and double-click copy document text without frame borders; the footer URL is an OSC 8 link; terminal title, synchronized frames, and the kitty keyboard flags | NG-2, CT-1, CT-2, CT-3, VC-2, C-4 | Better integration with Ghostty-based terminals such as Rex      |
 | 2026-11-02 | The terminal is a client of the daemon: the worktree file holds project sections only and applies live, `--config` is removed, and `--host` opens a remote worktree | Why, Design, CT-3, CT-4, CT-5, VC-7 | `spec/daemon.spec.md` `[C-7]` |
+| 2026-11-18 | `Diff` keeps the Git-ignored files of a tab with a `folder` | CT-2 | An ignored folder such as `.plan` never showed under `Diff` |
