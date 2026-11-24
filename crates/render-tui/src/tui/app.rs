@@ -69,8 +69,17 @@ enum Click {
 
 #[derive(Clone, Debug)]
 pub enum RailEntry {
-    File { name: String, path: String, badge: String },
-    Section { text: String, depth: u8, line: usize },
+    File {
+        name: String,
+        path: String,
+        badge: String,
+        changed: bool,
+    },
+    Section {
+        text: String,
+        depth: u8,
+        line: usize,
+    },
 }
 
 pub struct App {
@@ -298,6 +307,7 @@ impl App {
                     let current = path == doc.root_path;
                     entries.push(RailEntry::File {
                         name: file.name,
+                        changed: self.docs.changed.as_ref().is_some_and(|changed| changed.contains(&path)),
                         path,
                         badge: if index == 0 {
                             "index".into()
@@ -1247,8 +1257,17 @@ impl App {
             .iter()
             .map(|entry| {
                 let (label, current) = match entry {
-                    RailEntry::File { name, path, badge } => (
-                        format!("{name}{}", if badge.is_empty() { String::new() } else { format!(" [{badge}]") }),
+                    RailEntry::File {
+                        name,
+                        path,
+                        badge,
+                        changed,
+                    } => (
+                        format!(
+                            "{name}{}{}",
+                            if *changed { " M" } else { "" },
+                            if badge.is_empty() { String::new() } else { format!(" [{badge}]") }
+                        ),
                         active == Some(path.as_str()),
                     ),
                     RailEntry::Section { text, depth, line } => (
@@ -1259,12 +1278,15 @@ impl App {
                         current_section == Some(*line),
                     ),
                 };
-                ListItem::new(
-                    wrap(&label, usize::from(inner.width.max(1)))
-                        .into_iter()
-                        .map(Line::raw)
-                        .collect::<Vec<_>>(),
-                )
+                let lines = wrap(&label, usize::from(inner.width.max(1)));
+                ListItem::new(match entry {
+                    RailEntry::File { name, changed: true, .. } => mark(
+                        lines,
+                        name.chars().filter(|character| *character != ' ').count(),
+                        Style::default().fg(self.theme.roles.warning).add_modifier(Modifier::BOLD),
+                    ),
+                    _ => lines.into_iter().map(Line::raw).collect(),
+                })
                 .style(if current {
                     Style::default()
                         .fg(self.theme.roles.accent)
@@ -1455,6 +1477,35 @@ fn list_clicks(area: Rect, offset: usize, heights: &[usize], click: fn(usize) ->
         y += height;
     }
     clicks
+}
+
+/// Styles the `index`-th non-space character of wrapped lines; `wrap` drops only spaces.
+fn mark(lines: Vec<String>, index: usize, style: Style) -> Vec<Line<'static>> {
+    let mut remaining = Some(index);
+    lines
+        .into_iter()
+        .map(|line| {
+            let Some(skip) = remaining else {
+                return Line::raw(line);
+            };
+            let mut characters = line.char_indices().filter(|(_, character)| *character != ' ');
+            match characters.nth(skip) {
+                Some((start, character)) => {
+                    remaining = None;
+                    let end = start + character.len_utf8();
+                    Line::from(vec![
+                        Span::raw(line[..start].to_owned()),
+                        Span::styled(line[start..end].to_owned(), style),
+                        Span::raw(line[end..].to_owned()),
+                    ])
+                }
+                None => {
+                    remaining = Some(skip - line.chars().filter(|character| *character != ' ').count());
+                    Line::raw(line)
+                }
+            }
+        })
+        .collect()
 }
 
 fn meter(label: &str, done: usize, total: usize) -> String {

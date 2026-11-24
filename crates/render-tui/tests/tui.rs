@@ -170,6 +170,24 @@ fn vc_2_diff_lists_an_umbrella_for_its_changed_leaves() {
 }
 
 #[test]
+fn vc_2_family_rail_marks_changed_files() {
+    let fixture = Fixture::new();
+    let mut app = App::new(support::client(None), None, &fixture.root, Theme::default(), io::sink()).unwrap();
+    key(&mut app, KeyCode::Char('2'));
+    app.docs.changed = Some(vec!["doc/architecture/search.spec.md".into()]);
+    app.open("doc/architecture/tree.spec.md");
+    let mut terminal = Terminal::new(TestBackend::new(160, 48)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let buffer = terminal.backend().buffer();
+    let line = |row: u16| (0..40).map(|column| buffer[(column, row)].symbol()).collect::<String>();
+    assert!(line(1).contains("Viewer umbrella [index]"));
+    assert!(line(2).contains("Search leaf M "));
+    assert!(line(3).contains("Tree leaf") && !line(3).contains(" M"));
+    let mark = (0..40).find(|column| buffer[(*column, 2)].symbol() == "M").unwrap();
+    assert_eq!(buffer[(mark, 2)].fg, ratatui::style::Color::Yellow);
+}
+
+#[test]
 fn vc_2_worktree_switch_clears_document_and_tabs_keep_it_with_diff() {
     let fixture = Fixture::new();
     let mut app = App::new(

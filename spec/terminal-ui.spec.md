@@ -191,7 +191,8 @@ hidden and its key ignored, unless all are empty; start-up and a corpus change s
 switch keeps the open document and selects its row when the tab lists it. An archived document
 shows an `archived` chip in `status_unknown`. The header kind is the document's tree kind (`plan`,
 `phase`, `umbrella`, `leaf`, or a companion kind), then the name of the family owner it belongs to. The rail lists the nearest family's files
-when the document belongs to one, then the document's outline.
+when the document belongs to one, then the document's outline. A file changed by `Diff`'s rule shows
+an `M` in `warning` after its name.
 
 Header chips: each `[[chip]]` is matched against the document's `##` sections, the first listed
 section present winning. A `checklist` chip renders as `<label> done/total` with a meter on the

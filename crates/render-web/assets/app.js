@@ -593,7 +593,10 @@ const renderRail = () => {
     const items = files
       .map((file, index) => {
         const current = active === file.path
-        const badges = `${index === 0 ? '<span class="index-badge">index</span>' : ''}${
+        const changed = state.docs.changed?.includes(file.path)
+          ? '<span class="changed-mark" title="Modified" aria-label="modified">M</span>'
+          : ''
+        const badges = `${changed}${index === 0 ? '<span class="index-badge">index</span>' : ''}${
           file.kind === 'examples' ? '<span class="index-badge">examples</span>' : ''
         }`
         return `<li>${rowButton(current, `data-path="${esc(file.path)}" title="${esc(file.name)}"`, `${rowName(file.name, current)}${badges}`)}${

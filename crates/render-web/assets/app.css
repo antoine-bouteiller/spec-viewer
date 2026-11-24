@@ -785,6 +785,13 @@ select {
   text-transform: uppercase;
 }
 
+.changed-mark {
+  color: var(--alert-warning);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .toc {
   border-left-width: 1px;
 }
