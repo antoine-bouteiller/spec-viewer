@@ -32,8 +32,8 @@ has opened in `$XDG_STATE_HOME/spec-viewer/projects.toml` (else `~/.local/state/
 
 The daemon serves the web app at `http://localhost:4747`, for every project and host; the terminal
 footer shows the URL, linked with OSC 8, and `o` opens the current view there. A port held by
-another process leaves the daemon without a web app. Mermaid diagrams load from jsDelivr; offline,
-their source stays visible.
+another process leaves the daemon without a web app. Mermaid diagrams render with
+[Pele](https://github.com/obsidianmd/pele) loaded from jsDelivr; offline, their source stays visible.
 
 ### Remote hosts
 

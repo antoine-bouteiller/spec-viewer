@@ -1201,6 +1201,21 @@ select {
   font-weight: 400;
 }
 
+.prose pre.mermaid {
+  --pele-bg: var(--code-bg);
+  --pele-fg: var(--fg);
+  --pele-muted: var(--muted);
+  --pele-line: var(--muted);
+  --pele-surface: var(--bg-elevated);
+  --pele-surface-alt: var(--bg-hover);
+  --pele-border: var(--accent);
+  --pele-accent: var(--accent);
+  --pele-critical: var(--status-blocked);
+  --pele-error: var(--status-blocked);
+  --pele-font: var(--font-sans);
+  --pele-font-mono: var(--font-mono);
+}
+
 .prose .md-code {
   position: relative;
   margin-block: 1.42857em;

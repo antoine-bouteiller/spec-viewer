@@ -1,5 +1,5 @@
 // Web client for spec-viewer: sidebar tree, structure rail, and the server-rendered document.
-const MERMAID = 'https://cdn.jsdelivr.net/npm/mermaid@12/dist/mermaid.esm.min.mjs'
+const PELE = 'https://cdn.jsdelivr.net/npm/pele@1/dist/pele.js'
 const THEME_KEY = 'spec-viewer.theme'
 const SIDEBAR_KEY = 'spec-viewer.sidebar'
 const UNKNOWN_TONE = 'var(--status-unknown)'
@@ -677,6 +677,7 @@ const docMarkup = (doc) => {
 }
 
 const renderPage = () => {
+  unmountDiagrams()
   const tone = state.pending || !state.doc?.meta.status?.known ? 'var(--border)' : state.doc.meta.status.tone
   $('status-bar').style.background = tone
   const error = state.docError ?? state.docsError
@@ -720,63 +721,39 @@ content.addEventListener('click', (event) => {
   }
 })
 
-const isDark = () => {
-  const mode = document.documentElement.dataset.theme
-  return mode ? mode === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches
+let peleModule = null
+let mounted = []
+
+const unmountDiagrams = () => {
+  for (const diagram of mounted) {
+    diagram.destroy()
+  }
+  mounted = []
 }
 
-let mermaidModule = null
-
-// Diagrams render one at a time: a concurrent run lets a failing diagram's error output land in another's container.
+// Theme switches need no re-render: diagrams take their colours from `--pele-*` in app.css.
 const renderDiagrams = async () => {
-  const diagrams = [...content.querySelectorAll('pre.mermaid')]
-  if (!diagrams.length) {
-    return
-  }
-  for (const diagram of diagrams) {
-    diagram.dataset.source ??= diagram.textContent ?? ''
-    diagram.textContent = diagram.dataset.source
-    diagram.removeAttribute('data-processed')
-  }
+  const nodes = [...content.querySelectorAll('pre.mermaid')]
+  peleModule ??= import(PELE)
+  let mount
   try {
-    mermaidModule ??= import(MERMAID)
-    const { default: mermaid } = await mermaidModule
-    const styles = getComputedStyle(document.documentElement)
-    const color = (name) => styles.getPropertyValue(name).trim()
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: 'base',
-      themeVariables: {
-        background: color('--bg'),
-        darkMode: isDark(),
-        lineColor: color('--muted'),
-        primaryBorderColor: color('--accent'),
-        primaryColor: color('--bg-elevated'),
-        primaryTextColor: color('--fg'),
-        secondaryColor: color('--bg-hover'),
-        secondaryTextColor: color('--fg'),
-        tertiaryColor: color('--code-bg'),
-        tertiaryTextColor: color('--fg'),
-        textColor: color('--fg'),
-      },
-    })
-    for (const diagram of diagrams) {
-      if (!diagram.isConnected) {
-        return
-      }
-      await mermaid.run({ nodes: [diagram] }).catch(() => {
-        diagram.textContent = diagram.dataset.source ?? ''
-        diagram.removeAttribute('data-processed')
-      })
-    }
+    ;({ mount } = await peleModule)
   } catch {
     // Offline or blocked CDN: the Mermaid source stays visible.
-    mermaidModule = null
+    peleModule = null
+    return
+  }
+  for (const node of nodes.filter((node) => node.isConnected)) {
+    const source = node.textContent ?? ''
+    const diagram = mount(node, source)
+    if (diagram.error) {
+      diagram.destroy()
+      node.textContent = source
+    } else {
+      mounted.push(diagram)
+    }
   }
 }
-
-matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => void renderDiagrams())
-new MutationObserver(() => void renderDiagrams()).observe(document.documentElement, { attributeFilter: ['data-theme'] })
 
 // Theme selector.
 
